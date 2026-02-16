@@ -67,6 +67,11 @@ router.get('/:poolAddress/liquidity-events', async (req: Request, res: Response)
   }
 });
 
+router.get('/:poolAddress/og', async (req: Request, res: Response) => {
+  req.params.pairAddress = req.params.poolAddress;
+  await DataController.getPoolOgCard(req, res);
+});
+
 router.get('/:poolAddress', async (req: Request, res: Response) => {
   req.params.pairAddress = req.params.poolAddress;
   await DataController.getPoolInfo(req, res);

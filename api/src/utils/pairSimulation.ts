@@ -1,4 +1,4 @@
-import { PublicKey, Connection, Transaction } from '@solana/web3.js';
+import { PublicKey, Connection, Transaction, ComputeBudgetProgram } from '@solana/web3.js';
 import { Program } from '@coral-xyz/anchor';
 import { GetterType, UserPositionGetterType, SimulationResult, EmitValueArgs } from '../types/pairTypes';
 import type { Omnipair } from '@omnipair/program-interface';
@@ -118,8 +118,9 @@ export async function simulatePairGetter(
         .accounts({ pair: pairPda, rateModel: rateModelPda })
         .instruction();
 
-      // Create transaction with fee payer
-      const tx = new Transaction().add(ix);
+      // Create transaction with increased compute budget and fee payer
+      const computeBudgetIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 });
+      const tx = new Transaction().add(computeBudgetIx, ix);
       tx.feePayer = program.provider.publicKey ?? GENERIC_READONLY_PUBKEY;
 
       // Simulate transaction
@@ -127,6 +128,15 @@ export async function simulatePairGetter(
 
       const logs = simResult.value.logs ?? [];
       const label = Object.keys(getter)[0]; // e.g. "emaPrice0Nad"
+
+      // Check for simulation error
+      if (simResult.value.err) {
+        const errorDetail = JSON.stringify(simResult.value.err);
+        const relevantLogs = logs.slice(-5).join('\n');
+        throw new Error(
+          `Simulation error for ${label}: ${errorDetail}\nLast logs:\n${relevantLogs}`
+        );
+      }
 
       // Parse logs to extract values
       const { value0, value1, value2 } = parseSimulationLogs(logs, label);
@@ -187,8 +197,9 @@ export async function simulateUserPositionGetter(
         })
         .instruction();
 
-      // Create transaction with fee payer
-      const tx = new Transaction().add(ix);
+      // Create transaction with increased compute budget and fee payer
+      const computeBudgetIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 });
+      const tx = new Transaction().add(computeBudgetIx, ix);
       tx.feePayer = program.provider.publicKey ?? GENERIC_READONLY_PUBKEY;
 
       // Simulate transaction using connection directly
@@ -197,12 +208,27 @@ export async function simulateUserPositionGetter(
       const logs = simResult.value.logs ?? [];
       const label = Object.keys(getter)[0]; // e.g. "userDynamicBorrowLimit"
 
+      // Check for simulation error
+      if (simResult.value.err) {
+        const errorDetail = JSON.stringify(simResult.value.err);
+        const relevantLogs = logs.slice(-5).join('\n');
+        throw new Error(
+          `Simulation error for ${label}: ${errorDetail}\nLast logs:\n${relevantLogs}`
+        );
+      }
+
       // Parse logs to extract values
-      const { value0, value1, value2 } = parseSimulationLogs(logs, label);
-
-      const result: SimulationResult = { label, value0, value1, value2 };
-
-      return result;
+      try {
+        const { value0, value1, value2 } = parseSimulationLogs(logs, label);
+        return { label, value0, value1, value2 } as SimulationResult;
+      } catch (parseErr) {
+        // Log the full simulation logs for debugging
+        const programLogs = logs.filter(l => l.includes('Program log:') || l.includes('Program data:'));
+        console.error(
+          `Failed to parse ${label} from logs. Program logs:\n${programLogs.join('\n')}`
+        );
+        throw parseErr;
+      }
     } finally {
       // Remove from in-flight requests
       userPositionInFlightRequests.delete(requestKey);
