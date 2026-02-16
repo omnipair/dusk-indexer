@@ -1463,20 +1463,26 @@ export class DataController {
             ]);
 
             // Helper to extract token0/token1 from a settled result
-            const extract = (result: PromiseSettledResult<SimulationResult>) =>
-              result.status === 'fulfilled'
-                ? { token0: result.value.value0, token1: result.value.value1 }
-                : null;
+            const extract = (label: string, result: PromiseSettledResult<SimulationResult>) => {
+              if (result.status === 'fulfilled') {
+                return { token0: result.value.value0, token1: result.value.value1 };
+              }
+              console.error(
+                `Simulation failed for ${label} on position ${row.position}:`,
+                result.reason
+              );
+              return null;
+            };
 
             const enrichedPosition = {
               ...basePosition,
               token0Address,
               token1Address,
-              dynamicBorrowLimit: extract(dynamicBorrowLimitResult),
-              liquidationPrice: extract(liquidationPriceResult),
-              debtWithInterest: extract(debtWithInterestResult),
-              collateralValueWithImpact: extract(collateralValueResult),
-              liquidationBorrowLimit: extract(liquidationBorrowLimitResult),
+              dynamicBorrowLimit: extract('userDynamicBorrowLimit', dynamicBorrowLimitResult),
+              liquidationPrice: extract('userLiquidationPrice', liquidationPriceResult),
+              debtWithInterest: extract('userDebtWithInterest', debtWithInterestResult),
+              collateralValueWithImpact: extract('userCollateralValueWithImpact', collateralValueResult),
+              liquidationBorrowLimit: extract('userLiquidationBorrowLimit', liquidationBorrowLimitResult),
             };
 
             // Split position into two separate token positions
