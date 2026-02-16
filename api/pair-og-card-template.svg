@@ -1,0 +1,162 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Pool X Visual">
+<rect width="1200" height="630" fill="white"/>
+<g id="Group 729">
+<rect id="Rectangle 161124864" x="40" y="290" width="1120" height="5" rx="2.5" fill="url(#paint0_linear_2044_2388)"/>
+</g>
+<g id="Group 742">
+<g id="Group 728">
+<g id="Frame 2087326457">
+<g id="Pool Icon ">
+<g id="Group 467">
+<g id="token0_img">
+<path d="M109.438 66.625C140.089 66.625 164.938 91.4732 164.938 122.125C164.938 152.777 140.089 177.625 109.438 177.625C78.7857 177.625 53.9375 152.777 53.9375 122.125C53.9375 91.4732 78.7857 66.625 109.438 66.625Z" fill="#AAD0FF"/>
+<path d="M109.438 66.625C140.089 66.625 164.938 91.4732 164.938 122.125C164.938 152.777 140.089 177.625 109.438 177.625C78.7857 177.625 53.9375 152.777 53.9375 122.125C53.9375 91.4732 78.7857 66.625 109.438 66.625Z" stroke="white" stroke-width="6"/>
+</g>
+<g id="token1_img">
+<rect x="105.812" y="66.625" width="111" height="111" rx="55.5" fill="#F0A088"/>
+<rect x="105.812" y="66.625" width="111" height="111" rx="55.5" stroke="white" stroke-width="6"/>
+</g>
+</g>
+</g>
+<g id="Frame 2087326458">
+<g id="Frame 2087326469">
+<text id="market_label" fill="#9B9B9B" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="32" letter-spacing="-0.004em"><tspan x="237.726" y="94.6">Market</tspan></text>
+<g id="tokens_ticket_value">
+<text fill="#0A0B0C" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="56" letter-spacing="-0.01em"><tspan x="402.736" y="159.3"> </tspan><tspan x="436.889" y="159.3"> </tspan></text>
+<text fill="#9B9B9B" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="56" letter-spacing="-0.01em"><tspan x="413.496" y="159.3">/</tspan></text>
+<text fill="#0A0B0C" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="56" letter-spacing="-0.01em"><tspan x="447.65" y="159.3">Token2</tspan></text>
+<text fill="#0A0B0C" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="56" letter-spacing="-0.01em"><tspan x="237.549" y="159.3">Token1</tspan></text>
+</g>
+</g>
+<g id="Frame 2087326468">
+<g id="Frame 2087326458_2">
+<rect x="237.5" y="184" width="180" height="62" rx="24" fill="#F7F8F7"/>
+<text id="swap_fee_label" fill="#9B9B9B" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="32" letter-spacing="-0.01em"><tspan x="254.452" y="226.6">fee</tspan></text>
+<text id="swap_fee_value" fill="#5E5E5E" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="32" letter-spacing="-0.01em"><tspan x="311.842" y="226.6">0.25%</tspan></text>
+</g>
+<g id="Frame 2087326458_3">
+<path d="M433.5 215C433.5 208.493 433.5 205.239 434.127 202.55C436.202 193.651 443.151 186.702 452.05 184.627C454.739 184 457.993 184 464.5 184H626.5C633.007 184 636.261 184 638.95 184.627C647.849 186.702 654.798 193.651 656.873 202.55C657.5 205.239 657.5 208.493 657.5 215C657.5 221.507 657.5 224.761 656.873 227.45C654.798 236.349 647.849 243.298 638.95 245.373C636.261 246 633.007 246 626.5 246H464.5C457.993 246 454.739 246 452.05 245.373C443.151 243.298 436.202 236.349 434.127 227.45C433.5 224.761 433.5 221.507 433.5 215Z" fill="#EBFFF1"/>
+<text id="ltv_label" fill="#9B9B9B" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="32" letter-spacing="-0.01em"><tspan x="449.984" y="226.6">LTV</tspan></text>
+<text id="ltv_value" fill="#009254" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="32" letter-spacing="-0.01em"><tspan x="515.482" y="226.6">Dynamic</tspan></text>
+</g>
+</g>
+</g>
+</g>
+</g>
+<g id="Frame 2087326459">
+<rect x="869" y="103" width="277" height="83" rx="41.5" fill="white"/>
+<rect x="869" y="103" width="277" height="83" rx="41.5" stroke="#F5F5F5" stroke-width="4"/>
+<text id="apr_label" fill="#9B9B9B" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="40" letter-spacing="-0.01em"><tspan x="903.948" y="159">APR</tspan></text>
+<text id="apr_value" fill="#009254" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="40" letter-spacing="-0.01em"><tspan x="997.858" y="159">4.66%</tspan></text>
+</g>
+</g>
+<g id="Frame 2087326460">
+<g id="Frame 2087326076">
+<rect x="52" y="343" width="333.333" height="212" rx="52" fill="white"/>
+<rect x="52" y="343" width="333.333" height="212" rx="52" stroke="white" stroke-width="8"/>
+<rect x="52" y="343" width="333.333" height="212" rx="52" stroke="#F5F5F5" stroke-width="8"/>
+<g id="Frame 2087326078">
+<g id="Frame 2087326459_2">
+<g id="Frame 2087326082">
+<g id="Frame 2087326079">
+<g id="tvl_value">
+<text fill="#292929" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="56" letter-spacing="0em"><tspan x="129.664" y="444.3"> 650</tspan></text>
+<text fill="#9B9B9B" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="56" letter-spacing="0em"><tspan x="96.3594" y="444.3">$</tspan><tspan x="245.328" y="444.3">K</tspan></text>
+</g>
+</g>
+</g>
+</g>
+<text id="tvl_label" fill="#9B9B9B" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="32" letter-spacing="0em"><tspan x="96.4219" y="502.6">TVL</tspan></text>
+</g>
+</g>
+<g id="Frame 2087326074" filter="url(#filter0_ddi_2044_2388)">
+<rect x="429.334" y="339" width="341.333" height="220" rx="56" fill="#F7F8F7" shape-rendering="crispEdges"/>
+<rect x="433.334" y="343" width="333.333" height="212" rx="52" stroke="white" stroke-width="8" shape-rendering="crispEdges"/>
+<g id="Frame 2087326078_2">
+<g id="Frame 2087326459_3">
+<g id="Frame 2087326082_2">
+<g id="Frame 2087326079_2">
+<g id="liquidity_value">
+<text fill="#292929" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="56" letter-spacing="0em"><tspan x="511.482" y="442.3"> 10.2</tspan></text>
+<text fill="#9B9B9B" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="56" letter-spacing="0em"><tspan x="478.178" y="442.3">$</tspan><tspan x="622.662" y="442.3">K</tspan></text>
+</g>
+</g>
+</g>
+</g>
+<text id="liquidity_label" fill="#9B9B9B" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="32" letter-spacing="0em"><tspan x="477.49" y="500.6">Available Liq.</tspan></text>
+</g>
+</g>
+<g id="Frame 2087326075" filter="url(#filter1_ddi_2044_2388)">
+<rect x="810.666" y="339" width="341.333" height="220" rx="56" fill="#F7F8F7" shape-rendering="crispEdges"/>
+<rect x="814.666" y="343" width="333.333" height="212" rx="52" stroke="white" stroke-width="8" shape-rendering="crispEdges"/>
+<g id="Frame 2087326078_3">
+<g id="Frame 2087326459_4">
+<g id="Frame 2087326082_3">
+<g id="Frame 2087326079_3">
+<g id="total_debt_value">
+<text fill="#292929" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="56" letter-spacing="0em"><tspan x="892.486" y="444.3"> 120.7</tspan></text>
+<text fill="#9B9B9B" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="56" letter-spacing="0em"><tspan x="859.182" y="444.3">$</tspan><tspan x="1031.99" y="444.3">K</tspan></text>
+</g>
+</g>
+</g>
+</g>
+<text id="total_debt_label" fill="#9B9B9B" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="32" letter-spacing="0em"><tspan x="858.729" y="502.6">total Debt</tspan></text>
+</g>
+</g>
+</g>
+</g>
+<defs>
+<filter id="filter0_ddi_2044_2388" x="421.334" y="331" width="357.334" height="236" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+<feOffset/>
+<feGaussianBlur stdDeviation="3"/>
+<feComposite in2="hardAlpha" operator="out"/>
+<feColorMatrix type="matrix" values="0 0 0 0 0.88 0 0 0 0 0.88 0 0 0 0 0.88 0 0 0 1 0"/>
+<feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_2044_2388"/>
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+<feOffset/>
+<feGaussianBlur stdDeviation="4"/>
+<feComposite in2="hardAlpha" operator="out"/>
+<feColorMatrix type="matrix" values="0 0 0 0 0.88 0 0 0 0 0.88 0 0 0 0 0.88 0 0 0 1 0"/>
+<feBlend mode="normal" in2="effect1_dropShadow_2044_2388" result="effect2_dropShadow_2044_2388"/>
+<feBlend mode="normal" in="SourceGraphic" in2="effect2_dropShadow_2044_2388" result="shape"/>
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+<feOffset/>
+<feGaussianBlur stdDeviation="12"/>
+<feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
+<feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0"/>
+<feBlend mode="normal" in2="shape" result="effect3_innerShadow_2044_2388"/>
+</filter>
+<filter id="filter1_ddi_2044_2388" x="802.666" y="331" width="357.334" height="236" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+<feOffset/>
+<feGaussianBlur stdDeviation="3"/>
+<feComposite in2="hardAlpha" operator="out"/>
+<feColorMatrix type="matrix" values="0 0 0 0 0.88 0 0 0 0 0.88 0 0 0 0 0.88 0 0 0 1 0"/>
+<feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_2044_2388"/>
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+<feOffset/>
+<feGaussianBlur stdDeviation="4"/>
+<feComposite in2="hardAlpha" operator="out"/>
+<feColorMatrix type="matrix" values="0 0 0 0 0.88 0 0 0 0 0.88 0 0 0 0 0.88 0 0 0 1 0"/>
+<feBlend mode="normal" in2="effect1_dropShadow_2044_2388" result="effect2_dropShadow_2044_2388"/>
+<feBlend mode="normal" in="SourceGraphic" in2="effect2_dropShadow_2044_2388" result="shape"/>
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+<feOffset/>
+<feGaussianBlur stdDeviation="12"/>
+<feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
+<feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0"/>
+<feBlend mode="normal" in2="shape" result="effect3_innerShadow_2044_2388"/>
+</filter>
+<linearGradient id="paint0_linear_2044_2388" x1="40" y1="292.5" x2="1160" y2="292.5" gradientUnits="userSpaceOnUse">
+<stop stop-color="white"/>
+<stop offset="0.100867" stop-color="#F7F8F7"/>
+<stop offset="0.497645" stop-color="#F5F5F5"/>
+<stop offset="0.900196" stop-color="#F7F8F7"/>
+<stop offset="1" stop-color="white"/>
+</linearGradient>
+</defs>
+</svg>

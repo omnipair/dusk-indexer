@@ -8,6 +8,7 @@ import { PairStateService, PairState } from '../services/PairStateService';
 import { simulateUserPositionGetter } from '../utils/pairSimulation';
 import { SimulationResult } from '../types/pairTypes';
 import { loadOmnipairIdl } from '../config/idl-loader';
+import { generateOgCardSvg, formatLargeNumber, fetchImageAsBase64, fetchTokenUsdPrice } from '../services/ogCardService';
 
 /**
  * Split a position into two separate token positions:
@@ -788,6 +789,120 @@ export class DataController {
         error: 'Failed to fetch pool info'
       };
       res.status(500).json(response);
+    }
+  }
+
+  static async getPoolOgCard(req: Request, res: Response): Promise<void> {
+    try {
+      const pairAddress = req.params.pairAddress;
+
+      if (!pairAddress) {
+        res.status(400).json({ success: false, error: 'Pair address is required' });
+        return;
+      }
+
+      const cacheKey = `og_card_${pairAddress}`;
+      const cachedSvg = cache.get(cacheKey);
+
+      if (cachedSvg) {
+        res.setHeader('Content-Type', 'image/svg+xml');
+        res.setHeader('Cache-Control', 'public, max-age=300');
+        res.send(cachedSvg);
+        return;
+      }
+
+      // Initialize PairStateService
+      const pairService = await DataController.initializePairStateService();
+
+      // Fetch pair state, APR, and pool metadata in parallel
+      const [pairState, aprData, poolMetaResult] = await Promise.all([
+        DataController.fetchCachedPairState(pairService, pairAddress),
+        DataController.calculateAPR(pairAddress),
+        pool.query('SELECT swap_fee_bps, fixed_cf_bps FROM pools WHERE pair_address = $1', [pairAddress])
+      ]);
+
+      const poolMeta = poolMetaResult.rows[0] || {};
+
+      // Fetch token icons and USD prices in parallel
+      const [token0IconBase64, token1IconBase64, token0UsdPrice, token1UsdPrice] = await Promise.all([
+        pairState.token0.iconUrl ? fetchImageAsBase64(pairState.token0.iconUrl) : undefined,
+        pairState.token1.iconUrl ? fetchImageAsBase64(pairState.token1.iconUrl) : undefined,
+        fetchTokenUsdPrice(pairState.token0.address),
+        fetchTokenUsdPrice(pairState.token1.address),
+      ]);
+
+      // Calculate TVL: reserve * usd_price * 2 (using whichever token has a price)
+      const reserve0 = parseFloat(pairState.reserves.token0);
+      const reserve1 = parseFloat(pairState.reserves.token1);
+      let tvlFormatted: { value: string; suffix: string };
+
+      if (token0UsdPrice) {
+        tvlFormatted = formatLargeNumber(reserve0 * token0UsdPrice * 2);
+      } else if (token1UsdPrice) {
+        tvlFormatted = formatLargeNumber(reserve1 * token1UsdPrice * 2);
+      } else {
+        tvlFormatted = { value: '--', suffix: '' };
+      }
+
+      // Format values
+      const swapFee = poolMeta.swap_fee_bps != null
+        ? (poolMeta.swap_fee_bps / 100).toFixed(2) + '%'
+        : 'N/A';
+
+      const ltv = poolMeta.fixed_cf_bps != null
+        ? (poolMeta.fixed_cf_bps / 100).toFixed(0) + '%'
+        : 'Dynamic';
+
+      const apr = aprData.apr.toFixed(2) + '%';
+
+      // Calculate total debt in USD: (debt0 * price0) + (debt1 * price1)
+      const debt0 = parseFloat(pairState.totalDebts.token0) / Math.pow(10, pairState.token0.decimals);
+      const debt1 = parseFloat(pairState.totalDebts.token1) / Math.pow(10, pairState.token1.decimals);
+      let totalDebtFormatted: { value: string; suffix: string };
+
+      if (token0UsdPrice || token1UsdPrice) {
+        const debt0Usd = token0UsdPrice ? debt0 * token0UsdPrice : 0;
+        const debt1Usd = token1UsdPrice ? debt1 * token1UsdPrice : 0;
+        totalDebtFormatted = formatLargeNumber(debt0Usd + debt1Usd);
+      } else {
+        totalDebtFormatted = { value: '--', suffix: '' };
+      }
+
+      // Spot price: token0 price in token1 terms (reserve1 / reserve0)
+      const spotPrice = reserve1 / reserve0;
+      const spotPriceFormatted = spotPrice >= 1000
+        ? spotPrice.toFixed(0)
+        : spotPrice >= 1
+          ? spotPrice.toFixed(2)
+          : spotPrice >= 0.0001
+            ? spotPrice.toFixed(4)
+            : spotPrice.toExponential(2);
+
+      const svg = generateOgCardSvg({
+        token0Symbol: pairState.token0.symbol,
+        token1Symbol: pairState.token1.symbol,
+        token0IconBase64,
+        token1IconBase64,
+        swapFee,
+        ltv,
+        apr,
+        tvlValue: tvlFormatted.value,
+        tvlSuffix: tvlFormatted.suffix,
+        totalDebtValue: totalDebtFormatted.value,
+        totalDebtSuffix: totalDebtFormatted.suffix,
+        spotPriceValue: spotPriceFormatted,
+        spotPriceSuffix: pairState.token1.symbol,
+      });
+
+      // Cache for 5 minutes
+      cache.set(cacheKey, svg, 5 * 60 * 1000);
+
+      res.setHeader('Content-Type', 'image/svg+xml');
+      res.setHeader('Cache-Control', 'public, max-age=300');
+      res.send(svg);
+    } catch (error) {
+      console.error('Error generating OG card:', error);
+      res.status(500).json({ success: false, error: 'Failed to generate OG card' });
     }
   }
 
