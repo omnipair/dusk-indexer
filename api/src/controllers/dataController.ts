@@ -912,6 +912,13 @@ export class DataController {
       const offset = parseInt(req.query.offset as string) || 0;
       const visibility = req.query.visibility as string | undefined;
 
+      const cacheKey = `pools:${limit}:${offset}:${visibility || 'default'}`;
+      const cached = cache.get(cacheKey);
+      if (cached) {
+        res.json(cached);
+        return;
+      }
+
       // If visibility=all, return all pools; otherwise filter by visible = TRUE
       const visibilityFilter = visibility === 'all' ? '' : 'WHERE visible = TRUE';
 
@@ -1109,6 +1116,7 @@ export class DataController {
         data: responseData
       };
 
+      cache.set(cacheKey, response, 15_000);
       res.json(response);
     } catch (error) {
       console.error('Error fetching pools:', error);
