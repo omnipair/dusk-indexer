@@ -46,7 +46,7 @@ router.get('/', (req, res) => {
       token1: 'Optional - The address of the second token (query param)',
       windowHours: 'Optional - Number of hours to look back (defaults to 24)',
       userAddress: 'Required for user endpoints - The user address to query data for',
-      limit: 'Optional - Number of results to return (defaults to 100, max 1000)',
+      limit: 'Optional - Number of results to return (defaults to 100, max 100)',
       offset: 'Optional - Number of results to skip for pagination (defaults to 0)',
       sortBy: 'Optional - Field to sort by (id, timestamp, amount0, amount1, liquidity, tvl, volume24h, apr)',
       sortOrder: 'Optional - Sort order (asc, desc)',
