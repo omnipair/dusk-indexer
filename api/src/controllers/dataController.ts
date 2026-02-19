@@ -317,8 +317,8 @@ export class DataController {
     try {
       const pairAddress = req.params.pairAddress;
       const userAddress = req.params.address || req.params.userAddress; // Support both parameter names
-      const limit = Math.min(parseInt(req.query.limit as string) || 100, 1000); 
-      const offset = parseInt(req.query.offset as string) || 0;
+      const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 100, 1), 100);
+      const offset = Math.min(Math.max(parseInt(req.query.offset as string) || 0, 0), 10000);
 
       // Validate that at least one filter is provided
       if (!pairAddress && !userAddress) {
@@ -908,8 +908,8 @@ export class DataController {
 
   static async getPools(req: Request, res: Response): Promise<void> {
     try {
-      const limit = Math.min(parseInt(req.query.limit as string) || 100, 1000);
-      const offset = parseInt(req.query.offset as string) || 0;
+      const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 100, 1), 100);
+      const offset = Math.min(Math.max(parseInt(req.query.offset as string) || 0, 0), 10000);
       const visibility = req.query.visibility as string | undefined;
 
       const cacheKey = `pools:${limit}:${offset}:${visibility || 'default'}`;
@@ -1235,8 +1235,8 @@ export class DataController {
     try {
       const userAddress = req.params.userAddress;
       const pair = req.params.pair;
-      const limit = Math.min(parseInt(req.query.limit as string) || 100, 1000);
-      const offset = parseInt(req.query.offset as string) || 0;
+      const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 100, 1), 100);
+      const offset = Math.min(Math.max(parseInt(req.query.offset as string) || 0, 0), 10000);
       const sortBy = req.query.sortBy as string || 'timestamp';
       const sortOrder = req.query.sortOrder as string || 'desc';
 
@@ -1335,8 +1335,8 @@ export class DataController {
 
   static async getAllPositions(req: Request, res: Response): Promise<void> {
     try {
-      const limit = Math.min(parseInt(req.query.limit as string) || 100, 1000);
-      const offset = parseInt(req.query.offset as string) || 0;
+      const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 100, 1), 100);
+      const offset = Math.min(Math.max(parseInt(req.query.offset as string) || 0, 0), 10000);
       const userAddress = req.query.userAddress as string | undefined;
 
       // Validate userAddress format if provided
@@ -1537,8 +1537,8 @@ export class DataController {
 
   static async getAllLiquidityPositions(req: Request, res: Response): Promise<void> {
     try {
-      const limit = Math.min(parseInt(req.query.limit as string) || 100, 1000);
-      const offset = parseInt(req.query.offset as string) || 0;
+      const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 100, 1), 100);
+      const offset = Math.min(Math.max(parseInt(req.query.offset as string) || 0, 0), 10000);
       const userAddress = req.query.userAddress as string | undefined;
 
       // Validate userAddress format if provided
@@ -1668,8 +1668,8 @@ export class DataController {
   static async getUserLendingHistory(req: Request, res: Response): Promise<void> {
     try {
       const userAddress = req.params.userAddress;
-      const limit = Math.min(parseInt(req.query.limit as string) || 100, 1000);
-      const offset = parseInt(req.query.offset as string) || 0;
+      const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 100, 1), 100);
+      const offset = Math.min(Math.max(parseInt(req.query.offset as string) || 0, 0), 10000);
 
       // Validate required parameters
       if (!userAddress) {
