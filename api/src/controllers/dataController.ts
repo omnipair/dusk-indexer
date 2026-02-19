@@ -121,7 +121,6 @@ export class DataController {
     }
   }
 
-  // Helper function to calculate APR for a given pair address
   private static async calculateAPR(pairAddress: string): Promise<{
     apr: number;
     apr_breakdown: {
@@ -129,167 +128,127 @@ export class DataController {
       token1_apr: number;
     };
   }> {
-    const cacheKey = `apr_calc_${pairAddress}`;
-    const cachedData = cache.get(cacheKey);
-    
-    if (cachedData) {
-      return cachedData;
-    }
+    return cache.getOrSet(`apr_calc_${pairAddress}`, 5 * 60 * 1000, async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const week = 7 * 24 * 60 * 60;
 
-    const now = Math.floor(Date.now() / 1000);
-    const week = 7 * 24 * 60 * 60;
-
-    // Get fees from the last 7 days and calculate average liquidity for the specific pair
-    const result = await pool.query(`
-      WITH weekly_stats AS (
+      const result = await pool.query(`
+        WITH weekly_stats AS (
+          SELECT 
+            SUM(fee_paid0::numeric) as weekly_fee0,
+            SUM(fee_paid1::numeric) as weekly_fee1,
+            AVG(reserve0::numeric) as avg_reserve0,
+            AVG(reserve1::numeric) as avg_reserve1
+          FROM swaps 
+          WHERE timestamp > to_timestamp($1) 
+            AND reserve0 > 0 
+            AND reserve1 > 0
+            AND pair = $2
+        )
         SELECT 
-          SUM(fee_paid0::numeric) as weekly_fee0,
-          SUM(fee_paid1::numeric) as weekly_fee1,
-          AVG(reserve0::numeric) as avg_reserve0,
-          AVG(reserve1::numeric) as avg_reserve1
-        FROM swaps 
-        WHERE timestamp > to_timestamp($1) 
-          AND reserve0 > 0 
-          AND reserve1 > 0
-          AND pair = $2
-      )
-      SELECT 
-        ws.weekly_fee0,
-        ws.weekly_fee1,
-        ws.avg_reserve0,
-        ws.avg_reserve1
-      FROM weekly_stats ws
-    `, [now - week, pairAddress]);
+          ws.weekly_fee0,
+          ws.weekly_fee1,
+          ws.avg_reserve0,
+          ws.avg_reserve1
+        FROM weekly_stats ws
+      `, [now - week, pairAddress]);
 
-    let aprData = {
-      apr: 0,
-      apr_breakdown: {
-        token0_apr: 0,
-        token1_apr: 0
+      if (result.rows.length > 0) {
+        const row = result.rows[0];
+        const weeklyFee0 = parseFloat(row.weekly_fee0 || '0');
+        const weeklyFee1 = parseFloat(row.weekly_fee1 || '0');
+        const avgReserve0 = parseFloat(row.avg_reserve0 || '0');
+        const avgReserve1 = parseFloat(row.avg_reserve1 || '0');
+
+        const dailyFee0 = weeklyFee0 / 7;
+        const dailyFee1 = weeklyFee1 / 7;
+        const token0APR = avgReserve0 > 0 ? (dailyFee0 / (avgReserve0 * 2)) * 365 * 100 : 0;
+        const token1APR = avgReserve1 > 0 ? (dailyFee1 / (avgReserve1 * 2)) * 365 * 100 : 0;
+
+        return {
+          apr: (token0APR + token1APR) / 2,
+          apr_breakdown: {
+            token0_apr: token0APR,
+            token1_apr: token1APR
+          }
+        };
       }
-    };
 
-    if (result.rows.length > 0) {
-      const row = result.rows[0];
-      const weeklyFee0 = parseFloat(row.weekly_fee0 || '0');
-      const weeklyFee1 = parseFloat(row.weekly_fee1 || '0');
-      const avgReserve0 = parseFloat(row.avg_reserve0 || '0');
-      const avgReserve1 = parseFloat(row.avg_reserve1 || '0');
-
-      const dailyFee0 = weeklyFee0 / 7;
-      const dailyFee1 = weeklyFee1 / 7;
-      const token0APR = avgReserve0 > 0 ? (dailyFee0 / (avgReserve0 * 2)) * 365 * 100 : 0;
-      const token1APR = avgReserve1 > 0 ? (dailyFee1 / (avgReserve1 * 2)) * 365 * 100 : 0;
-
-      aprData = {
-        apr: (token0APR + token1APR) / 2,
+      return {
+        apr: 0,
         apr_breakdown: {
-          token0_apr: token0APR,
-          token1_apr: token1APR
+          token0_apr: 0,
+          token1_apr: 0
         }
       };
-    }
-
-    // Cache for 5 minutes
-    cache.set(cacheKey, aprData, 5 * 60 * 1000);
-    
-    return aprData;
+    });
   }
 
-  // Helper function to calculate total fees paid for a given pair address and time period
   private static async calculateTotalFeesPaid(pairAddress: string, hours?: number): Promise<{
     total_fee_paid_in_token0: string;
     total_fee_paid_in_token1: string;
     period: string;
   }> {
     const cacheKey = `fees_calc_${pairAddress}_${hours ? `${hours}hrs` : 'all'}`;
-    const cachedData = cache.get(cacheKey);
-    
-    if (cachedData) {
-      return cachedData;
-    }
 
-    let query: string;
-    let queryParams: any[];
-    let period: string;
+    return cache.getOrSet(cacheKey, 60 * 1000, async () => {
+      let query: string;
+      let queryParams: any[];
+      let period: string;
 
-    if (hours !== undefined && hours !== null) {
-      // Time-limited query
-      const now = Math.floor(Date.now() / 1000);
-      const timestamp = now - (hours * 60 * 60);
+      if (hours !== undefined && hours !== null) {
+        const now = Math.floor(Date.now() / 1000);
+        const timestamp = now - (hours * 60 * 60);
+        
+        query = `
+          SELECT 
+            SUM(fee_paid0::numeric) as total_fee_paid0,
+            SUM(fee_paid1::numeric) as total_fee_paid1
+          FROM swaps 
+          WHERE timestamp > to_timestamp($1) AND pair = $2
+        `;
+        queryParams = [timestamp, pairAddress];
+        period = hours === 24 ? '24hrs' : `${hours}hrs`;
+      } else {
+        query = `
+          SELECT 
+            SUM(fee_paid0::numeric) as total_fee_paid0,
+            SUM(fee_paid1::numeric) as total_fee_paid1
+          FROM swaps 
+          WHERE pair = $1
+        `;
+        queryParams = [pairAddress];
+        period = 'all';
+      }
       
-      query = `
-        SELECT 
-          SUM(fee_paid0::numeric) as total_fee_paid0,
-          SUM(fee_paid1::numeric) as total_fee_paid1
-        FROM swaps 
-        WHERE timestamp > to_timestamp($1) AND pair = $2
-      `;
-      queryParams = [timestamp, pairAddress];
-      period = hours === 24 ? '24hrs' : `${hours}hrs`;
-    } else {
-      // No time limit - get all fees
-      query = `
-        SELECT 
-          SUM(fee_paid0::numeric) as total_fee_paid0,
-          SUM(fee_paid1::numeric) as total_fee_paid1
-        FROM swaps 
-        WHERE pair = $1
-      `;
-      queryParams = [pairAddress];
-      period = 'all';
-    }
-    
-    const result = await pool.query(query, queryParams);
+      const result = await pool.query(query, queryParams);
 
-    const feesData = {
-      total_fee_paid_in_token0: result.rows[0].total_fee_paid0 || '0',
-      total_fee_paid_in_token1: result.rows[0].total_fee_paid1 || '0',
-      period
-    };
-
-    // Cache for 1 minute
-    cache.set(cacheKey, feesData, 1 * 60 * 1000);
-
-    return feesData;
+      return {
+        total_fee_paid_in_token0: result.rows[0].total_fee_paid0 || '0',
+        total_fee_paid_in_token1: result.rows[0].total_fee_paid1 || '0',
+        period
+      };
+    });
   }
 
-  // Helper function to calculate swap volume for a given pair address and time period
   private static async fetchCachedPairState(
     pairService: PairStateService,
     pairAddress: string
   ): Promise<PairState> {
-    const cacheKey = `pair_state_${pairAddress}`;
-    const cachedData = cache.get(cacheKey);
-
-    if (cachedData) {
-      return cachedData;
-    }
-
-    const pairState = await pairService.fetchPairState(pairAddress);
-
-    // Cache for 5 seconds
-    cache.set(cacheKey, pairState, 5 * 1000);
-
-    return pairState;
+    return cache.getOrSet(`pair_state_${pairAddress}`, 5 * 1000, () =>
+      pairService.fetchPairState(pairAddress)
+    );
   }
 
   private static async calculateSwapVolume(pairAddress: string, hours: number = 24): Promise<{
     volume0: string;
     volume1: string;
+    volumeUsd: string;
     period: string;
   }> {
-    const cacheKey = `swap_volume_calc_${pairAddress}_${hours}hrs`;
-    const cachedData = cache.get(cacheKey);
-    
-
-    if (cachedData) {
-      return cachedData;
-    }
-
-    const now = Math.floor(Date.now() / 1000);
-    const timestamp = now - (hours * 60 * 60);
-    
+    return cache.getOrSet(`swap_volume_calc_${pairAddress}_${hours}hrs`, 10 * 1000, async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const timestamp = now - (hours * 60 * 60);
 
       const result = await pool.query(`
         SELECT 
@@ -300,17 +259,13 @@ export class DataController {
         WHERE timestamp > to_timestamp($1) AND pair = $2
       `, [timestamp, pairAddress]);
 
-      const volumeData = {
+      return {
         volume0: result.rows[0].total_volume0 || '0',
         volume1: result.rows[0].total_volume1 || '0',
         volumeUsd: result.rows[0].total_volume_usd || '0',
         period: `${hours}hrs`
       };
-
-      // Cache for 10 seconds
-      cache.set(cacheKey, volumeData, 10 * 1000);
-
-    return volumeData;
+    });
   }
 
   static async getSwaps(req: Request, res: Response): Promise<void> {
@@ -396,78 +351,45 @@ export class DataController {
       const pairAddress = req.params.pairAddress;
       const hours = req.params.hours ? parseInt(req.params.hours) : 24;
 
-      // Validate pair address
       if (!pairAddress) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Pair address is required'
-        };
+        const response: ApiResponse = { success: false, error: 'Pair address is required' };
         res.status(400).json(response);
         return;
       }
       
       if (isNaN(hours) || hours <= 0) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Invalid hours parameter. Must be a positive number.'
-        };
+        const response: ApiResponse = { success: false, error: 'Invalid hours parameter. Must be a positive number.' };
         res.status(400).json(response);
         return;
       }
 
-      const cacheKey = `swap_volume_${pairAddress}_${hours}hrs`;
-      const cachedData = cache.get(cacheKey);
-      
-      if (cachedData) {
-        const response: ApiResponse = {
-          success: true,
-          data: cachedData
+      const data = await cache.getOrSet(`swap_volume_${pairAddress}_${hours}hrs`, 15 * 1000, async () => {
+        const now = Math.floor(Date.now() / 1000);
+        const timestamp = now - (hours * 60 * 60);
+        
+        const result = await pool.query(`
+          SELECT 
+            SUM(CASE WHEN is_token0_in = true THEN amount_in::numeric ELSE amount_out::numeric END) as total_volume0,
+            SUM(CASE WHEN is_token0_in = false THEN amount_in::numeric ELSE amount_out::numeric END) as total_volume1,
+            SUM(COALESCE(volume_usd, 0)) as total_volume_usd
+          FROM swaps 
+          WHERE timestamp > to_timestamp($1) AND pair = $2
+        `, [timestamp, pairAddress]);
+
+        return {
+          volume0: result.rows[0].total_volume0 || '0',
+          volume1: result.rows[0].total_volume1 || '0',
+          volumeUsd: result.rows[0].total_volume_usd || '0',
+          period: `${hours}hrs`,
+          hours,
+          pairAddress
         };
-        res.json(response);
-        return;
-      }
+      });
 
-      // Calculate volume for the specified period and pair
-      const now = Math.floor(Date.now() / 1000);
-      const timestamp = now - (hours * 60 * 60);
-      
-      const result = await pool.query(`
-        SELECT 
-          SUM(CASE WHEN is_token0_in = true THEN amount_in::numeric ELSE amount_out::numeric END) as total_volume0,
-          SUM(CASE WHEN is_token0_in = false THEN amount_in::numeric ELSE amount_out::numeric END) as total_volume1,
-          SUM(COALESCE(volume_usd, 0)) as total_volume_usd
-        FROM swaps 
-        WHERE timestamp > to_timestamp($1) AND pair = $2
-      `, [timestamp, pairAddress]);
-
-      const volumeData = {
-        volume0: result.rows[0].total_volume0 || '0',
-        volume1: result.rows[0].total_volume1 || '0',
-        volumeUsd: result.rows[0].total_volume_usd || '0'
-      };
-      
-      const responseData = {
-        ...volumeData,
-        period: `${hours}hrs`,
-        hours: hours,
-        pairAddress
-      };
-
-      cache.set(cacheKey, responseData, 15 * 1000);
-      
-      const response: ApiResponse = {
-        success: true,
-        data: responseData
-      };
-
-      res.json(response);
+      res.json({ success: true, data });
     } catch (error) {
       console.error('Error fetching swap volume:', error);
-      const response: ApiResponse = {
-        success: false,
-        error: 'Failed to fetch swap volume'
-      };
-      res.status(500).json(response);
+      res.status(500).json({ success: false, error: 'Failed to fetch swap volume' });
     }
   }
 
@@ -564,59 +486,25 @@ export class DataController {
       const pairAddress = req.params.pairAddress;
       const hours = req.params.hours ? parseInt(req.params.hours) : 24;
 
-      // Validate pair address
       if (!pairAddress) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Pair address is required'
-        };
-        res.status(400).json(response);
+        res.status(400).json({ success: false, error: 'Pair address is required' });
         return;
       }
       
       if (isNaN(hours) || hours <= 0) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Invalid hours parameter. Must be a positive number.'
-        };
-        res.status(400).json(response);
+        res.status(400).json({ success: false, error: 'Invalid hours parameter. Must be a positive number.' });
         return;
       }
 
-      const cacheKey = `fee_paid_${pairAddress}_${hours}hrs`;
-      const cachedData = cache.get(cacheKey);
-      
-      if (cachedData) {
-        const response: ApiResponse = {
-          success: true,
-          data: cachedData
-        };
-        res.json(response);
-        return;
-      }
+      const data = await cache.getOrSet(`fee_paid_${pairAddress}_${hours}hrs`, 15 * 1000, async () => {
+        const feeData = await DataController.calculateTotalFeesPaid(pairAddress, hours);
+        return { ...feeData, hours, pairAddress };
+      });
 
-      const feeData = await DataController.calculateTotalFeesPaid(pairAddress, hours);
-      const responseData = {
-        ...feeData,
-        hours: hours,
-        pairAddress
-      };
-
-      cache.set(cacheKey, responseData, 15 * 1000);
-    
-      const response: ApiResponse = {
-        success: true,
-        data: responseData
-      };
-
-      res.json(response);
+      res.json({ success: true, data });
     } catch (error) {
       console.error('Error fetching fee paid:', error);
-      const response: ApiResponse = {
-        success: false,
-        error: 'Failed to fetch fee paid'
-      };
-      res.status(500).json(response);
+      res.status(500).json({ success: false, error: 'Failed to fetch fee paid' });
     }
   }
 
@@ -624,50 +512,20 @@ export class DataController {
     try {
       const pairAddress = req.params.pairAddress;
 
-      // Validate pair address
       if (!pairAddress) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Pair address is required'
-        };
-        res.status(400).json(response);
+        res.status(400).json({ success: false, error: 'Pair address is required' });
         return;
       }
 
-      const cacheKey = `apr_data_${pairAddress}`;
-      const cachedData = cache.get(cacheKey);
-      
-      if (cachedData) {
-        const response: ApiResponse = {
-          success: true,
-          data: cachedData
-        };
-        res.json(response);
-        return;
-      }
+      const data = await cache.getOrSet(`apr_data_${pairAddress}`, 10 * 1000, async () => {
+        const aprData = await DataController.calculateAPR(pairAddress);
+        return { ...aprData, pairAddress };
+      });
 
-      const aprData = await DataController.calculateAPR(pairAddress);
-      const responseData = {
-        ...aprData,
-        pairAddress
-      };
-
-      // Cache for 10 seconds
-      cache.set(cacheKey, responseData, 10 * 1000);
-
-      const response: ApiResponse = {
-        success: true,
-        data: responseData
-      };
-
-      res.json(response);
+      res.json({ success: true, data });
     } catch (error) {
       console.error('Error calculating APR:', error);
-      const response: ApiResponse = {
-        success: false,
-        error: 'Failed to calculate APR'
-      };
-      res.status(500).json(response);
+      res.status(500).json({ success: false, error: 'Failed to calculate APR' });
     }
   }
 
@@ -676,119 +534,92 @@ export class DataController {
       const pairAddress = req.params.pairAddress;
 
       if (!pairAddress) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Pair address is required'
-        };
-        res.status(400).json(response);
+        res.status(400).json({ success: false, error: 'Pair address is required' });
         return;
       }
 
-      const cacheKey = `pool_info_${pairAddress}`;
-      const cachedData = cache.get(cacheKey);
-      
-      if (cachedData) {
-        const response: ApiResponse = {
-          success: true,
-          data: cachedData
-        };
-        res.json(response);
-        return;
-      }
+      const poolData = await cache.getOrSet(`pool_info_${pairAddress}`, 5 * 1000, async () => {
+        const [swapResult, poolMetaResult] = await Promise.all([
+          pool.query(`
+            SELECT reserve0, reserve1, timestamp, ema_price
+            FROM swaps 
+            WHERE pair = $1
+            ORDER BY id DESC
+            LIMIT 2
+          `, [pairAddress]),
+          pool.query(`
+            SELECT swap_fee_bps, fixed_cf_bps, token0, token1, lp_mint, rate_model, half_life, version
+            FROM pools
+            WHERE pair_address = $1
+          `, [pairAddress])
+        ]);
 
-      // Get latest swap data for reserves and pool metadata in parallel
-      const [swapResult, poolMetaResult] = await Promise.all([
-        pool.query(`
-          SELECT reserve0, reserve1, timestamp, ema_price
-          FROM swaps 
-          WHERE pair = $1
-          ORDER BY id DESC
-          LIMIT 2
-        `, [pairAddress]),
-        pool.query(`
-          SELECT swap_fee_bps, fixed_cf_bps, token0, token1, lp_mint, rate_model, half_life, version
-          FROM pools
-          WHERE pair_address = $1
-        `, [pairAddress])
-      ]);
-
-      if (swapResult.rows.length === 0 && poolMetaResult.rows.length === 0) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'No pool found for this pair address'
-        };
-        res.status(404).json(response);
-        return;
-      }
-
-      const poolMeta = poolMetaResult.rows[0] || {};
-
-      let reserve0: number | null = null;
-      let reserve1: number | null = null;
-      let currentEmaPrice0: number | null = null;
-      let currentEmaPrice1: number | null = null;
-      let price0: number | null = null;
-      let price1: number | null = null;
-      let timestamp: string | null = null;
-
-      if (swapResult.rows.length > 0) {
-        reserve0 = parseFloat(swapResult.rows[0].reserve0);
-        reserve1 = parseFloat(swapResult.rows[0].reserve1);
-        price0 = reserve1 / reserve0;
-        price1 = reserve0 / reserve1;
-        timestamp = new Date(swapResult.rows[0].timestamp).toISOString().replace('T', ' ').replace('Z', '+00');
-
-        if (swapResult.rows.length > 1 && swapResult.rows[1].ema_price) {
-          console.log('Calculating EMA prices using the latest swap data');
-          // Calculate current EMA prices using the latest swap data
-          const lastPrice0Ema = parseFloat(swapResult.rows[1].ema_price);
-          const lastPrice1Ema = parseFloat(swapResult.rows[1].ema_price);
-          const lastUpdate = Math.floor(new Date(swapResult.rows[1].timestamp).getTime() / 1000);
-          
-          const emaResult = calculateEmaFromPoolData(reserve0, reserve1, lastPrice0Ema, lastPrice1Ema, lastUpdate);
-          
-          currentEmaPrice0 = fromNad(emaResult.price0Ema);
-          currentEmaPrice1 = fromNad(emaResult.price1Ema);
-        } else {
-          console.log('No EMA prices found, using current spot prices');
-          console.log(swapResult.rows)
+        if (swapResult.rows.length === 0 && poolMetaResult.rows.length === 0) {
+          return null;
         }
+
+        const poolMeta = poolMetaResult.rows[0] || {};
+
+        let reserve0: number | null = null;
+        let reserve1: number | null = null;
+        let currentEmaPrice0: number | null = null;
+        let currentEmaPrice1: number | null = null;
+        let price0: number | null = null;
+        let price1: number | null = null;
+        let timestamp: string | null = null;
+
+        if (swapResult.rows.length > 0) {
+          reserve0 = parseFloat(swapResult.rows[0].reserve0);
+          reserve1 = parseFloat(swapResult.rows[0].reserve1);
+          price0 = reserve1 / reserve0;
+          price1 = reserve0 / reserve1;
+          timestamp = new Date(swapResult.rows[0].timestamp).toISOString().replace('T', ' ').replace('Z', '+00');
+
+          if (swapResult.rows.length > 1 && swapResult.rows[1].ema_price) {
+            console.log('Calculating EMA prices using the latest swap data');
+            const lastPrice0Ema = parseFloat(swapResult.rows[1].ema_price);
+            const lastPrice1Ema = parseFloat(swapResult.rows[1].ema_price);
+            const lastUpdate = Math.floor(new Date(swapResult.rows[1].timestamp).getTime() / 1000);
+            
+            const emaResult = calculateEmaFromPoolData(reserve0, reserve1, lastPrice0Ema, lastPrice1Ema, lastUpdate);
+            
+            currentEmaPrice0 = fromNad(emaResult.price0Ema);
+            currentEmaPrice1 = fromNad(emaResult.price1Ema);
+          } else {
+            console.log('No EMA prices found, using current spot prices');
+            console.log(swapResult.rows)
+          }
+        }
+
+        return {
+          price0,
+          price1,
+          emaPrice0: currentEmaPrice0 ?? price0,
+          emaPrice1: currentEmaPrice1 ?? price1,
+          reserve0,
+          reserve1,
+          timestamp,
+          pairAddress,
+          token0: poolMeta.token0 ?? null,
+          token1: poolMeta.token1 ?? null,
+          lp_mint: poolMeta.lp_mint ?? null,
+          rate_model: poolMeta.rate_model ?? null,
+          half_life: poolMeta.half_life ?? null,
+          version: poolMeta.version ?? null,
+          swap_fee_bps: poolMeta.swap_fee_bps ?? null,
+          fixed_cf_bps: poolMeta.fixed_cf_bps ?? null
+        };
+      });
+
+      if (!poolData) {
+        res.status(404).json({ success: false, error: 'No pool found for this pair address' });
+        return;
       }
 
-      const poolData = {
-        price0: price0,
-        price1: price1,
-        emaPrice0: currentEmaPrice0 ?? price0,
-        emaPrice1: currentEmaPrice1 ?? price1,
-        reserve0: reserve0,
-        reserve1: reserve1,
-        timestamp: timestamp,
-        pairAddress,
-        token0: poolMeta.token0 ?? null,
-        token1: poolMeta.token1 ?? null,
-        lp_mint: poolMeta.lp_mint ?? null,
-        rate_model: poolMeta.rate_model ?? null,
-        half_life: poolMeta.half_life ?? null,
-        version: poolMeta.version ?? null,
-        swap_fee_bps: poolMeta.swap_fee_bps ?? null,
-        fixed_cf_bps: poolMeta.fixed_cf_bps ?? null
-      };
-
-      cache.set(cacheKey, poolData, 5 * 1000);
-
-      const response: ApiResponse = {
-        success: true,
-        data: poolData
-      };
-
-      res.json(response);
+      res.json({ success: true, data: poolData });
     } catch (error) {
       console.error('Error fetching pool info:', error);
-      const response: ApiResponse = {
-        success: false,
-        error: 'Failed to fetch pool info'
-      };
-      res.status(500).json(response);
+      res.status(500).json({ success: false, error: 'Failed to fetch pool info' });
     }
   }
 
@@ -801,101 +632,83 @@ export class DataController {
         return;
       }
 
-      const cacheKey = `og_card_${pairAddress}`;
-      const cachedSvg = cache.get(cacheKey);
+      const svg = await cache.getOrSet(`og_card_${pairAddress}`, 5 * 60 * 1000, async () => {
+        const pairService = await DataController.initializePairStateService();
 
-      if (cachedSvg) {
-        res.setHeader('Content-Type', 'image/svg+xml');
-        res.setHeader('Cache-Control', 'public, max-age=300');
-        res.send(cachedSvg);
-        return;
-      }
+        const [pairState, aprData, poolMetaResult] = await Promise.all([
+          DataController.fetchCachedPairState(pairService, pairAddress),
+          DataController.calculateAPR(pairAddress),
+          pool.query('SELECT swap_fee_bps, fixed_cf_bps FROM pools WHERE pair_address = $1', [pairAddress])
+        ]);
 
-      // Initialize PairStateService
-      const pairService = await DataController.initializePairStateService();
+        const poolMeta = poolMetaResult.rows[0] || {};
 
-      // Fetch pair state, APR, and pool metadata in parallel
-      const [pairState, aprData, poolMetaResult] = await Promise.all([
-        DataController.fetchCachedPairState(pairService, pairAddress),
-        DataController.calculateAPR(pairAddress),
-        pool.query('SELECT swap_fee_bps, fixed_cf_bps FROM pools WHERE pair_address = $1', [pairAddress])
-      ]);
+        const [token0IconBase64, token1IconBase64, token0UsdPrice, token1UsdPrice] = await Promise.all([
+          pairState.token0.iconUrl ? fetchImageAsBase64(pairState.token0.iconUrl) : undefined,
+          pairState.token1.iconUrl ? fetchImageAsBase64(pairState.token1.iconUrl) : undefined,
+          fetchTokenUsdPrice(pairState.token0.address),
+          fetchTokenUsdPrice(pairState.token1.address),
+        ]);
 
-      const poolMeta = poolMetaResult.rows[0] || {};
+        const reserve0 = parseFloat(pairState.reserves.token0);
+        const reserve1 = parseFloat(pairState.reserves.token1);
+        let tvlFormatted: { value: string; suffix: string };
 
-      // Fetch token icons and USD prices in parallel
-      const [token0IconBase64, token1IconBase64, token0UsdPrice, token1UsdPrice] = await Promise.all([
-        pairState.token0.iconUrl ? fetchImageAsBase64(pairState.token0.iconUrl) : undefined,
-        pairState.token1.iconUrl ? fetchImageAsBase64(pairState.token1.iconUrl) : undefined,
-        fetchTokenUsdPrice(pairState.token0.address),
-        fetchTokenUsdPrice(pairState.token1.address),
-      ]);
+        if (token0UsdPrice) {
+          tvlFormatted = formatLargeNumber(reserve0 * token0UsdPrice * 2);
+        } else if (token1UsdPrice) {
+          tvlFormatted = formatLargeNumber(reserve1 * token1UsdPrice * 2);
+        } else {
+          tvlFormatted = { value: '--', suffix: '' };
+        }
 
-      // Calculate TVL: reserve * usd_price * 2 (using whichever token has a price)
-      const reserve0 = parseFloat(pairState.reserves.token0);
-      const reserve1 = parseFloat(pairState.reserves.token1);
-      let tvlFormatted: { value: string; suffix: string };
+        const swapFee = poolMeta.swap_fee_bps != null
+          ? (poolMeta.swap_fee_bps / 100).toFixed(2) + '%'
+          : 'N/A';
 
-      if (token0UsdPrice) {
-        tvlFormatted = formatLargeNumber(reserve0 * token0UsdPrice * 2);
-      } else if (token1UsdPrice) {
-        tvlFormatted = formatLargeNumber(reserve1 * token1UsdPrice * 2);
-      } else {
-        tvlFormatted = { value: '--', suffix: '' };
-      }
+        const ltv = poolMeta.fixed_cf_bps != null
+          ? (poolMeta.fixed_cf_bps / 100).toFixed(0) + '%'
+          : 'Dynamic';
 
-      // Format values
-      const swapFee = poolMeta.swap_fee_bps != null
-        ? (poolMeta.swap_fee_bps / 100).toFixed(2) + '%'
-        : 'N/A';
+        const apr = aprData.apr.toFixed(2) + '%';
 
-      const ltv = poolMeta.fixed_cf_bps != null
-        ? (poolMeta.fixed_cf_bps / 100).toFixed(0) + '%'
-        : 'Dynamic';
+        const debt0 = parseFloat(pairState.totalDebts.token0) / Math.pow(10, pairState.token0.decimals);
+        const debt1 = parseFloat(pairState.totalDebts.token1) / Math.pow(10, pairState.token1.decimals);
+        let totalDebtFormatted: { value: string; suffix: string };
 
-      const apr = aprData.apr.toFixed(2) + '%';
+        if (token0UsdPrice || token1UsdPrice) {
+          const debt0Usd = token0UsdPrice ? debt0 * token0UsdPrice : 0;
+          const debt1Usd = token1UsdPrice ? debt1 * token1UsdPrice : 0;
+          totalDebtFormatted = formatLargeNumber(debt0Usd + debt1Usd);
+        } else {
+          totalDebtFormatted = { value: '--', suffix: '' };
+        }
 
-      // Calculate total debt in USD: (debt0 * price0) + (debt1 * price1)
-      const debt0 = parseFloat(pairState.totalDebts.token0) / Math.pow(10, pairState.token0.decimals);
-      const debt1 = parseFloat(pairState.totalDebts.token1) / Math.pow(10, pairState.token1.decimals);
-      let totalDebtFormatted: { value: string; suffix: string };
+        const spotPrice = reserve1 / reserve0;
+        const spotPriceFormatted = spotPrice >= 1000
+          ? spotPrice.toFixed(0)
+          : spotPrice >= 1
+            ? spotPrice.toFixed(2)
+            : spotPrice >= 0.0001
+              ? spotPrice.toFixed(4)
+              : spotPrice.toExponential(2);
 
-      if (token0UsdPrice || token1UsdPrice) {
-        const debt0Usd = token0UsdPrice ? debt0 * token0UsdPrice : 0;
-        const debt1Usd = token1UsdPrice ? debt1 * token1UsdPrice : 0;
-        totalDebtFormatted = formatLargeNumber(debt0Usd + debt1Usd);
-      } else {
-        totalDebtFormatted = { value: '--', suffix: '' };
-      }
-
-      // Spot price: token0 price in token1 terms (reserve1 / reserve0)
-      const spotPrice = reserve1 / reserve0;
-      const spotPriceFormatted = spotPrice >= 1000
-        ? spotPrice.toFixed(0)
-        : spotPrice >= 1
-          ? spotPrice.toFixed(2)
-          : spotPrice >= 0.0001
-            ? spotPrice.toFixed(4)
-            : spotPrice.toExponential(2);
-
-      const svg = generateOgCardSvg({
-        token0Symbol: pairState.token0.symbol,
-        token1Symbol: pairState.token1.symbol,
-        token0IconBase64,
-        token1IconBase64,
-        swapFee,
-        ltv,
-        apr,
-        tvlValue: tvlFormatted.value,
-        tvlSuffix: tvlFormatted.suffix,
-        totalDebtValue: totalDebtFormatted.value,
-        totalDebtSuffix: totalDebtFormatted.suffix,
-        spotPriceValue: spotPriceFormatted,
-        spotPriceSuffix: pairState.token1.symbol,
+        return generateOgCardSvg({
+          token0Symbol: pairState.token0.symbol,
+          token1Symbol: pairState.token1.symbol,
+          token0IconBase64,
+          token1IconBase64,
+          swapFee,
+          ltv,
+          apr,
+          tvlValue: tvlFormatted.value,
+          tvlSuffix: tvlFormatted.suffix,
+          totalDebtValue: totalDebtFormatted.value,
+          totalDebtSuffix: totalDebtFormatted.suffix,
+          spotPriceValue: spotPriceFormatted,
+          spotPriceSuffix: pairState.token1.symbol,
+        });
       });
-
-      // Cache for 5 minutes
-      cache.set(cacheKey, svg, 5 * 60 * 1000);
 
       res.setHeader('Content-Type', 'image/svg+xml');
       res.setHeader('Cache-Control', 'public, max-age=300');
@@ -911,220 +724,136 @@ export class DataController {
       const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 100, 1), 100);
       const offset = Math.min(Math.max(parseInt(req.query.offset as string) || 0, 0), 10000);
       const visibility = req.query.visibility as string | undefined;
-
       const cacheKey = `pools:${limit}:${offset}:${visibility || 'default'}`;
-      const cached = cache.get(cacheKey);
-      if (cached) {
-        res.json(cached);
-        return;
-      }
 
-      // If visibility=all, return all pools; otherwise filter by visible = TRUE
-      const visibilityFilter = visibility === 'all' ? '' : 'WHERE visible = TRUE';
+      const response = await cache.getOrSet(cacheKey, 15_000, async () => {
+        const visibilityFilter = visibility === 'all' ? '' : 'WHERE visible = TRUE';
 
-      // Get total count of pools
-      const countResult = await pool.query(`SELECT COUNT(*) FROM pools ${visibilityFilter}`);
-      const totalCount = parseInt(countResult.rows[0].count);
+        const countResult = await pool.query(`SELECT COUNT(*) FROM pools ${visibilityFilter}`);
+        const totalCount = parseInt(countResult.rows[0].count);
 
-      // Get pools with pagination
-      const result = await pool.query(`
-        SELECT id, pair_address, token0, token1, swap_fee_bps, fixed_cf_bps 
-        FROM pools 
-        ${visibilityFilter}
-        ORDER BY id ASC 
-        LIMIT $1 OFFSET $2
-      `, [limit, offset]);
+        const result = await pool.query(`
+          SELECT id, pair_address, token0, token1, swap_fee_bps, fixed_cf_bps 
+          FROM pools 
+          ${visibilityFilter}
+          ORDER BY id ASC 
+          LIMIT $1 OFFSET $2
+        `, [limit, offset]);
 
-      // Initialize PairStateService
-      const pairService = await DataController.initializePairStateService();
+        const pairService = await DataController.initializePairStateService();
 
-      // Calculate APR, total fees paid, and fetch pair state for each pool
-      const poolsWithData = await Promise.all(
-        result.rows.map(async (poolData: PoolRow) => {
-          const pairAddress = poolData.pair_address;
-          const token0Address = poolData.token0;
-          const token1Address = poolData.token1;
-          
-          try {
-           // Fetch pair state, APR, total fees paid, and 24h swap volume in parallel
-           const [pairState, aprData, feesData, volumeData] = await Promise.all([
-              DataController.fetchCachedPairState(
-                pairService,
-                pairAddress
-              ),
-              DataController.calculateAPR(pairAddress),
-              DataController.calculateTotalFeesPaid(pairAddress),
-              DataController.calculateSwapVolume(pairAddress)
-            ]);
+        const poolsWithData = await Promise.all(
+          result.rows.map(async (poolData: PoolRow) => {
+            const pairAddress = poolData.pair_address;
+            const token0Address = poolData.token0;
+            const token1Address = poolData.token1;
+            
+            try {
+              const [pairState, aprData, feesData, volumeData] = await Promise.all([
+                DataController.fetchCachedPairState(pairService, pairAddress),
+                DataController.calculateAPR(pairAddress),
+                DataController.calculateTotalFeesPaid(pairAddress),
+                DataController.calculateSwapVolume(pairAddress)
+              ]);
 
-            return {
-              id: poolData.id,
-              pair_address: pairAddress,
-              // Token 0 metadata
-              token0: {
-                symbol: pairState.token0.symbol,
-                name: pairState.token0.name,
-                decimals: pairState.token0.decimals,
-                address: pairState.token0.address,
-                icon: pairState.token0.iconUrl || null
-              },
-              // Token 1 metadata
-              token1: {
-                symbol: pairState.token1.symbol,
-                name: pairState.token1.name,
-                decimals: pairState.token1.decimals,
-                address: pairState.token1.address,
-                icon: pairState.token1.iconUrl || null
-              },
-              // Reserves
-              reserves: {
-                token0: pairState.reserves.token0,
-                token1: pairState.reserves.token1
-              },
-              // Cash reserves (available liquidity excluding borrowed)
-              cash_reserves: {
-                token0: pairState.cashReserves.token0,
-                token1: pairState.cashReserves.token1
-              },
-              // Oracle prices (EMA)
-              oracle_prices: {
-                token0: pairState.oraclePrices.token0,
-                token1: pairState.oraclePrices.token1
-              },
-              // Spot prices
-              spot_prices: {
-                token0: pairState.spotPrices.token0,
-                token1: pairState.spotPrices.token1
-              },
-              // Interest rates (minimum 1%)
-              interest_rates: {
-                token0: Math.max(pairState.rates.token0, 1),
-                token1: Math.max(pairState.rates.token1, 1)
-              },
-              // Total debts
-              total_debts: {
-                token0: pairState.totalDebts.token0,
-                token1: pairState.totalDebts.token1
-              },
-              // Utilization
-              utilization: {
-                token0: pairState.utilization.token0,
-                token1: pairState.utilization.token1
-              },
-              // LP token info
-              lp_token: {
-                total_supply: pairState.totalSupply,
-                decimals: pairState.lpTokenDecimals
-              },
-              // Fee configuration
-              swap_fee_bps: poolData.swap_fee_bps,
-              fixed_cf_bps: poolData.fixed_cf_bps,
-              // APR and fees
-              apr: aprData,
-              total_fees_paid: feesData,
-              // 24h swap volume
-              volume_24h: volumeData
-            };
-          } catch (error) {
-            console.error(`Error fetching data for pool ${pairAddress}:`, error);
-            // Return basic data with defaults if pair state fetch fails
-            return {
-              id: poolData.id,
-              pair_address: pairAddress,
-              token0: {
-                symbol: 'Unknown',
-                name: 'Unknown',
-                decimals: 0,
-                address: token0Address,
-                icon: null
-              },
-              token1: {
-                symbol: 'Unknown',
-                name: 'Unknown',
-                decimals: 0,
-                address: token1Address,
-                icon: null
-              },
-              reserves: {
-                token0: '0',
-                token1: '0'
-              },
-              cash_reserves: {
-                token0: '0',
-                token1: '0'
-              },
-              oracle_prices: {
-                token0: '0',
-                token1: '0'
-              },
-              spot_prices: {
-                token0: '0',
-                token1: '0'
-              },
-              interest_rates: {
-                token0: 1,
-                token1: 1
-              },
-              total_debts: {
-                token0: '0',
-                token1: '0'
-              },
-              utilization: {
-                token0: 0,
-                token1: 0
-              },
-              lp_token: {
-                total_supply: '0',
-                decimals: 0
-              },
-              swap_fee_bps: poolData.swap_fee_bps,
-              fixed_cf_bps: poolData.fixed_cf_bps,
-              apr: {
-                apr: 0,
-                apr_breakdown: {
-                  token0_apr: 0,
-                  token1_apr: 0
-                }
-              },
-              total_fees_paid: {
-                total_fee_paid_in_token0: '0',
-                total_fee_paid_in_token1: '0',
-                period: 'all'
-              },
-              swap_volume_24h: {
-                volume0: '0',
-                volume1: '0',
-                period: '24hrs'
-              }
-            };
+              return {
+                id: poolData.id,
+                pair_address: pairAddress,
+                token0: {
+                  symbol: pairState.token0.symbol,
+                  name: pairState.token0.name,
+                  decimals: pairState.token0.decimals,
+                  address: pairState.token0.address,
+                  icon: pairState.token0.iconUrl || null
+                },
+                token1: {
+                  symbol: pairState.token1.symbol,
+                  name: pairState.token1.name,
+                  decimals: pairState.token1.decimals,
+                  address: pairState.token1.address,
+                  icon: pairState.token1.iconUrl || null
+                },
+                reserves: {
+                  token0: pairState.reserves.token0,
+                  token1: pairState.reserves.token1
+                },
+                cash_reserves: {
+                  token0: pairState.cashReserves.token0,
+                  token1: pairState.cashReserves.token1
+                },
+                oracle_prices: {
+                  token0: pairState.oraclePrices.token0,
+                  token1: pairState.oraclePrices.token1
+                },
+                spot_prices: {
+                  token0: pairState.spotPrices.token0,
+                  token1: pairState.spotPrices.token1
+                },
+                interest_rates: {
+                  token0: Math.max(pairState.rates.token0, 1),
+                  token1: Math.max(pairState.rates.token1, 1)
+                },
+                total_debts: {
+                  token0: pairState.totalDebts.token0,
+                  token1: pairState.totalDebts.token1
+                },
+                utilization: {
+                  token0: pairState.utilization.token0,
+                  token1: pairState.utilization.token1
+                },
+                lp_token: {
+                  total_supply: pairState.totalSupply,
+                  decimals: pairState.lpTokenDecimals
+                },
+                swap_fee_bps: poolData.swap_fee_bps,
+                fixed_cf_bps: poolData.fixed_cf_bps,
+                apr: aprData,
+                total_fees_paid: feesData,
+                volume_24h: volumeData
+              };
+            } catch (error) {
+              console.error(`Error fetching data for pool ${pairAddress}:`, error);
+              return {
+                id: poolData.id,
+                pair_address: pairAddress,
+                token0: { symbol: 'Unknown', name: 'Unknown', decimals: 0, address: token0Address, icon: null },
+                token1: { symbol: 'Unknown', name: 'Unknown', decimals: 0, address: token1Address, icon: null },
+                reserves: { token0: '0', token1: '0' },
+                cash_reserves: { token0: '0', token1: '0' },
+                oracle_prices: { token0: '0', token1: '0' },
+                spot_prices: { token0: '0', token1: '0' },
+                interest_rates: { token0: 1, token1: 1 },
+                total_debts: { token0: '0', token1: '0' },
+                utilization: { token0: 0, token1: 0 },
+                lp_token: { total_supply: '0', decimals: 0 },
+                swap_fee_bps: poolData.swap_fee_bps,
+                fixed_cf_bps: poolData.fixed_cf_bps,
+                apr: { apr: 0, apr_breakdown: { token0_apr: 0, token1_apr: 0 } },
+                total_fees_paid: { total_fee_paid_in_token0: '0', total_fee_paid_in_token1: '0', period: 'all' },
+                swap_volume_24h: { volume0: '0', volume1: '0', period: '24hrs' }
+              };
+            }
+          })
+        );
+
+        return {
+          success: true,
+          data: {
+            pools: poolsWithData,
+            pagination: {
+              total: totalCount,
+              limit,
+              offset,
+              hasNext: offset + limit < totalCount
+            }
           }
-        })
-      );
+        } as ApiResponse;
+      });
 
-      const responseData = {
-        pools: poolsWithData,
-        pagination: {
-          total: totalCount,
-          limit,
-          offset,
-          hasNext: offset + limit < totalCount
-        }
-      };
-
-      const response: ApiResponse = {
-        success: true,
-        data: responseData
-      };
-
-      cache.set(cacheKey, response, 15_000);
       res.json(response);
     } catch (error) {
       console.error('Error fetching pools:', error);
-      const response: ApiResponse = {
-        success: false,
-        error: 'Failed to fetch pools'
-      };
-      res.status(500).json(response);
+      res.status(500).json({ success: false, error: 'Failed to fetch pools' });
     }
   }
 
