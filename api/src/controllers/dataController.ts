@@ -830,7 +830,7 @@ export class DataController {
                 fixed_cf_bps: poolData.fixed_cf_bps,
                 apr: { apr: 0, apr_breakdown: { token0_apr: 0, token1_apr: 0 } },
                 total_fees_paid: { total_fee_paid_in_token0: '0', total_fee_paid_in_token1: '0', period: 'all' },
-                swap_volume_24h: { volume0: '0', volume1: '0', period: '24hrs' }
+                volume_24h: { volume0: '0', volume1: '0', period: '24hrs' }
               };
             }
           })
