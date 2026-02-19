@@ -357,8 +357,8 @@ export class DataController {
         return;
       }
       
-      if (isNaN(hours) || hours <= 0) {
-        const response: ApiResponse = { success: false, error: 'Invalid hours parameter. Must be a positive number.' };
+      if (isNaN(hours) || hours <= 0 || hours > 720) {
+        const response: ApiResponse = { success: false, error: 'Invalid hours parameter. Must be between 1 and 720.' };
         res.status(400).json(response);
         return;
       }
@@ -408,10 +408,10 @@ export class DataController {
         return;
       }
       
-      if (isNaN(hours) || hours <= 0) {
+      if (isNaN(hours) || hours <= 0 || hours > 720) {
         const response: ApiResponse = {
           success: false,
-          error: 'Invalid hours parameter. Must be a positive number.'
+          error: 'Invalid hours parameter. Must be between 1 and 720.'
         };
         res.status(400).json(response);
         return;
@@ -491,8 +491,8 @@ export class DataController {
         return;
       }
       
-      if (isNaN(hours) || hours <= 0) {
-        res.status(400).json({ success: false, error: 'Invalid hours parameter. Must be a positive number.' });
+      if (isNaN(hours) || hours <= 0 || hours > 720) {
+        res.status(400).json({ success: false, error: 'Invalid hours parameter. Must be between 1 and 720.' });
         return;
       }
 
