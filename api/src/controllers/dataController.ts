@@ -95,7 +95,13 @@ function splitPosition(position: any): Array<any> {
   return positions;
 }
 
+const SOLANA_ADDRESS_RE = /^[A-Za-z0-9]{32,44}$/;
+
 export class DataController {
+  private static isValidAddress(addr: string): boolean {
+    return SOLANA_ADDRESS_RE.test(addr);
+  }
+
   // Singleton instance for PairStateService
   private static pairStateService: PairStateService | null = null;
 
@@ -275,13 +281,13 @@ export class DataController {
       const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 100, 1), 100);
       const offset = Math.min(Math.max(parseInt(req.query.offset as string) || 0, 0), 10000);
 
-      // Validate that at least one filter is provided
       if (!pairAddress && !userAddress) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Either pair address or user address is required'
-        };
-        res.status(400).json(response);
+        res.status(400).json({ success: false, error: 'Either pair address or user address is required' });
+        return;
+      }
+      if ((pairAddress && !DataController.isValidAddress(pairAddress)) ||
+          (userAddress && !DataController.isValidAddress(userAddress))) {
+        res.status(400).json({ success: false, error: 'Invalid address format' });
         return;
       }
 
@@ -351,15 +357,13 @@ export class DataController {
       const pairAddress = req.params.pairAddress;
       const hours = req.params.hours ? parseInt(req.params.hours) : 24;
 
-      if (!pairAddress) {
-        const response: ApiResponse = { success: false, error: 'Pair address is required' };
-        res.status(400).json(response);
+      if (!pairAddress || !DataController.isValidAddress(pairAddress)) {
+        res.status(400).json({ success: false, error: 'Valid pair address is required' });
         return;
       }
       
       if (isNaN(hours) || hours <= 0 || hours > 720) {
-        const response: ApiResponse = { success: false, error: 'Invalid hours parameter. Must be between 1 and 720.' };
-        res.status(400).json(response);
+        res.status(400).json({ success: false, error: 'Invalid hours parameter. Must be between 1 and 720.' });
         return;
       }
 
@@ -398,22 +402,13 @@ export class DataController {
       const pairAddress = req.params.pairAddress;
       const hours = req.params.hours ? parseInt(req.params.hours) : 24;
 
-      // Validate pair address
-      if (!pairAddress) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Pair address is required'
-        };
-        res.status(400).json(response);
+      if (!pairAddress || !DataController.isValidAddress(pairAddress)) {
+        res.status(400).json({ success: false, error: 'Valid pair address is required' });
         return;
       }
       
       if (isNaN(hours) || hours <= 0 || hours > 720) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Invalid hours parameter. Must be between 1 and 720.'
-        };
-        res.status(400).json(response);
+        res.status(400).json({ success: false, error: 'Invalid hours parameter. Must be between 1 and 720.' });
         return;
       }
 
@@ -486,8 +481,8 @@ export class DataController {
       const pairAddress = req.params.pairAddress;
       const hours = req.params.hours ? parseInt(req.params.hours) : 24;
 
-      if (!pairAddress) {
-        res.status(400).json({ success: false, error: 'Pair address is required' });
+      if (!pairAddress || !DataController.isValidAddress(pairAddress)) {
+        res.status(400).json({ success: false, error: 'Valid pair address is required' });
         return;
       }
       
@@ -512,8 +507,8 @@ export class DataController {
     try {
       const pairAddress = req.params.pairAddress;
 
-      if (!pairAddress) {
-        res.status(400).json({ success: false, error: 'Pair address is required' });
+      if (!pairAddress || !DataController.isValidAddress(pairAddress)) {
+        res.status(400).json({ success: false, error: 'Valid pair address is required' });
         return;
       }
 
@@ -533,8 +528,8 @@ export class DataController {
     try {
       const pairAddress = req.params.pairAddress;
 
-      if (!pairAddress) {
-        res.status(400).json({ success: false, error: 'Pair address is required' });
+      if (!pairAddress || !DataController.isValidAddress(pairAddress)) {
+        res.status(400).json({ success: false, error: 'Valid pair address is required' });
         return;
       }
 
@@ -627,8 +622,8 @@ export class DataController {
     try {
       const pairAddress = req.params.pairAddress;
 
-      if (!pairAddress) {
-        res.status(400).json({ success: false, error: 'Pair address is required' });
+      if (!pairAddress || !DataController.isValidAddress(pairAddress)) {
+        res.status(400).json({ success: false, error: 'Valid pair address is required' });
         return;
       }
 
@@ -862,13 +857,12 @@ export class DataController {
       const token0 = req.params.token0 as string;
       const token1 = req.params.token1 as string;
 
-      // Validate required parameters
       if (!token0 || !token1 || token0 === token1) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Both token0 and token1 path parameters are required and must be different'
-        };
-        res.status(400).json(response);
+        res.status(400).json({ success: false, error: 'Both token0 and token1 path parameters are required and must be different' });
+        return;
+      }
+      if (!DataController.isValidAddress(token0) || !DataController.isValidAddress(token1)) {
+        res.status(400).json({ success: false, error: 'Invalid token address format' });
         return;
       }
 
@@ -907,13 +901,8 @@ export class DataController {
     try {
       const token = req.params.token as string;
 
-      // Validate required parameter
-      if (!token) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Token path parameter is required'
-        };
-        res.status(400).json(response);
+      if (!token || !DataController.isValidAddress(token)) {
+        res.status(400).json({ success: false, error: 'Valid token address is required' });
         return;
       }
 
@@ -969,13 +958,12 @@ export class DataController {
       const sortBy = req.query.sortBy as string || 'timestamp';
       const sortOrder = req.query.sortOrder as string || 'desc';
 
-      // Validate required parameters
       if (!userAddress || !pair) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Both user_address and pair are required'
-        };
-        res.status(400).json(response);
+        res.status(400).json({ success: false, error: 'Both user_address and pair are required' });
+        return;
+      }
+      if (!DataController.isValidAddress(userAddress) || !DataController.isValidAddress(pair)) {
+        res.status(400).json({ success: false, error: 'Invalid address format' });
         return;
       }
 
@@ -1068,13 +1056,8 @@ export class DataController {
       const offset = Math.min(Math.max(parseInt(req.query.offset as string) || 0, 0), 10000);
       const userAddress = req.query.userAddress as string | undefined;
 
-      // Validate userAddress format if provided
-      if (userAddress && (userAddress.length < 32 || userAddress.length > 44 || !/^[A-Za-z0-9]+$/.test(userAddress))) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Invalid user address format'
-        };
-        res.status(400).json(response);
+      if (userAddress && !DataController.isValidAddress(userAddress)) {
+        res.status(400).json({ success: false, error: 'Invalid user address format' });
         return;
       }
 
@@ -1270,13 +1253,8 @@ export class DataController {
       const offset = Math.min(Math.max(parseInt(req.query.offset as string) || 0, 0), 10000);
       const userAddress = req.query.userAddress as string | undefined;
 
-      // Validate userAddress format if provided
-      if (userAddress && (userAddress.length < 32 || userAddress.length > 44 || !/^[A-Za-z0-9]+$/.test(userAddress))) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Invalid user address format'
-        };
-        res.status(400).json(response);
+      if (userAddress && !DataController.isValidAddress(userAddress)) {
+        res.status(400).json({ success: false, error: 'Invalid user address format' });
         return;
       }
 
@@ -1400,13 +1378,8 @@ export class DataController {
       const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 100, 1), 100);
       const offset = Math.min(Math.max(parseInt(req.query.offset as string) || 0, 0), 10000);
 
-      // Validate required parameters
-      if (!userAddress) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'User address is required'
-        };
-        res.status(400).json(response);
+      if (!userAddress || !DataController.isValidAddress(userAddress)) {
+        res.status(400).json({ success: false, error: 'Valid user address is required' });
         return;
       }
 
