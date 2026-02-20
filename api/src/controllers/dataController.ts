@@ -95,7 +95,13 @@ function splitPosition(position: any): Array<any> {
   return positions;
 }
 
+const SOLANA_ADDRESS_RE = /^[A-Za-z0-9]{32,44}$/;
+
 export class DataController {
+  private static isValidAddress(addr: string): boolean {
+    return SOLANA_ADDRESS_RE.test(addr);
+  }
+
   // Singleton instance for PairStateService
   private static pairStateService: PairStateService | null = null;
 
@@ -275,67 +281,59 @@ export class DataController {
       const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 100, 1), 100);
       const offset = Math.min(Math.max(parseInt(req.query.offset as string) || 0, 0), 10000);
 
-      // Validate that at least one filter is provided
       if (!pairAddress && !userAddress) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Either pair address or user address is required'
-        };
-        res.status(400).json(response);
+        res.status(400).json({ success: false, error: 'Either pair address or user address is required' });
+        return;
+      }
+      if ((pairAddress && !DataController.isValidAddress(pairAddress)) ||
+          (userAddress && !DataController.isValidAddress(userAddress))) {
+        res.status(400).json({ success: false, error: 'Invalid address format' });
         return;
       }
 
-      // Build query based on available parameters
-      let countQuery: string;
-      let dataQuery: string;
-      let queryParams: any[];
-      let countParams: any[];
+      const cacheKey = `swaps:${pairAddress || ''}:${userAddress || ''}:${limit}:${offset}`;
+      const data = await cache.getOrSet(cacheKey, 5 * 1000, async () => {
+        let countQuery: string;
+        let dataQuery: string;
+        let queryParams: any[];
+        let countParams: any[];
 
-      if (pairAddress && userAddress) {
-        // Filter by both pair and user address
-        countQuery = 'SELECT COUNT(*) FROM swaps WHERE pair = $1 AND user_address = $2';
-        dataQuery = 'SELECT * FROM swaps WHERE pair = $1 AND user_address = $2 ORDER BY id DESC LIMIT $3 OFFSET $4';
-        queryParams = [pairAddress, userAddress, limit, offset];
-        countParams = [pairAddress, userAddress];
-      } else if (pairAddress) {
-        // Filter by pair only
-        countQuery = 'SELECT COUNT(*) FROM swaps WHERE pair = $1';
-        dataQuery = 'SELECT * FROM swaps WHERE pair = $1 ORDER BY id DESC LIMIT $2 OFFSET $3';
-        queryParams = [pairAddress, limit, offset];
-        countParams = [pairAddress];
-      } else {
-        // Filter by user only
-        countQuery = 'SELECT COUNT(*) FROM swaps WHERE user_address = $1';
-        dataQuery = 'SELECT * FROM swaps WHERE user_address = $1 ORDER BY id DESC LIMIT $2 OFFSET $3';
-        queryParams = [userAddress, limit, offset];
-        countParams = [userAddress];
-      }
-
-      const countResult = await pool.query(countQuery, countParams);
-      const totalCount = parseInt(countResult.rows[0].count);
-      
-      const result = await pool.query(dataQuery, queryParams);
-      
-      // Build response data dynamically based on what filters were used
-      const responseData: any = {
-        swaps: result.rows,
-        pagination: {
-          total: totalCount,
-          limit,
-          offset,
-          hasNext: offset + limit < totalCount
+        if (pairAddress && userAddress) {
+          countQuery = 'SELECT COUNT(*) FROM swaps WHERE pair = $1 AND user_address = $2';
+          dataQuery = 'SELECT * FROM swaps WHERE pair = $1 AND user_address = $2 ORDER BY id DESC LIMIT $3 OFFSET $4';
+          queryParams = [pairAddress, userAddress, limit, offset];
+          countParams = [pairAddress, userAddress];
+        } else if (pairAddress) {
+          countQuery = 'SELECT COUNT(*) FROM swaps WHERE pair = $1';
+          dataQuery = 'SELECT * FROM swaps WHERE pair = $1 ORDER BY id DESC LIMIT $2 OFFSET $3';
+          queryParams = [pairAddress, limit, offset];
+          countParams = [pairAddress];
+        } else {
+          countQuery = 'SELECT COUNT(*) FROM swaps WHERE user_address = $1';
+          dataQuery = 'SELECT * FROM swaps WHERE user_address = $1 ORDER BY id DESC LIMIT $2 OFFSET $3';
+          queryParams = [userAddress, limit, offset];
+          countParams = [userAddress];
         }
-      };
 
-      if (pairAddress) responseData.pairAddress = pairAddress;
-      if (userAddress) responseData.userAddress = userAddress;
+        const countResult = await pool.query(countQuery, countParams);
+        const totalCount = parseInt(countResult.rows[0].count);
+        const result = await pool.query(dataQuery, queryParams);
 
-      const response: ApiResponse = {
-        success: true,
-        data: responseData
-      };
+        const responseData: any = {
+          swaps: result.rows,
+          pagination: {
+            total: totalCount,
+            limit,
+            offset,
+            hasNext: offset + limit < totalCount
+          }
+        };
+        if (pairAddress) responseData.pairAddress = pairAddress;
+        if (userAddress) responseData.userAddress = userAddress;
+        return responseData;
+      });
 
-      res.json(response);
+      res.json({ success: true, data });
     } catch (error) {
       console.error('Error fetching swaps:', error);
       const response: ApiResponse = {
@@ -351,15 +349,13 @@ export class DataController {
       const pairAddress = req.params.pairAddress;
       const hours = req.params.hours ? parseInt(req.params.hours) : 24;
 
-      if (!pairAddress) {
-        const response: ApiResponse = { success: false, error: 'Pair address is required' };
-        res.status(400).json(response);
+      if (!pairAddress || !DataController.isValidAddress(pairAddress)) {
+        res.status(400).json({ success: false, error: 'Valid pair address is required' });
         return;
       }
       
-      if (isNaN(hours) || hours <= 0) {
-        const response: ApiResponse = { success: false, error: 'Invalid hours parameter. Must be a positive number.' };
-        res.status(400).json(response);
+      if (isNaN(hours) || hours <= 0 || hours > 720) {
+        res.status(400).json({ success: false, error: 'Invalid hours parameter. Must be between 1 and 720.' });
         return;
       }
 
@@ -398,22 +394,13 @@ export class DataController {
       const pairAddress = req.params.pairAddress;
       const hours = req.params.hours ? parseInt(req.params.hours) : 24;
 
-      // Validate pair address
-      if (!pairAddress) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Pair address is required'
-        };
-        res.status(400).json(response);
+      if (!pairAddress || !DataController.isValidAddress(pairAddress)) {
+        res.status(400).json({ success: false, error: 'Valid pair address is required' });
         return;
       }
       
-      if (isNaN(hours) || hours <= 0) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Invalid hours parameter. Must be a positive number.'
-        };
-        res.status(400).json(response);
+      if (isNaN(hours) || hours <= 0 || hours > 720) {
+        res.status(400).json({ success: false, error: 'Invalid hours parameter. Must be between 1 and 720.' });
         return;
       }
 
@@ -432,45 +419,40 @@ export class DataController {
         intervalLabel = '1 day';
       }
 
-      // Get chart prices for the specified period and pair
-      const timeInterval = `${hours} hours`;
-      const result = await pool.query(`
-        SELECT
-          time_bucket_gapfill($1, timestamp,
-            start => now() - interval '${timeInterval}',
-            finish => now()
-          ) AS bucket,
-          LOCF(AVG(reserve1::numeric / NULLIF(reserve0,0))) AS avg_price
-        FROM swaps
-        WHERE timestamp >= now() - interval '${timeInterval}' AND pair = $2
-        GROUP BY bucket
-        ORDER BY bucket
-      `, [bucketInterval, pairAddress]);
+      const data = await cache.getOrSet(`chart_prices_${pairAddress}_${hours}hrs`, 10 * 1000, async () => {
+        const timeInterval = `${hours} hours`;
+        const result = await pool.query(`
+          SELECT
+            time_bucket_gapfill($1, timestamp,
+              start => now() - interval '${timeInterval}',
+              finish => now()
+            ) AS bucket,
+            LOCF(AVG(reserve1::numeric / NULLIF(reserve0,0))) AS avg_price
+          FROM swaps
+          WHERE timestamp >= now() - interval '${timeInterval}' AND pair = $2
+          GROUP BY bucket
+          ORDER BY bucket
+        `, [bucketInterval, pairAddress]);
 
-      // Get the latest price from the most recent swap
-      const latestPriceResult = await pool.query(`
-        SELECT reserve1::numeric / NULLIF(reserve0,0) AS latest_price
-        FROM swaps
-        WHERE pair = $1
-        ORDER BY timestamp DESC
-        LIMIT 1
-      `, [pairAddress]);
+        const latestPriceResult = await pool.query(`
+          SELECT reserve1::numeric / NULLIF(reserve0,0) AS latest_price
+          FROM swaps
+          WHERE pair = $1
+          ORDER BY timestamp DESC
+          LIMIT 1
+        `, [pairAddress]);
 
-      const data = {
-        prices: result.rows,
-        latestPrice: latestPriceResult.rows[0]?.latest_price || null,
-        period: `${hours} hours`,
-        interval: intervalLabel,
-        hours: hours,
-        pairAddress
-      };
+        return {
+          prices: result.rows,
+          latestPrice: latestPriceResult.rows[0]?.latest_price || null,
+          period: `${hours} hours`,
+          interval: intervalLabel,
+          hours: hours,
+          pairAddress
+        };
+      });
 
-      const response: ApiResponse = {
-        success: true,
-        data: data
-      };
-
-      res.json(response);
+      res.json({ success: true, data });
     } catch (error) {
       console.error('Error fetching chart prices:', error);
       const response: ApiResponse = {
@@ -486,13 +468,13 @@ export class DataController {
       const pairAddress = req.params.pairAddress;
       const hours = req.params.hours ? parseInt(req.params.hours) : 24;
 
-      if (!pairAddress) {
-        res.status(400).json({ success: false, error: 'Pair address is required' });
+      if (!pairAddress || !DataController.isValidAddress(pairAddress)) {
+        res.status(400).json({ success: false, error: 'Valid pair address is required' });
         return;
       }
       
-      if (isNaN(hours) || hours <= 0) {
-        res.status(400).json({ success: false, error: 'Invalid hours parameter. Must be a positive number.' });
+      if (isNaN(hours) || hours <= 0 || hours > 720) {
+        res.status(400).json({ success: false, error: 'Invalid hours parameter. Must be between 1 and 720.' });
         return;
       }
 
@@ -512,8 +494,8 @@ export class DataController {
     try {
       const pairAddress = req.params.pairAddress;
 
-      if (!pairAddress) {
-        res.status(400).json({ success: false, error: 'Pair address is required' });
+      if (!pairAddress || !DataController.isValidAddress(pairAddress)) {
+        res.status(400).json({ success: false, error: 'Valid pair address is required' });
         return;
       }
 
@@ -533,8 +515,8 @@ export class DataController {
     try {
       const pairAddress = req.params.pairAddress;
 
-      if (!pairAddress) {
-        res.status(400).json({ success: false, error: 'Pair address is required' });
+      if (!pairAddress || !DataController.isValidAddress(pairAddress)) {
+        res.status(400).json({ success: false, error: 'Valid pair address is required' });
         return;
       }
 
@@ -627,8 +609,8 @@ export class DataController {
     try {
       const pairAddress = req.params.pairAddress;
 
-      if (!pairAddress) {
-        res.status(400).json({ success: false, error: 'Pair address is required' });
+      if (!pairAddress || !DataController.isValidAddress(pairAddress)) {
+        res.status(400).json({ success: false, error: 'Valid pair address is required' });
         return;
       }
 
@@ -723,11 +705,11 @@ export class DataController {
     try {
       const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 100, 1), 100);
       const offset = Math.min(Math.max(parseInt(req.query.offset as string) || 0, 0), 10000);
-      const visibility = req.query.visibility as string | undefined;
-      const cacheKey = `pools:${limit}:${offset}:${visibility || 'default'}`;
+      const showAll = req.query.visibility === 'all';
+      const cacheKey = `pools:${limit}:${offset}:${showAll ? 'all' : 'visible'}`;
 
       const response = await cache.getOrSet(cacheKey, 15_000, async () => {
-        const visibilityFilter = visibility === 'all' ? '' : 'WHERE visible = TRUE';
+        const visibilityFilter = showAll ? '' : 'WHERE visible = TRUE';
 
         const countResult = await pool.query(`SELECT COUNT(*) FROM pools ${visibilityFilter}`);
         const totalCount = parseInt(countResult.rows[0].count);
@@ -830,7 +812,7 @@ export class DataController {
                 fixed_cf_bps: poolData.fixed_cf_bps,
                 apr: { apr: 0, apr_breakdown: { token0_apr: 0, token1_apr: 0 } },
                 total_fees_paid: { total_fee_paid_in_token0: '0', total_fee_paid_in_token1: '0', period: 'all' },
-                swap_volume_24h: { volume0: '0', volume1: '0', period: '24hrs' }
+                volume_24h: { volume0: '0', volume1: '0', period: '24hrs' }
               };
             }
           })
@@ -862,13 +844,12 @@ export class DataController {
       const token0 = req.params.token0 as string;
       const token1 = req.params.token1 as string;
 
-      // Validate required parameters
       if (!token0 || !token1 || token0 === token1) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Both token0 and token1 path parameters are required and must be different'
-        };
-        res.status(400).json(response);
+        res.status(400).json({ success: false, error: 'Both token0 and token1 path parameters are required and must be different' });
+        return;
+      }
+      if (!DataController.isValidAddress(token0) || !DataController.isValidAddress(token1)) {
+        res.status(400).json({ success: false, error: 'Invalid token address format' });
         return;
       }
 
@@ -907,13 +888,8 @@ export class DataController {
     try {
       const token = req.params.token as string;
 
-      // Validate required parameter
-      if (!token) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Token path parameter is required'
-        };
-        res.status(400).json(response);
+      if (!token || !DataController.isValidAddress(token)) {
+        res.status(400).json({ success: false, error: 'Valid token address is required' });
         return;
       }
 
@@ -969,13 +945,12 @@ export class DataController {
       const sortBy = req.query.sortBy as string || 'timestamp';
       const sortOrder = req.query.sortOrder as string || 'desc';
 
-      // Validate required parameters
       if (!userAddress || !pair) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Both user_address and pair are required'
-        };
-        res.status(400).json(response);
+        res.status(400).json({ success: false, error: 'Both user_address and pair are required' });
+        return;
+      }
+      if (!DataController.isValidAddress(userAddress) || !DataController.isValidAddress(pair)) {
+        res.status(400).json({ success: false, error: 'Invalid address format' });
         return;
       }
 
@@ -999,59 +974,55 @@ export class DataController {
         return;
       }
 
-      // Build count query
-      const countQuery = 'SELECT COUNT(*) FROM adjust_liquidity WHERE user_address = $1 AND pair = $2';
-      const countResult = await pool.query(countQuery, [userAddress, pair]);
-      const totalCount = parseInt(countResult.rows[0].count);
+      const cacheKey = `user_history:${userAddress}:${pair}:${sortBy}:${sortOrder}:${limit}:${offset}`;
+      const data = await cache.getOrSet(cacheKey, 5 * 1000, async () => {
+        const countQuery = 'SELECT COUNT(*) FROM adjust_liquidity WHERE user_address = $1 AND pair = $2';
+        const countResult = await pool.query(countQuery, [userAddress, pair]);
+        const totalCount = parseInt(countResult.rows[0].count);
 
-      // Build data query with sorting and join with pools table
-      const dataQuery = `
-        SELECT 
-          al.*,
-          p.token0,
-          p.token1
-        FROM adjust_liquidity al
-        LEFT JOIN pools p ON al.pair = p.pair_address
-        WHERE al.user_address = $1 AND al.pair = $2 
-        ORDER BY al.${sortBy} ${sortOrder.toUpperCase()} 
-        LIMIT $3 OFFSET $4
-      `;
-      const result = await pool.query(dataQuery, [userAddress, pair, limit, offset]);
+        const dataQuery = `
+          SELECT 
+            al.*,
+            p.token0,
+            p.token1
+          FROM adjust_liquidity al
+          LEFT JOIN pools p ON al.pair = p.pair_address
+          WHERE al.user_address = $1 AND al.pair = $2 
+          ORDER BY al.${sortBy} ${sortOrder.toUpperCase()} 
+          LIMIT $3 OFFSET $4
+        `;
+        const result = await pool.query(dataQuery, [userAddress, pair, limit, offset]);
 
-      const transformedHistory = result.rows.map(row => {
-        const { token0, token1, ...rest } = row;
+        const transformedHistory = result.rows.map(row => {
+          const { token0, token1, ...rest } = row;
+          return {
+            ...rest,
+            pair: {
+              address: row.pair,
+              token0: token0,
+              token1: token1
+            }
+          };
+        });
+
         return {
-          ...rest,
-          pair: {
-            address: row.pair,
-            token0: token0,
-            token1: token1
+          userHistory: transformedHistory,
+          pagination: {
+            total: totalCount,
+            limit,
+            offset,
+            hasNext: offset + limit < totalCount
+          },
+          filters: {
+            userAddress,
+            pair,
+            sortBy,
+            sortOrder: sortOrder.toLowerCase()
           }
         };
       });
 
-      const responseData = {
-        userHistory: transformedHistory,
-        pagination: {
-          total: totalCount,
-          limit,
-          offset,
-          hasNext: offset + limit < totalCount
-        },
-        filters: {
-          userAddress,
-          pair,
-          sortBy,
-          sortOrder: sortOrder.toLowerCase()
-        }
-      };
-
-      const response: ApiResponse = {
-        success: true,
-        data: responseData
-      };
-
-      res.json(response);
+      res.json({ success: true, data });
     } catch (error) {
       console.error('Error fetching user history:', error);
       const response: ApiResponse = {
@@ -1068,192 +1039,139 @@ export class DataController {
       const offset = Math.min(Math.max(parseInt(req.query.offset as string) || 0, 0), 10000);
       const userAddress = req.query.userAddress as string | undefined;
 
-      // Validate userAddress format if provided
-      if (userAddress && (userAddress.length < 32 || userAddress.length > 44 || !/^[A-Za-z0-9]+$/.test(userAddress))) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Invalid user address format'
-        };
-        res.status(400).json(response);
+      if (userAddress && !DataController.isValidAddress(userAddress)) {
+        res.status(400).json({ success: false, error: 'Invalid user address format' });
         return;
       }
 
-      let countQuery: string;
-      let dataQuery: string;
-      let countParams: any[];
-      let queryParams: any[];
+      const cacheKey = `positions:${userAddress || 'all'}:${limit}:${offset}`;
+      const data = await cache.getOrSet(cacheKey, 10 * 1000, async () => {
+        let countQuery: string;
+        let dataQuery: string;
+        let countParams: any[];
+        let queryParams: any[];
 
-      if (userAddress) {
-        countQuery = 'SELECT COUNT(*) as total_count FROM user_borrow_positions WHERE signer = $1';
-        countParams = [userAddress];
-        dataQuery = `
-          SELECT 
-            signer,
-            pair,
-            position,
-            collateral0,
-            collateral1,
-            debt0_shares,
-            debt1_shares,
-            collateral0_liquidation_cf_bps,
-            collateral1_liquidation_cf_bps,
-            collateral0_max_cf_bps,
-            collateral1_max_cf_bps,
-            event_timestamp
-          FROM user_borrow_positions
-          WHERE signer = $1
-          ORDER BY event_timestamp DESC
-          LIMIT $2 OFFSET $3
-        `;
-        queryParams = [userAddress, limit, offset];
-      } else {
-        countQuery = 'SELECT COUNT(*) as total_count FROM user_borrow_positions';
-        countParams = [];
-        dataQuery = `
-          SELECT 
-            signer,
-            pair,
-            position,
-            collateral0,
-            collateral1,
-            debt0_shares,
-            debt1_shares,
-            collateral0_liquidation_cf_bps,
-            collateral1_liquidation_cf_bps,
-            collateral0_max_cf_bps,
-            collateral1_max_cf_bps,
-            event_timestamp
-          FROM user_borrow_positions
-          ORDER BY event_timestamp DESC
-          LIMIT $1 OFFSET $2
-        `;
-        queryParams = [limit, offset];
-      }
-
-      const countResult = await pool.query(countQuery, countParams);
-      const totalCount = parseInt(countResult.rows[0].total_count);
-
-      const result = await pool.query(dataQuery, queryParams);
-
-      // Initialize PairStateService if needed
-      const pairStateService = await DataController.initializePairStateService();
-      const program = pairStateService.getProgram();
-      const connection = pairStateService.getConnection();
-
-      // Enrich positions with simulation data and split into separate token positions
-      const enrichedPositions = await Promise.all(
-        result.rows.map(async (row) => {
-          const basePosition = {
-            signer: row.signer,
-            pair: row.pair,
-            position: row.position,
-            collateral0: row.collateral0,
-            collateral1: row.collateral1,
-            debt0_shares: row.debt0_shares,
-            debt1_shares: row.debt1_shares,
-            collateral0_liquidation_cf_bps: row.collateral0_liquidation_cf_bps,
-            collateral1_liquidation_cf_bps: row.collateral1_liquidation_cf_bps,
-            collateral0_max_cf_bps: row.collateral0_max_cf_bps,
-            collateral1_max_cf_bps: row.collateral1_max_cf_bps,
-            event_timestamp: row.event_timestamp,
-          };
-
-          // If program is not initialized, split base position
-          if (!program) {
-            return splitPosition(basePosition);
-          }
-
-          try {
-            const pairPda = new PublicKey(row.pair);
-            const userPositionPda = new PublicKey(row.position);
-
-            // Fetch pair account to get token addresses
-            const pairAccount = await program.account.pair.fetch(pairPda);
-            const token0Address = pairAccount.token0.toString();
-            const token1Address = pairAccount.token1.toString();
-
-            // Fetch position metrics in parallel (5 simulation calls)
-            // Note: dynamicCollateralFactorBps and liquidationCfBps are NOT fetched here --
-            // CFs come from DB (stored at borrow time), FE simulates them client-side for previews
-            const [
-              dynamicBorrowLimitResult,
-              liquidationPriceResult,
-              debtWithInterestResult,
-              collateralValueResult,
-              liquidationBorrowLimitResult,
-            ] = await Promise.allSettled([
-              simulateUserPositionGetter(program, connection, pairPda, userPositionPda, {
-                userDynamicBorrowLimit: {},
-              }),
-              simulateUserPositionGetter(program, connection, pairPda, userPositionPda, {
-                userLiquidationPrice: {},
-              }),
-              simulateUserPositionGetter(program, connection, pairPda, userPositionPda, {
-                userDebtWithInterest: {},
-              }),
-              simulateUserPositionGetter(program, connection, pairPda, userPositionPda, {
-                userCollateralValueWithImpact: {},
-              }),
-              simulateUserPositionGetter(program, connection, pairPda, userPositionPda, {
-                userLiquidationBorrowLimit: {},
-              }),
-            ]);
-
-            // Helper to extract token0/token1 from a settled result
-            const extract = (label: string, result: PromiseSettledResult<SimulationResult>) => {
-              if (result.status === 'fulfilled') {
-                return { token0: result.value.value0, token1: result.value.value1 };
-              }
-              console.error(
-                `Simulation failed for ${label} on position ${row.position}:`,
-                result.reason
-              );
-              return null;
-            };
-
-            const enrichedPosition = {
-              ...basePosition,
-              token0Address,
-              token1Address,
-              dynamicBorrowLimit: extract('userDynamicBorrowLimit', dynamicBorrowLimitResult),
-              liquidationPrice: extract('userLiquidationPrice', liquidationPriceResult),
-              debtWithInterest: extract('userDebtWithInterest', debtWithInterestResult),
-              collateralValueWithImpact: extract('userCollateralValueWithImpact', collateralValueResult),
-              liquidationBorrowLimit: extract('userLiquidationBorrowLimit', liquidationBorrowLimitResult),
-            };
-
-            // Split position into two separate token positions
-            return splitPosition(enrichedPosition);
-          } catch (error) {
-            console.error(
-              `Error fetching position data for ${row.position}:`,
-              error
-            );
-            // Return split base position if simulation fails
-            return splitPosition(basePosition);
-          }
-        })
-      );
-
-      // Flatten the array of arrays into a single array
-      const positions = enrichedPositions.flat().filter(pos => pos !== null);
-
-      const responseData = {
-        positions,
-        pagination: {
-          total: totalCount,
-          limit,
-          offset,
-          hasNext: offset + limit < totalCount
+        if (userAddress) {
+          countQuery = 'SELECT COUNT(*) as total_count FROM user_borrow_positions WHERE signer = $1';
+          countParams = [userAddress];
+          dataQuery = `
+            SELECT 
+              signer, pair, position, collateral0, collateral1,
+              debt0_shares, debt1_shares,
+              collateral0_liquidation_cf_bps, collateral1_liquidation_cf_bps,
+              collateral0_max_cf_bps, collateral1_max_cf_bps, event_timestamp
+            FROM user_borrow_positions
+            WHERE signer = $1
+            ORDER BY event_timestamp DESC
+            LIMIT $2 OFFSET $3
+          `;
+          queryParams = [userAddress, limit, offset];
+        } else {
+          countQuery = 'SELECT COUNT(*) as total_count FROM user_borrow_positions';
+          countParams = [];
+          dataQuery = `
+            SELECT 
+              signer, pair, position, collateral0, collateral1,
+              debt0_shares, debt1_shares,
+              collateral0_liquidation_cf_bps, collateral1_liquidation_cf_bps,
+              collateral0_max_cf_bps, collateral1_max_cf_bps, event_timestamp
+            FROM user_borrow_positions
+            ORDER BY event_timestamp DESC
+            LIMIT $1 OFFSET $2
+          `;
+          queryParams = [limit, offset];
         }
-      };
 
-      const response: ApiResponse = {
-        success: true,
-        data: responseData
-      };
+        const countResult = await pool.query(countQuery, countParams);
+        const totalCount = parseInt(countResult.rows[0].total_count);
+        const result = await pool.query(dataQuery, queryParams);
 
-      res.json(response);
+        const pairStateService = await DataController.initializePairStateService();
+        const program = pairStateService.getProgram();
+        const connection = pairStateService.getConnection();
+
+        const enrichedPositions = await Promise.all(
+          result.rows.map(async (row) => {
+            const basePosition = {
+              signer: row.signer,
+              pair: row.pair,
+              position: row.position,
+              collateral0: row.collateral0,
+              collateral1: row.collateral1,
+              debt0_shares: row.debt0_shares,
+              debt1_shares: row.debt1_shares,
+              collateral0_liquidation_cf_bps: row.collateral0_liquidation_cf_bps,
+              collateral1_liquidation_cf_bps: row.collateral1_liquidation_cf_bps,
+              collateral0_max_cf_bps: row.collateral0_max_cf_bps,
+              collateral1_max_cf_bps: row.collateral1_max_cf_bps,
+              event_timestamp: row.event_timestamp,
+            };
+
+            if (!program) {
+              return splitPosition(basePosition);
+            }
+
+            try {
+              const pairPda = new PublicKey(row.pair);
+              const userPositionPda = new PublicKey(row.position);
+
+              const pairAccount = await program.account.pair.fetch(pairPda);
+              const token0Address = pairAccount.token0.toString();
+              const token1Address = pairAccount.token1.toString();
+
+              const [
+                dynamicBorrowLimitResult,
+                liquidationPriceResult,
+                debtWithInterestResult,
+                collateralValueResult,
+                liquidationBorrowLimitResult,
+              ] = await Promise.allSettled([
+                simulateUserPositionGetter(program, connection, pairPda, userPositionPda, { userDynamicBorrowLimit: {} }),
+                simulateUserPositionGetter(program, connection, pairPda, userPositionPda, { userLiquidationPrice: {} }),
+                simulateUserPositionGetter(program, connection, pairPda, userPositionPda, { userDebtWithInterest: {} }),
+                simulateUserPositionGetter(program, connection, pairPda, userPositionPda, { userCollateralValueWithImpact: {} }),
+                simulateUserPositionGetter(program, connection, pairPda, userPositionPda, { userLiquidationBorrowLimit: {} }),
+              ]);
+
+              const extract = (label: string, settled: PromiseSettledResult<SimulationResult>) => {
+                if (settled.status === 'fulfilled') {
+                  return { token0: settled.value.value0, token1: settled.value.value1 };
+                }
+                console.error(`Simulation failed for ${label} on position ${row.position}:`, settled.reason);
+                return null;
+              };
+
+              return splitPosition({
+                ...basePosition,
+                token0Address,
+                token1Address,
+                dynamicBorrowLimit: extract('userDynamicBorrowLimit', dynamicBorrowLimitResult),
+                liquidationPrice: extract('userLiquidationPrice', liquidationPriceResult),
+                debtWithInterest: extract('userDebtWithInterest', debtWithInterestResult),
+                collateralValueWithImpact: extract('userCollateralValueWithImpact', collateralValueResult),
+                liquidationBorrowLimit: extract('userLiquidationBorrowLimit', liquidationBorrowLimitResult),
+              });
+            } catch (error) {
+              console.error(`Error fetching position data for ${row.position}:`, error);
+              return splitPosition(basePosition);
+            }
+          })
+        );
+
+        const positions = enrichedPositions.flat().filter(pos => pos !== null);
+
+        return {
+          positions,
+          pagination: {
+            total: totalCount,
+            limit,
+            offset,
+            hasNext: offset + limit < totalCount
+          }
+        };
+      });
+
+      res.json({ success: true, data });
     } catch (error) {
       console.error('Error fetching all positions:', error);
       const response: ApiResponse = {
@@ -1270,120 +1188,93 @@ export class DataController {
       const offset = Math.min(Math.max(parseInt(req.query.offset as string) || 0, 0), 10000);
       const userAddress = req.query.userAddress as string | undefined;
 
-      // Validate userAddress format if provided
-      if (userAddress && (userAddress.length < 32 || userAddress.length > 44 || !/^[A-Za-z0-9]+$/.test(userAddress))) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'Invalid user address format'
-        };
-        res.status(400).json(response);
+      if (userAddress && !DataController.isValidAddress(userAddress)) {
+        res.status(400).json({ success: false, error: 'Invalid user address format' });
         return;
       }
 
-      let countQuery: string;
-      let dataQuery: string;
-      let countParams: any[];
-      let queryParams: any[];
+      const cacheKey = `liq_positions:${userAddress || 'all'}:${limit}:${offset}`;
+      const data = await cache.getOrSet(cacheKey, 10 * 1000, async () => {
+        let countQuery: string;
+        let dataQuery: string;
+        let countParams: any[];
+        let queryParams: any[];
 
-      if (userAddress) {
-        countQuery = 'SELECT COUNT(*) as total_count FROM user_liquidity_positions WHERE signer = $1';
-        countParams = [userAddress];
-        dataQuery = `
-          SELECT 
-            signer,
-            pair,
-            token0_mint,
-            token1_mint,
-            amount0,
-            amount1,
-            lp_mint,
-            lp_amount,
-            updated_at
-          FROM user_liquidity_positions
-          WHERE signer = $1
-          ORDER BY updated_at DESC
-          LIMIT $2 OFFSET $3
-        `;
-        queryParams = [userAddress, limit, offset];
-      } else {
-        countQuery = 'SELECT COUNT(*) as total_count FROM user_liquidity_positions';
-        countParams = [];
-        dataQuery = `
-          SELECT 
-            signer,
-            pair,
-            token0_mint,
-            token1_mint,
-            amount0,
-            amount1,
-            lp_mint,
-            lp_amount,
-            updated_at
-          FROM user_liquidity_positions
-          ORDER BY updated_at DESC
-          LIMIT $1 OFFSET $2
-        `;
-        queryParams = [limit, offset];
-      }
-
-      const countResult = await pool.query(countQuery, countParams);
-      const totalCount = parseInt(countResult.rows[0].total_count);
-      const result = await pool.query(dataQuery, queryParams);
-
-      // Initialize PairStateService if needed to get token addresses
-      const pairStateService = await DataController.initializePairStateService();
-      const program = pairStateService.getProgram();
-
-      // Enrich positions with token addresses from pair account
-      const enrichedPositions = await Promise.all(
-        result.rows.map(async (row) => {
-          const basePosition = {
-            signer: row.signer,
-            pair: row.pair,
-            token0Mint: row.token0_mint,
-            token1Mint: row.token1_mint,
-            amount0: row.amount0,
-            amount1: row.amount1,
-            lpMint: row.lp_mint,
-            lpAmount: row.lp_amount,
-            timestamp: row.updated_at, // From timestamp to updated_at, kept the index name for backwards compatibility
-            token0Address: row.token0_mint, // Use token0_mint as token0Address
-            token1Address: row.token1_mint, // Use token1_mint as token1Address
-          };
-
-          // Try to fetch pair account to get token addresses if program is initialized
-          if (program) {
-            try {
-              const pairPda = new PublicKey(row.pair);
-              const pairAccount = await program.account.pair.fetch(pairPda);
-              basePosition.token0Address = pairAccount.token0.toString();
-              basePosition.token1Address = pairAccount.token1.toString();
-            } catch (error) {
-              console.error(`Error fetching pair account for ${row.pair}:`, error);
-              // Keep using token0_mint and token1_mint as fallback
-            }
-          }
-
-          return basePosition;
-        })
-      );
-
-      const responseData = {
-        positions: enrichedPositions,
-        pagination: {
-          total: totalCount,
-          limit,
-          offset,
-          hasNext: offset + limit < totalCount
+        if (userAddress) {
+          countQuery = 'SELECT COUNT(*) as total_count FROM user_liquidity_positions WHERE signer = $1';
+          countParams = [userAddress];
+          dataQuery = `
+            SELECT signer, pair, token0_mint, token1_mint, amount0, amount1,
+              lp_mint, lp_amount, updated_at
+            FROM user_liquidity_positions
+            WHERE signer = $1
+            ORDER BY updated_at DESC
+            LIMIT $2 OFFSET $3
+          `;
+          queryParams = [userAddress, limit, offset];
+        } else {
+          countQuery = 'SELECT COUNT(*) as total_count FROM user_liquidity_positions';
+          countParams = [];
+          dataQuery = `
+            SELECT signer, pair, token0_mint, token1_mint, amount0, amount1,
+              lp_mint, lp_amount, updated_at
+            FROM user_liquidity_positions
+            ORDER BY updated_at DESC
+            LIMIT $1 OFFSET $2
+          `;
+          queryParams = [limit, offset];
         }
-      };
 
-      const response: ApiResponse = {
-        success: true,
-        data: responseData
-      };
+        const countResult = await pool.query(countQuery, countParams);
+        const totalCount = parseInt(countResult.rows[0].total_count);
+        const result = await pool.query(dataQuery, queryParams);
 
-      res.json(response);
+        const pairStateService = await DataController.initializePairStateService();
+        const program = pairStateService.getProgram();
+
+        const enrichedPositions = await Promise.all(
+          result.rows.map(async (row) => {
+            const basePosition = {
+              signer: row.signer,
+              pair: row.pair,
+              token0Mint: row.token0_mint,
+              token1Mint: row.token1_mint,
+              amount0: row.amount0,
+              amount1: row.amount1,
+              lpMint: row.lp_mint,
+              lpAmount: row.lp_amount,
+              timestamp: row.updated_at,
+              token0Address: row.token0_mint,
+              token1Address: row.token1_mint,
+            };
+
+            if (program) {
+              try {
+                const pairPda = new PublicKey(row.pair);
+                const pairAccount = await program.account.pair.fetch(pairPda);
+                basePosition.token0Address = pairAccount.token0.toString();
+                basePosition.token1Address = pairAccount.token1.toString();
+              } catch (error) {
+                console.error(`Error fetching pair account for ${row.pair}:`, error);
+              }
+            }
+
+            return basePosition;
+          })
+        );
+
+        return {
+          positions: enrichedPositions,
+          pagination: {
+            total: totalCount,
+            limit,
+            offset,
+            hasNext: offset + limit < totalCount
+          }
+        };
+      });
+
+      res.json({ success: true, data });
     } catch (error) {
       console.error('Error fetching all liquidity positions:', error);
       const response: ApiResponse = {
@@ -1400,17 +1291,13 @@ export class DataController {
       const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 100, 1), 100);
       const offset = Math.min(Math.max(parseInt(req.query.offset as string) || 0, 0), 10000);
 
-      // Validate required parameters
-      if (!userAddress) {
-        const response: ApiResponse = {
-          success: false,
-          error: 'User address is required'
-        };
-        res.status(400).json(response);
+      if (!userAddress || !DataController.isValidAddress(userAddress)) {
+        res.status(400).json({ success: false, error: 'Valid user address is required' });
         return;
       }
 
-      // Get total count of all lending events for the user
+      const cacheKey = `lending_history:${userAddress}:${limit}:${offset}`;
+      const data = await cache.getOrSet(cacheKey, 10 * 1000, async () => {
       const countResult = await pool.query(`
         SELECT 
           (
@@ -1422,7 +1309,6 @@ export class DataController {
       `, [userAddress]);
       const totalCount = parseInt(countResult.rows[0].total_count);
 
-      // Union all lending-related events with type identification
       const result = await pool.query(`
         SELECT * FROM (
           SELECT 
@@ -1629,7 +1515,7 @@ export class DataController {
         }
       });
 
-      const responseData = {
+      return {
         lendingHistory,
         userAddress,
         pagination: {
@@ -1639,13 +1525,9 @@ export class DataController {
           hasNext: offset + limit < totalCount
         }
       };
+      });
 
-      const response: ApiResponse = {
-        success: true,
-        data: responseData
-      };
-
-      res.json(response);
+      res.json({ success: true, data });
     } catch (error) {
       console.error('Error fetching user lending history:', error);
       const response: ApiResponse = {

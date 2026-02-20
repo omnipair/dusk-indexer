@@ -4,11 +4,16 @@ interface CacheEntry {
   ttl: number; 
 }
 
+const MAX_CACHE_ENTRIES = 10_000;
+
 class SimpleCache {
   private cache: Map<string, CacheEntry> = new Map();
   private inflight: Map<string, Promise<any>> = new Map();
 
   set(key: string, data: any, ttlMs: number = 60000): void {
+    if (this.cache.size >= MAX_CACHE_ENTRIES && !this.cache.has(key)) {
+      this.evictOldest();
+    }
     this.cache.set(key, {
       data,
       timestamp: Date.now(),
@@ -23,7 +28,6 @@ class SimpleCache {
       return null;
     }
 
-    // Check if expired
     if (Date.now() - entry.timestamp > entry.ttl) {
       this.cache.delete(key);
       return null;
@@ -70,7 +74,6 @@ class SimpleCache {
     this.cache.clear();
   }
 
-  // Clean up expired entries
   cleanup(): void {
     const now = Date.now();
     for (const [key, entry] of this.cache.entries()) {
@@ -79,11 +82,20 @@ class SimpleCache {
       }
     }
   }
+
+  private evictOldest(): void {
+    this.cleanup();
+    if (this.cache.size >= MAX_CACHE_ENTRIES) {
+      const firstKey = this.cache.keys().next().value;
+      if (firstKey !== undefined) {
+        this.cache.delete(firstKey);
+      }
+    }
+  }
 }
 
 export const cache = new SimpleCache();
 
-// Cleanup expired entries every 5 minutes
 setInterval(() => {
   cache.cleanup();
 }, 5 * 60 * 1000);
