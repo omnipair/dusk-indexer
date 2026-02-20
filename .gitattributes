@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Rust and code: always LF in repo and on checkout (avoids CRLF-only "changes" on Windows)
+*.rs text eol=lf
