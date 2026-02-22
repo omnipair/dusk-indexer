@@ -211,138 +211,138 @@ export class PoolController {
     }
   }
 
+  private static async fetchAllPools(showAll: boolean): Promise<any[]> {
+    const cacheKey = `pools:enriched:${showAll ? 'all' : 'visible'}`;
+
+    return cache.getOrSet(cacheKey, 15_000, async () => {
+      const visibilityFilter = showAll ? '' : 'WHERE visible = TRUE';
+
+      const result = await pool.query(`
+        SELECT id, pair_address, token0, token1, swap_fee_bps, fixed_cf_bps 
+        FROM pools 
+        ${visibilityFilter}
+        ORDER BY id ASC
+      `);
+
+      const pairService = await initializePairStateService();
+
+      return Promise.all(
+        result.rows.map(async (poolData: PoolRow) => {
+          const pairAddress = poolData.pair_address;
+          const token0Address = poolData.token0;
+          const token1Address = poolData.token1;
+
+          try {
+            const [pairState, aprData, feesData, volumeData] = await Promise.all([
+              fetchCachedPairState(pairService, pairAddress),
+              calculateAPR(pairAddress),
+              calculateTotalFeesPaid(pairAddress),
+              calculateSwapVolume(pairAddress)
+            ]);
+
+            return {
+              id: poolData.id,
+              pair_address: pairAddress,
+              token0: {
+                symbol: pairState.token0.symbol,
+                name: pairState.token0.name,
+                decimals: pairState.token0.decimals,
+                address: pairState.token0.address,
+                icon: pairState.token0.iconUrl || null
+              },
+              token1: {
+                symbol: pairState.token1.symbol,
+                name: pairState.token1.name,
+                decimals: pairState.token1.decimals,
+                address: pairState.token1.address,
+                icon: pairState.token1.iconUrl || null
+              },
+              reserves: {
+                token0: pairState.reserves.token0,
+                token1: pairState.reserves.token1
+              },
+              cash_reserves: {
+                token0: pairState.cashReserves.token0,
+                token1: pairState.cashReserves.token1
+              },
+              oracle_prices: {
+                token0: pairState.oraclePrices.token0,
+                token1: pairState.oraclePrices.token1
+              },
+              spot_prices: {
+                token0: pairState.spotPrices.token0,
+                token1: pairState.spotPrices.token1
+              },
+              interest_rates: {
+                token0: Math.max(pairState.rates.token0, 1),
+                token1: Math.max(pairState.rates.token1, 1)
+              },
+              total_debts: {
+                token0: pairState.totalDebts.token0,
+                token1: pairState.totalDebts.token1
+              },
+              utilization: {
+                token0: pairState.utilization.token0,
+                token1: pairState.utilization.token1
+              },
+              lp_token: {
+                total_supply: pairState.totalSupply,
+                decimals: pairState.lpTokenDecimals
+              },
+              swap_fee_bps: poolData.swap_fee_bps,
+              fixed_cf_bps: poolData.fixed_cf_bps,
+              apr: aprData,
+              total_fees_paid: feesData,
+              volume_24h: volumeData
+            };
+          } catch (error) {
+            console.error(`Error fetching data for pool ${pairAddress}:`, error);
+            return {
+              id: poolData.id,
+              pair_address: pairAddress,
+              token0: { symbol: 'Unknown', name: 'Unknown', decimals: 0, address: token0Address, icon: null },
+              token1: { symbol: 'Unknown', name: 'Unknown', decimals: 0, address: token1Address, icon: null },
+              reserves: { token0: '0', token1: '0' },
+              cash_reserves: { token0: '0', token1: '0' },
+              oracle_prices: { token0: '0', token1: '0' },
+              spot_prices: { token0: '0', token1: '0' },
+              interest_rates: { token0: 1, token1: 1 },
+              total_debts: { token0: '0', token1: '0' },
+              utilization: { token0: 0, token1: 0 },
+              lp_token: { total_supply: '0', decimals: 0 },
+              swap_fee_bps: poolData.swap_fee_bps,
+              fixed_cf_bps: poolData.fixed_cf_bps,
+              apr: { apr: 0, apr_breakdown: { token0_apr: 0, token1_apr: 0 } },
+              total_fees_paid: { total_fee_paid_in_token0: '0', total_fee_paid_in_token1: '0', period: 'all' },
+              volume_24h: { volume0: '0', volume1: '0', period: '24hrs' }
+            };
+          }
+        })
+      );
+    });
+  }
+
   static async getPools(req: Request, res: Response): Promise<void> {
     try {
       const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 100, 1), 100);
       const offset = Math.min(Math.max(parseInt(req.query.offset as string) || 0, 0), 10000);
       const showAll = req.query.visibility === 'all';
-      const cacheKey = `pools:${limit}:${offset}:${showAll ? 'all' : 'visible'}`;
 
-      const response = await cache.getOrSet(cacheKey, 15_000, async () => {
-        const visibilityFilter = showAll ? '' : 'WHERE visible = TRUE';
+      const allPools = await PoolController.fetchAllPools(showAll);
+      const paginatedPools = allPools.slice(offset, offset + limit);
 
-        const countResult = await pool.query(`SELECT COUNT(*) FROM pools ${visibilityFilter}`);
-        const totalCount = parseInt(countResult.rows[0].count);
-
-        const result = await pool.query(`
-          SELECT id, pair_address, token0, token1, swap_fee_bps, fixed_cf_bps 
-          FROM pools 
-          ${visibilityFilter}
-          ORDER BY id ASC 
-          LIMIT $1 OFFSET $2
-        `, [limit, offset]);
-
-        const pairService = await initializePairStateService();
-
-        const poolsWithData = await Promise.all(
-          result.rows.map(async (poolData: PoolRow) => {
-            const pairAddress = poolData.pair_address;
-            const token0Address = poolData.token0;
-            const token1Address = poolData.token1;
-
-            try {
-              const [pairState, aprData, feesData, volumeData] = await Promise.all([
-                fetchCachedPairState(pairService, pairAddress),
-                calculateAPR(pairAddress),
-                calculateTotalFeesPaid(pairAddress),
-                calculateSwapVolume(pairAddress)
-              ]);
-
-              return {
-                id: poolData.id,
-                pair_address: pairAddress,
-                token0: {
-                  symbol: pairState.token0.symbol,
-                  name: pairState.token0.name,
-                  decimals: pairState.token0.decimals,
-                  address: pairState.token0.address,
-                  icon: pairState.token0.iconUrl || null
-                },
-                token1: {
-                  symbol: pairState.token1.symbol,
-                  name: pairState.token1.name,
-                  decimals: pairState.token1.decimals,
-                  address: pairState.token1.address,
-                  icon: pairState.token1.iconUrl || null
-                },
-                reserves: {
-                  token0: pairState.reserves.token0,
-                  token1: pairState.reserves.token1
-                },
-                cash_reserves: {
-                  token0: pairState.cashReserves.token0,
-                  token1: pairState.cashReserves.token1
-                },
-                oracle_prices: {
-                  token0: pairState.oraclePrices.token0,
-                  token1: pairState.oraclePrices.token1
-                },
-                spot_prices: {
-                  token0: pairState.spotPrices.token0,
-                  token1: pairState.spotPrices.token1
-                },
-                interest_rates: {
-                  token0: Math.max(pairState.rates.token0, 1),
-                  token1: Math.max(pairState.rates.token1, 1)
-                },
-                total_debts: {
-                  token0: pairState.totalDebts.token0,
-                  token1: pairState.totalDebts.token1
-                },
-                utilization: {
-                  token0: pairState.utilization.token0,
-                  token1: pairState.utilization.token1
-                },
-                lp_token: {
-                  total_supply: pairState.totalSupply,
-                  decimals: pairState.lpTokenDecimals
-                },
-                swap_fee_bps: poolData.swap_fee_bps,
-                fixed_cf_bps: poolData.fixed_cf_bps,
-                apr: aprData,
-                total_fees_paid: feesData,
-                volume_24h: volumeData
-              };
-            } catch (error) {
-              console.error(`Error fetching data for pool ${pairAddress}:`, error);
-              return {
-                id: poolData.id,
-                pair_address: pairAddress,
-                token0: { symbol: 'Unknown', name: 'Unknown', decimals: 0, address: token0Address, icon: null },
-                token1: { symbol: 'Unknown', name: 'Unknown', decimals: 0, address: token1Address, icon: null },
-                reserves: { token0: '0', token1: '0' },
-                cash_reserves: { token0: '0', token1: '0' },
-                oracle_prices: { token0: '0', token1: '0' },
-                spot_prices: { token0: '0', token1: '0' },
-                interest_rates: { token0: 1, token1: 1 },
-                total_debts: { token0: '0', token1: '0' },
-                utilization: { token0: 0, token1: 0 },
-                lp_token: { total_supply: '0', decimals: 0 },
-                swap_fee_bps: poolData.swap_fee_bps,
-                fixed_cf_bps: poolData.fixed_cf_bps,
-                apr: { apr: 0, apr_breakdown: { token0_apr: 0, token1_apr: 0 } },
-                total_fees_paid: { total_fee_paid_in_token0: '0', total_fee_paid_in_token1: '0', period: 'all' },
-                volume_24h: { volume0: '0', volume1: '0', period: '24hrs' }
-              };
-            }
-          })
-        );
-
-        return {
-          success: true,
-          data: {
-            pools: poolsWithData,
-            pagination: {
-              total: totalCount,
-              limit,
-              offset,
-              hasNext: offset + limit < totalCount
-            }
+      res.json({
+        success: true,
+        data: {
+          pools: paginatedPools,
+          pagination: {
+            total: allPools.length,
+            limit,
+            offset,
+            hasNext: offset + limit < allPools.length
           }
-        } as ApiResponse;
-      });
-
-      res.json(response);
+        }
+      } as ApiResponse);
     } catch (error) {
       console.error('Error fetching pools:', error);
       res.status(500).json({ success: false, error: 'Failed to fetch pools' });
