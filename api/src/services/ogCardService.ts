@@ -50,37 +50,6 @@ export async function fetchImageAsBase64(url: string): Promise<string | undefine
   }
 }
 
-/**
- * Fetch USD price for a token mint from Jupiter Price API V3.
- * Returns the price or undefined if unavailable.
- */
-export async function fetchTokenUsdPrice(mint: string): Promise<number | undefined> {
-  try {
-    const apiUrl = process.env.JUPITER_API_URL || 'https://api.jup.ag';
-    const headers: Record<string, string> = {};
-    if (process.env.JUPITER_API_KEY) {
-      headers['x-api-key'] = process.env.JUPITER_API_KEY;
-    }
-
-    const response = await fetch(`${apiUrl}/price/v3?ids=${mint}`, {
-      signal: AbortSignal.timeout(5000),
-      headers,
-    });
-
-    if (!response.ok) return undefined;
-
-    const data = await response.json() as Record<string, { usdPrice?: number }>;
-    const tokenData = data?.[mint];
-
-    if (tokenData?.usdPrice && !isNaN(tokenData.usdPrice) && tokenData.usdPrice > 0) {
-      return tokenData.usdPrice;
-    }
-    return undefined;
-  } catch (error) {
-    console.warn(`Failed to fetch USD price for ${mint}:`, error);
-    return undefined;
-  }
-}
 
 function escapeXml(str: string): string {
   return str

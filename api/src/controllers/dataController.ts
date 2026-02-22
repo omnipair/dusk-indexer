@@ -8,7 +8,8 @@ import { PairStateService, PairState } from '../services/PairStateService';
 import { simulateUserPositionGetter } from '../utils/pairSimulation';
 import { SimulationResult } from '../types/pairTypes';
 import { loadOmnipairIdl } from '../config/idl-loader';
-import { generateOgCardSvg, formatLargeNumber, fetchImageAsBase64, fetchTokenUsdPrice } from '../services/ogCardService';
+import { generateOgCardSvg, formatLargeNumber, fetchImageAsBase64 } from '../services/ogCardService';
+import { fetchTokenPrices } from '../services/jupiterPriceService';
 
 /**
  * Split a position into two separate token positions:
@@ -625,12 +626,14 @@ export class DataController {
 
         const poolMeta = poolMetaResult.rows[0] || {};
 
-        const [token0IconBase64, token1IconBase64, token0UsdPrice, token1UsdPrice] = await Promise.all([
+        const [token0IconBase64, token1IconBase64, tokenPrices] = await Promise.all([
           pairState.token0.iconUrl ? fetchImageAsBase64(pairState.token0.iconUrl) : undefined,
           pairState.token1.iconUrl ? fetchImageAsBase64(pairState.token1.iconUrl) : undefined,
-          fetchTokenUsdPrice(pairState.token0.address),
-          fetchTokenUsdPrice(pairState.token1.address),
+          fetchTokenPrices([pairState.token0.address, pairState.token1.address]),
         ]);
+
+        const token0UsdPrice = tokenPrices.get(pairState.token0.address)?.price;
+        const token1UsdPrice = tokenPrices.get(pairState.token1.address)?.price;
 
         const reserve0 = parseFloat(pairState.reserves.token0);
         const reserve1 = parseFloat(pairState.reserves.token1);
