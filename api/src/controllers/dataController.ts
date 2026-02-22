@@ -11,6 +11,12 @@ import { loadOmnipairIdl } from '../config/idl-loader';
 import { generateOgCardSvg, formatLargeNumber, fetchImageAsBase64 } from '../services/ogCardService';
 import { fetchTokenPrices } from '../services/jupiterPriceService';
 
+const KNOWN_TOKEN_ICONS: Record<string, string> = {
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png',
+  'So11111111111111111111111111111111111111112': 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB/logo.svg',
+};
+
 /**
  * Split a position into two separate token positions:
  * 1. Position with collateral0 and debt1 (token0 collateral, token1 debt)
@@ -626,9 +632,12 @@ export class DataController {
 
         const poolMeta = poolMetaResult.rows[0] || {};
 
+        const token0IconUrl = pairState.token0.iconUrl || KNOWN_TOKEN_ICONS[pairState.token0.address];
+        const token1IconUrl = pairState.token1.iconUrl || KNOWN_TOKEN_ICONS[pairState.token1.address];
+
         const [token0IconBase64, token1IconBase64, tokenPrices] = await Promise.all([
-          pairState.token0.iconUrl ? fetchImageAsBase64(pairState.token0.iconUrl) : undefined,
-          pairState.token1.iconUrl ? fetchImageAsBase64(pairState.token1.iconUrl) : undefined,
+          token0IconUrl ? fetchImageAsBase64(token0IconUrl) : undefined,
+          token1IconUrl ? fetchImageAsBase64(token1IconUrl) : undefined,
           fetchTokenPrices([pairState.token0.address, pairState.token1.address]),
         ]);
 
