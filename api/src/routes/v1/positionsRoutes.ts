@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
-import { DataController } from '../../controllers/dataController';
+import { PositionController } from '../../controllers/positionController';
 
 const router = Router();
 
-router.get('/', DataController.getAllPositions);
+router.get('/', PositionController.getAllPositions);
 
-router.get('/liquidity', DataController.getAllLiquidityPositions);
+router.get('/liquidity', PositionController.getAllLiquidityPositions);
 
 router.get('/:positionId', async (req: Request, res: Response) => {
   res.status(501).json({
@@ -15,4 +15,3 @@ router.get('/:positionId', async (req: Request, res: Response) => {
 });
 
 export default router;
-
