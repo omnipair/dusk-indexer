@@ -442,4 +442,57 @@ export class PoolController {
       res.status(500).json(response);
     }
   }
+
+
+  static async getTvl(_req: Request, res: Response): Promise<void> {
+    try {
+      const allPools = await PoolController.fetchAllPools(false);
+
+      const uniqueMints = new Set<string>();
+      for (const p of allPools) {
+        if (p.token0.address) uniqueMints.add(p.token0.address);
+        if (p.token1.address) uniqueMints.add(p.token1.address);
+      }
+
+      const prices = await fetchTokenPrices(Array.from(uniqueMints));
+
+      let totalTvl = 0;
+      const poolTvls = allPools.map((p) => {
+        const reserve0 = parseFloat(p.reserves.token0);
+        const reserve1 = parseFloat(p.reserves.token1);
+        const price0 = prices.get(p.token0.address)?.price;
+        const price1 = prices.get(p.token1.address)?.price;
+
+        let tvl = 0;
+        if (price0 && price1) {
+          tvl = reserve0 * price0 + reserve1 * price1;
+        } else if (price0) {
+          tvl = reserve0 * price0 * 2;
+        } else if (price1) {
+          tvl = reserve1 * price1 * 2;
+        }
+
+        totalTvl += tvl;
+
+        return {
+          pair_address: p.pair_address,
+          token0: { symbol: p.token0.symbol, address: p.token0.address },
+          token1: { symbol: p.token1.symbol, address: p.token1.address },
+          tvl,
+        };
+      });
+
+      res.json({
+        success: true,
+        data: {
+          total_tvl: totalTvl,
+          pools: poolTvls,
+          pool_count: allPools.length,
+        }
+      });
+    } catch (error) {
+      console.error('Error calculating TVL:', error);
+      res.status(500).json({ success: false, error: 'Failed to calculate TVL' });
+    }
+  }
 }

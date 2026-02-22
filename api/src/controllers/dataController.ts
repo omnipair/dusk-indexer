@@ -22,6 +22,7 @@ export class DataController {
   static getPools = (req: Request, res: Response) => PoolController.getPools(req, res);
   static getPoolsByTokens = (req: Request, res: Response) => PoolController.getPoolsByTokens(req, res);
   static getTokensByToken = (req: Request, res: Response) => PoolController.getTokensByToken(req, res);
+  static getTvl = (req: Request, res: Response) => PoolController.getTvl(req, res);
 
   // Positions
   static getAllPositions = (req: Request, res: Response) => PositionController.getAllPositions(req, res);

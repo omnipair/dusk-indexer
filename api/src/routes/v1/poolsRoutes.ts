@@ -13,6 +13,7 @@ const normalizeWindowHours = (req: Request, res: Response, next: NextFunction) =
 };
 
 router.get('/', PoolController.getPools);
+router.get('/tvl', PoolController.getTvl);
 
 router.get('/paired-tokens/:tokenAddress', async (req: Request, res: Response) => {
   req.params.token = req.params.tokenAddress;
