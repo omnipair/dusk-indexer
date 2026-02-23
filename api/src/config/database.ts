@@ -13,8 +13,12 @@ const pool = new Pool({
   statement_timeout: 30000,
 });
 
+let connected = false;
 pool.on('connect', () => {
-  console.log('Connected to PostgreSQL database');
+  if (!connected) {
+    connected = true;
+    console.log('Connected to PostgreSQL database');
+  }
 });
 
 pool.on('error', (err) => {
