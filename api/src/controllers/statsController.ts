@@ -57,6 +57,32 @@ export class StatsController {
     return { tvl, poolCount: allPools.length };
   }
 
+  static async getVolumeChart(_req: Request, res: Response): Promise<void> {
+    try {
+      const data = await cache.getOrSet('stats:volume_chart_7d', 60_000, async () => {
+        const result = await pool.query(`
+          SELECT
+            date_trunc('day', timestamp) AS day,
+            COALESCE(SUM(volume_usd), 0) AS volume
+          FROM swaps
+          WHERE timestamp >= now() - interval '7 days'
+          GROUP BY day
+          ORDER BY day ASC
+        `);
+
+        return result.rows.map((r: any) => ({
+          date: r.day.toISOString().slice(0, 10),
+          volume: parseFloat(r.volume),
+        }));
+      });
+
+      res.json({ success: true, data });
+    } catch (error) {
+      console.error('Error fetching volume chart:', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch volume chart' });
+    }
+  }
+
   private static async computeVolume(): Promise<{ totalVolume: number; volume24h: number }> {
     return cache.getOrSet('stats:volume', 15_000, async () => {
       const now = Math.floor(Date.now() / 1000);
