@@ -50,36 +50,17 @@ export async function fetchImageAsBase64(url: string): Promise<string | undefine
   }
 }
 
-/**
- * Fetch USD price for a token mint from Jupiter Price API V3.
- * Returns the price or undefined if unavailable.
- */
-export async function fetchTokenUsdPrice(mint: string): Promise<number | undefined> {
-  try {
-    const apiUrl = process.env.JUPITER_API_URL || 'https://api.jup.ag';
-    const headers: Record<string, string> = {};
-    if (process.env.JUPITER_API_KEY) {
-      headers['x-api-key'] = process.env.JUPITER_API_KEY;
-    }
 
-    const response = await fetch(`${apiUrl}/price/v3?ids=${mint}`, {
-      signal: AbortSignal.timeout(5000),
-      headers,
-    });
-
-    if (!response.ok) return undefined;
-
-    const data = await response.json() as Record<string, { usdPrice?: number }>;
-    const tokenData = data?.[mint];
-
-    if (tokenData?.usdPrice && !isNaN(tokenData.usdPrice) && tokenData.usdPrice > 0) {
-      return tokenData.usdPrice;
-    }
-    return undefined;
-  } catch (error) {
-    console.warn(`Failed to fetch USD price for ${mint}:`, error);
-    return undefined;
+function estimateTextWidth(text: string, fontSize: number): number {
+  let width = 0;
+  for (const ch of text) {
+    if (ch >= '0' && ch <= '9') width += 0.56 * fontSize;
+    else if (ch === '.') width += 0.27 * fontSize;
+    else if (ch === ' ') width += 0.27 * fontSize;
+    else if (ch === '-') width += 0.36 * fontSize;
+    else width += 0.5 * fontSize;
   }
+  return width;
 }
 
 function escapeXml(str: string): string {
@@ -163,30 +144,35 @@ export function generateOgCardSvg(params: OgCardParams): string {
   );
 
   // 9. Replace liquidity card with spot price (token0 price in token1)
-  // Replace the entire liquidity_value group with left-aligned price + token1 symbol
-  svg = svg.replace(
-    /<g id="liquidity_value">[\s\S]*?<\/g>/,
-    `<g id="liquidity_value">
-<text style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="56" letter-spacing="0em"><tspan x="478" y="442.3" fill="#292929">${escapeXml(params.spotPriceValue)} </tspan><tspan fill="#9B9B9B">${escapeXml(params.spotPriceSuffix)}</tspan></text>
-</g>`
-  );
-  // Replace "Available Liq." label with "1 [token0_icon]" left-aligned (x ≈ 478)
-  if (params.token0IconBase64) {
+  // Value line: price + token1 logo (or symbol fallback)
+  if (params.token1IconBase64) {
+    const priceTextWidth = estimateTextWidth(params.spotPriceValue + ' ', 56);
+    const iconX = Math.round(478 + priceTextWidth);
+    const iconR = 22;
+    const iconCx = iconX + iconR;
+    const iconCy = 428;
     svg = svg.replace(
-      /<text id="liquidity_label"[^>]*>.*?<\/text>/,
-      `<g id="liquidity_label">
-<text fill="#9B9B9B" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="32" letter-spacing="0em"><tspan x="478" y="502.6">1</tspan></text>
-<clipPath id="clip-label-token0"><circle cx="510" cy="493" r="14"/></clipPath>
-<image href="${params.token0IconBase64}" x="496" y="479" width="28" height="28" clip-path="url(#clip-label-token0)" preserveAspectRatio="xMidYMid slice"/>
-<circle cx="510" cy="493" r="14" stroke="#E0E0E0" stroke-width="1.5" fill="none"/>
+      /<g id="liquidity_value">[\s\S]*?<\/g>/,
+      `<g id="liquidity_value">
+<text style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="56" letter-spacing="0em"><tspan x="478" y="442.3" fill="#292929">${escapeXml(params.spotPriceValue)} </tspan></text>
+<clipPath id="clip-price-token1"><circle cx="${iconCx}" cy="${iconCy}" r="${iconR}"/></clipPath>
+<image href="${params.token1IconBase64}" x="${iconX}" y="${iconCy - iconR}" width="${iconR * 2}" height="${iconR * 2}" clip-path="url(#clip-price-token1)" preserveAspectRatio="xMidYMid slice"/>
+<circle cx="${iconCx}" cy="${iconCy}" r="${iconR}" stroke="#E0E0E0" stroke-width="1.5" fill="none"/>
 </g>`
     );
   } else {
     svg = svg.replace(
-      '>Available Liq.</tspan>',
-      `>1 ${escapeXml(params.token0Symbol)}</tspan>`
+      /<g id="liquidity_value">[\s\S]*?<\/g>/,
+      `<g id="liquidity_value">
+<text style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="56" letter-spacing="0em"><tspan x="478" y="442.3" fill="#292929">${escapeXml(params.spotPriceValue)} </tspan><tspan fill="#9B9B9B">${escapeXml(params.spotPriceSuffix)}</tspan></text>
+</g>`
     );
   }
+  // Label line: "1 {token0 symbol}" (always text, no icon)
+  svg = svg.replace(
+    /<text id="liquidity_label"[^>]*>.*?<\/text>/,
+    `<text id="liquidity_label" fill="#9B9B9B" style="white-space: pre" xml:space="preserve" font-family="M Saans" font-size="32" letter-spacing="0em"><tspan x="478" y="502.6">1 ${escapeXml(params.token0Symbol)}</tspan></text>`
+  );
 
   // 10. Replace token0 image if base64 data URI is available
   if (params.token0IconBase64) {

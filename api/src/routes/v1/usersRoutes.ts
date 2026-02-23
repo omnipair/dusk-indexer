@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
-import { DataController } from '../../controllers/dataController';
+import { SwapController } from '../../controllers/swapController';
+import { UserController } from '../../controllers/userController';
+import { PositionController } from '../../controllers/positionController';
 
 const router = Router();
 
@@ -7,7 +9,7 @@ router.get('/:userAddress/swaps', async (req: Request, res: Response) => {
   if (req.query.poolAddress) {
     req.params.pairAddress = req.query.poolAddress as string;
   }
-  await DataController.getSwaps(req, res);
+  await SwapController.getSwaps(req, res);
 });
 
 router.get('/:userAddress/liquidity-events', async (req: Request, res: Response) => {
@@ -20,17 +22,16 @@ router.get('/:userAddress/liquidity-events', async (req: Request, res: Response)
     });
     return;
   }
-  await DataController.getUserHistory(req, res);
+  await UserController.getUserHistory(req, res);
 });
 
 router.get('/:userAddress/lending-events', async (req: Request, res: Response) => {
-  await DataController.getUserLendingHistory(req, res);
+  await UserController.getUserLendingHistory(req, res);
 });
 
 router.get('/:userAddress/positions', async (req: Request, res: Response) => {
   req.query.userAddress = req.params.userAddress;
-  await DataController.getAllPositions(req, res);
+  await PositionController.getAllPositions(req, res);
 });
 
 export default router;
-

@@ -1,21 +1,21 @@
 import { Router } from 'express';
-import { DataController } from '../controllers/dataController';
+import { SwapController } from '../controllers/swapController';
 
 const router = Router();
 
 // Swaps endpoint - requires pair address
-router.get('/:pairAddress', DataController.getSwaps);
+router.get('/:pairAddress', SwapController.getSwaps);
 
 // Dynamic swap volume endpoint - accepts pair address and optional hours parameter
-router.get('/volume/:pairAddress/:hours', DataController.getSwapVolume);
-router.get('/volume/:pairAddress', DataController.getSwapVolume); // Default to 24 hours
+router.get('/volume/:pairAddress/:hours', SwapController.getSwapVolume);
+router.get('/volume/:pairAddress', SwapController.getSwapVolume); // Default to 24 hours
 
 // Dynamic chart prices endpoint - accepts pair address and optional hours parameter
-router.get('/chart-prices/:pairAddress/:hours', DataController.getChartPrices);
-router.get('/chart-prices/:pairAddress', DataController.getChartPrices); // Default to 24 hours
+router.get('/chart-prices/:pairAddress/:hours', SwapController.getChartPrices);
+router.get('/chart-prices/:pairAddress', SwapController.getChartPrices); // Default to 24 hours
 
 // Dynamic fee paid endpoint - accepts pair address and optional hours parameter
-router.get('/fee-paid/:pairAddress/:hours', DataController.getFeePaid);
-router.get('/fee-paid/:pairAddress', DataController.getFeePaid); // Default to 24 hours
+router.get('/fee-paid/:pairAddress/:hours', SwapController.getFeePaid);
+router.get('/fee-paid/:pairAddress', SwapController.getFeePaid); // Default to 24 hours
 
 export default router;
