@@ -2,12 +2,14 @@ import { Router } from 'express';
 import poolsRoutes from './v1/poolsRoutes';
 import usersRoutes from './v1/usersRoutes';
 import positionsRoutes from './v1/positionsRoutes';
+import statsRoutes from './v1/statsRoutes';
 
 const router = Router();
 
 router.use('/api/v1/pools', poolsRoutes);
 router.use('/api/v1/users', usersRoutes);
 router.use('/api/v1/positions', positionsRoutes);
+router.use('/api/v1/stats', statsRoutes);
 
 router.get('/', (req, res) => {
   res.json({
@@ -37,6 +39,9 @@ router.get('/', (req, res) => {
         'list-positions': 'GET /api/v1/positions?userAddress=ADDR&poolAddress=ADDR&type=liquidity&status=open&limit=100&offset=0',
         'liquidity-positions': 'GET /api/v1/positions/liquidity?userAddress=ADDR&poolAddress=ADDR&limit=100&offset=0',
         'single-position': 'GET /api/v1/positions/{positionId}'
+      },
+      stats: {
+        'protocol-stats': 'GET /api/v1/stats'
       }
     },
     parameters: {

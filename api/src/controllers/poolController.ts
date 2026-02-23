@@ -211,7 +211,7 @@ export class PoolController {
     }
   }
 
-  private static async fetchAllPools(showAll: boolean): Promise<any[]> {
+  static async fetchAllPools(showAll: boolean): Promise<any[]> {
     const cacheKey = `pools:enriched:${showAll ? 'all' : 'visible'}`;
 
     return cache.getOrSet(cacheKey, 15_000, async () => {
