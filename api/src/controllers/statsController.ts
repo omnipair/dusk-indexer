@@ -57,15 +57,33 @@ export class StatsController {
     return { tvl, poolCount: allPools.length };
   }
 
-  static async getVolumeChart(_req: Request, res: Response): Promise<void> {
+  static async getVolumeChart(req: Request, res: Response): Promise<void> {
+    const VALID_TIMEFRAMES = ['7d', '30d', 'all'] as const;
+    type Timeframe = typeof VALID_TIMEFRAMES[number];
+
+    const timeframe = (req.query.timeframe as string) || '7d';
+    if (!VALID_TIMEFRAMES.includes(timeframe as Timeframe)) {
+      res.status(400).json({ success: false, error: `Invalid timeframe. Must be one of: ${VALID_TIMEFRAMES.join(', ')}` });
+      return;
+    }
+
+    const intervalMap: Record<Timeframe, string | null> = {
+      '7d': "7 days",
+      '30d': "30 days",
+      'all': null,
+    };
+
+    const interval = intervalMap[timeframe as Timeframe];
+
     try {
-      const data = await cache.getOrSet('stats:volume_chart_7d', 60_000, async () => {
+      const data = await cache.getOrSet(`stats:volume_chart_${timeframe}`, 60_000, async () => {
+        const whereClause = interval ? `WHERE timestamp >= now() - interval '${interval}'` : '';
         const result = await pool.query(`
           SELECT
             date_trunc('day', timestamp) AS day,
             COALESCE(SUM(volume_usd), 0) AS volume
           FROM swaps
-          WHERE timestamp >= now() - interval '7 days'
+          ${whereClause}
           GROUP BY day
           ORDER BY day ASC
         `);
