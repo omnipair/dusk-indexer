@@ -11,7 +11,16 @@ import {
   getOmnipairProgram
 } from '../config/program';
 import { simulatePairGetter } from '../utils/pairSimulation';
+import { cache } from '../utils/cache';
 import type { Omnipair } from '@omnipair/program-interface';
+
+const PLACEHOLDER_ICON = 'https://placehold.net/400x400.png';
+const ONE_DAY_MS = 24 * 60 * 60 * 1000; // 24 hours
+const FETCH_TIMEOUT_MS = 3_000;
+
+function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
+  return fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+}
 
 export interface TokenMetadata {
   symbol: string;
@@ -81,73 +90,71 @@ export class PairStateService {
     this.program = getOmnipairProgram(provider);
   }
 
-  /**
-   * Fetch token metadata from on-chain data
-   */
   private async fetchTokenMetadata(mint: PublicKey): Promise<TokenMetadata> {
-    try {
-      const rpcEndpoint = this.connection.rpcEndpoint;
-      const umi = createUmi(rpcEndpoint).use(mplTokenMetadata());
+    const mintStr = mint.toString();
+    return cache.getOrSet(`token_metadata_${mintStr}`, ONE_DAY_MS, async () => {
+      try {
+        const rpcEndpoint = this.connection.rpcEndpoint;
+        const umi = createUmi(rpcEndpoint).use(mplTokenMetadata());
 
-      const asset = await fetchDigitalAsset(umi, fromWeb3JsPublicKey(mint));
+        const asset = await fetchDigitalAsset(umi, fromWeb3JsPublicKey(mint));
 
-      // Get decimals from mint account
-      const mintInfo = await this.connection.getAccountInfo(mint);
-      if (!mintInfo) {
-        throw new Error('Failed to fetch mint info');
-      }
-      const decimals = MintLayout.decode(mintInfo.data).decimals;
-
-      // Extract icon URL from metadata URI
-      let iconUrl: string | undefined;
-      if (asset.metadata?.uri && asset.metadata.uri.trim() !== '') {
-        try {
-          const metadataResponse = await fetch(asset.metadata.uri);
-          if (metadataResponse.ok) {
-            const metadataJson = await metadataResponse.json() as any;
-            if (metadataJson.image && typeof metadataJson.image === 'string' && metadataJson.image.trim() !== '') {
-              iconUrl = metadataJson.image;
-            }
-          }
-        } catch (error) {
-          // Silently fail for metadata JSON fetch errors
-          console.warn(`Failed to fetch metadata JSON for ${mint.toString()}`);
+        const mintInfo = await this.connection.getAccountInfo(mint);
+        if (!mintInfo) {
+          throw new Error('Failed to fetch mint info');
         }
-      }
+        const decimals = MintLayout.decode(mintInfo.data).decimals;
 
-      return {
-        symbol: asset.metadata?.symbol || 'Unknown',
-        name: asset.metadata?.name || asset.metadata?.symbol || 'Unknown',
-        decimals,
-        address: mint.toString(),
-        iconUrl,
-      };
-    } catch (err) {
-      console.error('Error fetching token metadata:', err);
-      return {
-        symbol: 'Unknown',
-        name: 'Unknown',
-        decimals: 6, // Fallback to 6 if we can't fetch the decimals
-        address: mint.toString(),
-        iconUrl: undefined,
-      };
-    }
+        let iconUrl: string | undefined;
+        if (asset.metadata?.uri && asset.metadata.uri.trim() !== '') {
+          try {
+            const metadataResponse = await fetchWithTimeout(asset.metadata.uri, FETCH_TIMEOUT_MS);
+            if (metadataResponse.ok) {
+              const metadataJson = await metadataResponse.json() as any;
+              if (metadataJson.image && typeof metadataJson.image === 'string' && metadataJson.image.trim() !== '') {
+                iconUrl = metadataJson.image;
+              }
+            }
+          } catch (error) {
+            console.warn(`Failed to fetch metadata JSON for ${mintStr} (timeout or error), using placeholder icon`);
+            iconUrl = PLACEHOLDER_ICON;
+          }
+        }
+
+        return {
+          symbol: asset.metadata?.symbol || 'Unknown',
+          name: asset.metadata?.name || asset.metadata?.symbol || 'Unknown',
+          decimals,
+          address: mintStr,
+          iconUrl,
+        };
+      } catch (err) {
+        console.error('Error fetching token metadata:', err);
+        return {
+          symbol: 'Unknown',
+          name: 'Unknown',
+          decimals: 6,
+          address: mintStr,
+          iconUrl: undefined,
+        };
+      }
+    });
   }
 
-  /**
-   * Fetch LP token decimals
-   */
   private async fetchLpTokenDecimals(lpMint: PublicKey): Promise<number> {
-    try {
-      const mintInfo = await this.connection.getAccountInfo(lpMint);
-      if (!mintInfo) {
-        throw new Error('Failed to fetch LP mint info');
+    const mintStr = lpMint.toString();
+    return cache.getOrSet(`lp_decimals_${mintStr}`, ONE_DAY_MS, async () => {
+      try {
+        const mintInfo = await this.connection.getAccountInfo(lpMint);
+        if (!mintInfo) {
+          throw new Error('Failed to fetch LP mint info');
+        }
+        return MintLayout.decode(mintInfo.data).decimals;
+      } catch (err) {
+        console.error('Error fetching LP token decimals:', err);
+        return 6;
       }
-      return MintLayout.decode(mintInfo.data).decimals;
-    } catch (err) {
-      console.error('Error fetching LP token decimals:', err);
-      return 6; // Fallback to 6 if we can't fetch the decimals
-    }
+    });
   }
 
 
