@@ -80,38 +80,60 @@ async function getPoolInfo(pairAddress: string): Promise<PoolInfo | null> {
 
 // --- Volume Calculation ---
 
-async function computeVolumeUsd(
+interface EnrichmentResult {
+  volumeUsd: number;
+  lpFeeUsd: number;
+  protocolFeeUsd: number;
+}
+
+async function computeSwapUsdValues(
   pairAddress: string,
   isToken0In: boolean,
   amountIn: string,
-  amountOut: string
-): Promise<number> {
+  amountOut: string,
+  lpFee: string,
+  protocolFee: string
+): Promise<EnrichmentResult> {
   const poolInfo = await getPoolInfo(pairAddress);
-  if (!poolInfo) return 0;
+  if (!poolInfo) return { volumeUsd: 0, lpFeeUsd: 0, protocolFeeUsd: 0 };
 
   const tokenInMint = isToken0In ? poolInfo.token0 : poolInfo.token1;
   const tokenOutMint = isToken0In ? poolInfo.token1 : poolInfo.token0;
 
-  // Fetch both token prices in a single Jupiter API call
   const prices = await fetchTokenPrices([tokenInMint, tokenOutMint]);
 
-  // Prefer input token price
+  // lp_fee and protocol_fee are denominated in the input token
   const tokenInPrice = prices.get(tokenInMint);
   if (tokenInPrice) {
-    const humanAmount = parseFloat(amountIn) / Math.pow(10, tokenInPrice.decimals);
-    return humanAmount * tokenInPrice.price;
+    const decimals = Math.pow(10, tokenInPrice.decimals);
+    const price = tokenInPrice.price;
+    return {
+      volumeUsd: parseFloat(amountIn) / decimals * price,
+      lpFeeUsd: parseFloat(lpFee) / decimals * price,
+      protocolFeeUsd: parseFloat(protocolFee) / decimals * price,
+    };
   }
 
-  // Fallback: use output token price
+  // Fallback: use output token price for volume only; derive fee USD via ratio
   const tokenOutPrice = prices.get(tokenOutMint);
   if (tokenOutPrice) {
-    const humanAmount = parseFloat(amountOut) / Math.pow(10, tokenOutPrice.decimals);
-    return humanAmount * tokenOutPrice.price;
+    const volumeUsd = parseFloat(amountOut) / Math.pow(10, tokenOutPrice.decimals) * tokenOutPrice.price;
+    const totalFeeRaw = parseFloat(lpFee) + parseFloat(protocolFee);
+    if (totalFeeRaw > 0 && parseFloat(amountIn) > 0) {
+      const feeToVolumeRatio = totalFeeRaw / parseFloat(amountIn);
+      const totalFeeUsd = volumeUsd * feeToVolumeRatio;
+      const lpShare = parseFloat(lpFee) / totalFeeRaw;
+      return {
+        volumeUsd,
+        lpFeeUsd: totalFeeUsd * lpShare,
+        protocolFeeUsd: totalFeeUsd * (1 - lpShare),
+      };
+    }
+    return { volumeUsd, lpFeeUsd: 0, protocolFeeUsd: 0 };
   }
 
-  // Neither token has a price
   console.warn(`No USD price available for either token in pair ${pairAddress}`);
-  return 0;
+  return { volumeUsd: 0, lpFeeUsd: 0, protocolFeeUsd: 0 };
 }
 
 // --- Swap Notification Handler ---
@@ -124,6 +146,8 @@ interface SwapNotification {
   amount_in: string;
   amount_out: string;
   tx_sig: string;
+  lp_fee: string;
+  protocol_fee: string;
   volume_usd: string;
 }
 
@@ -150,21 +174,22 @@ async function handleSwapNotification(payload: string): Promise<void> {
   const pairAddress = notification.pair;
 
   try {
-    const volumeUsd = await computeVolumeUsd(
+    const result = await computeSwapUsdValues(
       pairAddress,
       notification.is_token0_in,
       notification.amount_in,
-      notification.amount_out
+      notification.amount_out,
+      notification.lp_fee || '0',
+      notification.protocol_fee || '0'
     );
 
-    // UPDATE the swap with volume_usd
     await pool.query(
-      'UPDATE swaps SET volume_usd = $1 WHERE tx_sig = $2',
-      [volumeUsd, txSig]
+      'UPDATE swaps SET volume_usd = $1, lp_fee_usd = $2, protocol_fee_usd = $3 WHERE tx_sig = $4',
+      [result.volumeUsd, result.lpFeeUsd, result.protocolFeeUsd, txSig]
     );
 
     console.log(
-      `Enriched swap - Pair: ${pairAddress}, TxSig: ${txSig}, VolumeUSD: $${volumeUsd.toFixed(2)}`
+      `Enriched swap - Pair: ${pairAddress}, TxSig: ${txSig}, VolumeUSD: $${result.volumeUsd.toFixed(2)}, LpFeeUSD: $${result.lpFeeUsd.toFixed(4)}, ProtocolFeeUSD: $${result.protocolFeeUsd.toFixed(4)}`
     );
   } catch (error: any) {
     console.error(`Error enriching swap ${txSig}:`, error.message);

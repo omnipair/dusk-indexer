@@ -69,8 +69,9 @@ pub async fn upsert_swap_event(
         r#"
         INSERT INTO swaps (
             pair, user_address, is_token0_in, amount_in, amount_out, 
-            reserve0, reserve1, timestamp, tx_sig, slot, fee_paid0, fee_paid1
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            reserve0, reserve1, timestamp, tx_sig, slot, fee_paid0, fee_paid1,
+            lp_fee, protocol_fee
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         ON CONFLICT (tx_sig, timestamp) DO UPDATE SET
             pair = EXCLUDED.pair,
             user_address = EXCLUDED.user_address,
@@ -82,7 +83,9 @@ pub async fn upsert_swap_event(
             timestamp = EXCLUDED.timestamp,
             slot = EXCLUDED.slot,
             fee_paid0 = EXCLUDED.fee_paid0,
-            fee_paid1 = EXCLUDED.fee_paid1
+            fee_paid1 = EXCLUDED.fee_paid1,
+            lp_fee = EXCLUDED.lp_fee,
+            protocol_fee = EXCLUDED.protocol_fee
         "#
     )
     .bind(swap_event.metadata.pair.to_string())
@@ -97,6 +100,8 @@ pub async fn upsert_swap_event(
     .bind(bigdecimal::BigDecimal::from(slot))
     .bind(bigdecimal::BigDecimal::from(fee_paid0))
     .bind(bigdecimal::BigDecimal::from(fee_paid1))
+    .bind(bigdecimal::BigDecimal::from(swap_event.lp_fee))
+    .bind(bigdecimal::BigDecimal::from(swap_event.protocol_fee))
     .execute(pool)
     .await;
     
