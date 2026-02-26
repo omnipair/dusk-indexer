@@ -101,6 +101,54 @@ export class StatsController {
     }
   }
 
+  static async getFeesChart(req: Request, res: Response): Promise<void> {
+    const VALID_TIMEFRAMES = ['7d', '30d', 'all'] as const;
+    type Timeframe = typeof VALID_TIMEFRAMES[number];
+
+    const timeframe = (req.query.timeframe as string) || '7d';
+    if (!VALID_TIMEFRAMES.includes(timeframe as Timeframe)) {
+      res.status(400).json({ success: false, error: `Invalid timeframe. Must be one of: ${VALID_TIMEFRAMES.join(', ')}` });
+      return;
+    }
+
+    const intervalMap: Record<Timeframe, string | null> = {
+      '7d': "7 days",
+      '30d': "30 days",
+      'all': null,
+    };
+
+    const interval = intervalMap[timeframe as Timeframe];
+
+    try {
+      const data = await cache.getOrSet(`stats:fees_chart_${timeframe}`, 60_000, async () => {
+        const whereClause = interval ? `WHERE timestamp >= now() - interval '${interval}'` : '';
+        const result = await pool.query(`
+          SELECT
+            date_trunc('day', timestamp) AS day,
+            COALESCE(SUM(lp_fee_usd), 0) AS lp_fees,
+            COALESCE(SUM(protocol_fee_usd), 0) AS protocol_fees,
+            COALESCE(SUM(COALESCE(lp_fee_usd, 0) + COALESCE(protocol_fee_usd, 0)), 0) AS total_fees
+          FROM swaps
+          ${whereClause}
+          GROUP BY day
+          ORDER BY day ASC
+        `);
+
+        return result.rows.map((r: any) => ({
+          date: r.day.toISOString().slice(0, 10),
+          totalFees: parseFloat(r.total_fees),
+          protocolFees: parseFloat(r.protocol_fees),
+          lpFees: parseFloat(r.lp_fees),
+        }));
+      });
+
+      res.json({ success: true, data });
+    } catch (error) {
+      console.error('Error fetching fees chart:', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch fees chart' });
+    }
+  }
+
   private static async computeVolume(): Promise<{ totalVolume: number; volume24h: number }> {
     return cache.getOrSet('stats:volume', 15_000, async () => {
       const now = Math.floor(Date.now() / 1000);
