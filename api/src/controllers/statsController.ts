@@ -7,9 +7,10 @@ import { fetchTokenPrices } from '../services/jupiterPriceService';
 export class StatsController {
   static async getStats(_req: Request, res: Response): Promise<void> {
     try {
-      const [tvlData, volumeData] = await Promise.all([
+      const [tvlData, volumeData, feesData] = await Promise.all([
         StatsController.computeTvl(),
         StatsController.computeVolume(),
+        StatsController.computeFees(),
       ]);
 
       res.json({
@@ -19,6 +20,12 @@ export class StatsController {
           total_volume: volumeData.totalVolume,
           volume_24h: volumeData.volume24h,
           pool_count: tvlData.poolCount,
+          total_fees: feesData.totalFees,
+          fees_24h: feesData.fees24h,
+          total_lp_fees: feesData.totalLpFees,
+          lp_fees_24h: feesData.lpFees24h,
+          total_protocol_fees: feesData.totalProtocolFees,
+          protocol_fees_24h: feesData.protocolFees24h,
         },
       });
     } catch (error) {
@@ -164,6 +171,45 @@ export class StatsController {
       return {
         totalVolume: parseFloat(result.rows[0].total_volume),
         volume24h: parseFloat(result.rows[0].volume_24h),
+      };
+    });
+  }
+
+  private static async computeFees(): Promise<{
+    totalFees: number; fees24h: number;
+    totalLpFees: number; lpFees24h: number;
+    totalProtocolFees: number; protocolFees24h: number;
+  }> {
+    return cache.getOrSet('stats:fees', 15_000, async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const oneDayAgo = now - 24 * 60 * 60;
+
+      const result = await pool.query(`
+        SELECT
+          COALESCE(SUM(COALESCE(lp_fee_usd, 0) + COALESCE(protocol_fee_usd, 0)), 0) AS total_fees,
+          COALESCE(SUM(CASE WHEN timestamp > to_timestamp($1) THEN COALESCE(lp_fee_usd, 0) + COALESCE(protocol_fee_usd, 0) ELSE 0 END), 0) AS fees_24h,
+          COALESCE(SUM(lp_fee_usd), 0) AS total_lp_fees,
+          COALESCE(SUM(CASE WHEN timestamp > to_timestamp($1) THEN lp_fee_usd ELSE 0 END), 0) AS lp_fees_24h,
+          COALESCE(SUM(protocol_fee_usd), 0) AS total_protocol_fees,
+          COALESCE(SUM(CASE WHEN timestamp > to_timestamp($1) THEN protocol_fee_usd ELSE 0 END), 0) AS protocol_fees_24h
+        FROM swaps
+      `, [oneDayAgo]);
+
+      const row = result.rows[0];
+
+      // Pre-indexing fee volume: $47,396 at 0.25% fee rate, split 90/10 LP/protocol.
+      // These swaps occurred before indexing the fees.
+      const PRE_INDEX_TOTAL_FEES = 47396 * 0.0025;
+      const PRE_INDEX_LP_FEES = PRE_INDEX_TOTAL_FEES * 0.9;
+      const PRE_INDEX_PROTOCOL_FEES = PRE_INDEX_TOTAL_FEES * 0.1;
+
+      return {
+        totalFees: parseFloat(row.total_fees) + PRE_INDEX_TOTAL_FEES,
+        fees24h: parseFloat(row.fees_24h),
+        totalLpFees: parseFloat(row.total_lp_fees) + PRE_INDEX_LP_FEES,
+        lpFees24h: parseFloat(row.lp_fees_24h),
+        totalProtocolFees: parseFloat(row.total_protocol_fees) + PRE_INDEX_PROTOCOL_FEES,
+        protocolFees24h: parseFloat(row.protocol_fees_24h),
       };
     });
   }
