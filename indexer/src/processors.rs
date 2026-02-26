@@ -58,6 +58,12 @@ impl Processor for OmnipairInstructionProcessor {
             OmnipairInstruction::UpdatePairEvent(event) => {
                 self.process_update_pair_event(event, &metadata).await?;
             }
+            OmnipairInstruction::ClaimProtocolFeesEvent(_event) => {
+                log::debug!("ClaimProtocolFeesEvent received - not persisted");
+            }
+            OmnipairInstruction::FlashloanEvent(_event) => {
+                log::debug!("FlashloanEvent received - not persisted");
+            }
             OmnipairInstruction::UserPositionCreatedEvent(event) => {
                 self.process_user_position_created_event(event, &metadata).await?;
             }
@@ -326,24 +332,24 @@ impl OmnipairInstructionProcessor {
         event: carbon_omnipair_decoder::instructions::update_pair_event::UpdatePairEvent,
         metadata: &InstructionMetadata,
     ) -> CarbonResult<()> {
-        log::info!(
-            "UpdatePairEvent processed - Details: {:#?}",
-            event,
-        );
-        
         let tx_signature = metadata.transaction_metadata.signature.to_string();
-        
+        let slot = metadata.transaction_metadata.slot as i64;
+
+        if let Err(e) = database::upsert_update_pair_event(&event, &tx_signature, slot).await {
+            log::error!("Failed to insert update pair event: {}", e);
+            return Err(e);
+        }
+
         log::info!(
-            "Successfully processed UpdatePairEvent - Price0 EMA: {}, Price1 EMA: {}, Rate0: {}, Rate1: {}, Pair: {}, User: {}, TxSig: {}", 
-            event.price0_ema,
-            event.price1_ema,
+            "UpdatePairEvent - Pair: {}, Rate0: {}, Rate1: {}, AccruedInterest0: {}, AccruedInterest1: {}, TxSig: {}",
+            event.metadata.pair,
             event.rate0,
             event.rate1,
-            event.metadata.pair, 
-            event.metadata.signer, 
+            event.accrued_interest0,
+            event.accrued_interest1,
             tx_signature
         );
-        
+
         Ok(())
     }
 

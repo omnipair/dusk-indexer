@@ -9,6 +9,7 @@ use carbon_omnipair_decoder::instructions::{
     user_position_liquidated_event::UserPositionLiquidatedEvent,
     user_liquidity_position_updated_event::UserLiquidityPositionUpdatedEvent,
     pair_created_event::PairCreatedEvent,
+    update_pair_event::UpdatePairEvent,
 };
 use sqlx::PgPool;
 use tokio::sync::OnceCell;
@@ -574,6 +575,75 @@ pub async fn upsert_user_liquidity_position_updated_event(
         return Err(carbon_core::error::Error::Custom(format!("Failed to upsert user liquidity position: {}", e)));
     }
     
+    Ok(())
+}
+
+/// Upsert an UpdatePairEvent into the database
+pub async fn upsert_update_pair_event(
+    event: &UpdatePairEvent,
+    tx_signature: &str,
+    slot: i64,
+) -> CarbonResult<()> {
+    let pool = get_db_pool()?;
+
+    let upsert_result = sqlx::query(
+        r#"
+        INSERT INTO update_pair_events (
+            pair, signer, price0_ema, price1_ema, rate0, rate1,
+            accrued_interest0, accrued_interest1,
+            lp_interest0, lp_interest1,
+            protocol_interest0, protocol_interest1,
+            cash_reserve0, cash_reserve1,
+            reserve0_after_interest, reserve1_after_interest,
+            transaction_signature, slot, timestamp
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+        ON CONFLICT (transaction_signature, timestamp) DO UPDATE SET
+            pair = EXCLUDED.pair,
+            signer = EXCLUDED.signer,
+            price0_ema = EXCLUDED.price0_ema,
+            price1_ema = EXCLUDED.price1_ema,
+            rate0 = EXCLUDED.rate0,
+            rate1 = EXCLUDED.rate1,
+            accrued_interest0 = EXCLUDED.accrued_interest0,
+            accrued_interest1 = EXCLUDED.accrued_interest1,
+            lp_interest0 = EXCLUDED.lp_interest0,
+            lp_interest1 = EXCLUDED.lp_interest1,
+            protocol_interest0 = EXCLUDED.protocol_interest0,
+            protocol_interest1 = EXCLUDED.protocol_interest1,
+            cash_reserve0 = EXCLUDED.cash_reserve0,
+            cash_reserve1 = EXCLUDED.cash_reserve1,
+            reserve0_after_interest = EXCLUDED.reserve0_after_interest,
+            reserve1_after_interest = EXCLUDED.reserve1_after_interest,
+            slot = EXCLUDED.slot
+        "#
+    )
+    .bind(event.metadata.pair.to_string())
+    .bind(event.metadata.signer.to_string())
+    .bind(bigdecimal::BigDecimal::from(event.price0_ema))
+    .bind(bigdecimal::BigDecimal::from(event.price1_ema))
+    .bind(bigdecimal::BigDecimal::from(event.rate0))
+    .bind(bigdecimal::BigDecimal::from(event.rate1))
+    .bind(bigdecimal::BigDecimal::from(bigdecimal::num_bigint::BigInt::from(event.accrued_interest0)))
+    .bind(bigdecimal::BigDecimal::from(bigdecimal::num_bigint::BigInt::from(event.accrued_interest1)))
+    .bind(bigdecimal::BigDecimal::from(event.lp_interest0))
+    .bind(bigdecimal::BigDecimal::from(event.lp_interest1))
+    .bind(bigdecimal::BigDecimal::from(event.protocol_interest0))
+    .bind(bigdecimal::BigDecimal::from(event.protocol_interest1))
+    .bind(bigdecimal::BigDecimal::from(event.cash_reserve0))
+    .bind(bigdecimal::BigDecimal::from(event.cash_reserve1))
+    .bind(bigdecimal::BigDecimal::from(event.reserve0_after_interest))
+    .bind(bigdecimal::BigDecimal::from(event.reserve1_after_interest))
+    .bind(tx_signature)
+    .bind(bigdecimal::BigDecimal::from(slot))
+    .bind(chrono::Utc::now())
+    .execute(pool)
+    .await;
+
+    if let Err(e) = upsert_result {
+        log::error!("Failed to upsert into update_pair_events table: {}", e);
+        return Err(carbon_core::error::Error::Custom(format!("Failed to upsert update pair event: {}", e)));
+    }
+
     Ok(())
 }
 
