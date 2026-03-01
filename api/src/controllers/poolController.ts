@@ -214,7 +214,7 @@ export class PoolController {
   static async fetchAllPools(showAll: boolean): Promise<any[]> {
     const cacheKey = `pools:enriched:${showAll ? 'all' : 'visible'}`;
 
-    return cache.getOrSet(cacheKey, 15_000, async () => {
+    return cache.getOrSet(cacheKey, 60_000, async () => {
       const visibilityFilter = showAll ? '' : 'WHERE visible = TRUE';
 
       const result = await pool.query(`

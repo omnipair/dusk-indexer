@@ -29,6 +29,10 @@ router.get('/:userAddress/lending-events', async (req: Request, res: Response) =
   await UserController.getUserLendingHistory(req, res);
 });
 
+router.get('/:userAddress/activity', async (req: Request, res: Response) => {
+  await UserController.getUserActivity(req, res);
+});
+
 router.get('/:userAddress/positions', async (req: Request, res: Response) => {
   req.query.userAddress = req.params.userAddress;
   await PositionController.getAllPositions(req, res);

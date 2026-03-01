@@ -1,5 +1,7 @@
 import app from './app';
 import pool from './config/database';
+import { startActivityInvalidationListener, stopActivityInvalidationListener } from './services/activityInvalidationService';
+import { perfMetrics } from './utils/perfMetrics';
 
 const PORT = process.env.PORT || 3000;
 
@@ -8,6 +10,8 @@ let server: any;
 // Graceful shutdown function
 const gracefulShutdown = async (signal: string) => {
   console.log(`${signal} received, shutting down gracefully`);
+  perfMetrics.stopReporting();
+  await stopActivityInvalidationListener();
   
   if (server) {
     server.close(async () => {
@@ -32,8 +36,13 @@ const gracefulShutdown = async (signal: string) => {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-server = app.listen(PORT, () => {
+server = app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
+  try {
+    await startActivityInvalidationListener();
+  } catch (error) {
+    console.error('Failed to start activity invalidation listener:', error);
+  }
 });
 
 process.on('unhandledRejection', (err: any) => {
