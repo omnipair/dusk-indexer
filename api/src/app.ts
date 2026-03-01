@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import routes from './routes';
 import { errorHandler, notFound } from './middleware/errorHandler';
+import { perfMetrics } from './utils/perfMetrics';
 
 dotenv.config();
 
@@ -32,6 +33,8 @@ app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
   next();
 });
+
+perfMetrics.ensureReporting(60_000);
 
 app.use('/', routes);
 

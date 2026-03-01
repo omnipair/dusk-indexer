@@ -33,6 +33,7 @@ router.get('/', (req, res) => {
         'user-swaps': 'GET /api/v1/users/{userAddress}/swaps?poolAddress=ADDR&limit=100&offset=0',
         'liquidity-events': 'GET /api/v1/users/{userAddress}/liquidity-events?poolAddress=ADDR&limit=100&offset=0',
         'lending-events': 'GET /api/v1/users/{userAddress}/lending-events?poolAddress=ADDR&limit=100&offset=0',
+        'activity': 'GET /api/v1/users/{userAddress}/activity?categories=swaps,liquidity,lending&poolAddress=ADDR&limit=100&offset=0&sort=recent',
         'user-positions': 'GET /api/v1/users/{userAddress}/positions?poolAddress=ADDR&type=liquidity&status=open'
       },
       positions: {
@@ -51,8 +52,10 @@ router.get('/', (req, res) => {
       token1: 'Optional - The address of the second token (query param)',
       windowHours: 'Optional - Number of hours to look back (defaults to 24)',
       userAddress: 'Required for user endpoints - The user address to query data for',
+      categories: 'Optional - Comma-separated activity categories (swaps, liquidity, lending)',
       limit: 'Optional - Number of results to return (defaults to 100, max 100)',
       offset: 'Optional - Number of results to skip for pagination (defaults to 0)',
+      sort: 'Optional - Activity sorting direction (recent, oldest)',
       sortBy: 'Optional - Field to sort by (id, timestamp, amount0, amount1, liquidity, tvl, volume24h, apr)',
       sortOrder: 'Optional - Sort order (asc, desc)',
       type: 'Optional - Filter by position type (liquidity, lending, borrow, long, short, all)',

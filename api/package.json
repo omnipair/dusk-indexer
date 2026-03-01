@@ -12,7 +12,8 @@
     "verify-ema": "npm run build && node dist/scripts/fillEmaPrices.js verify",
     "ema-both": "npm run build && node dist/scripts/fillEmaPrices.js both",
     "start:volume-enricher": "node dist/scripts/volumeEnricher.js",
-    "backfill-volume": "npm run build && node dist/scripts/backfillVolume.js"
+    "backfill-volume": "npm run build && node dist/scripts/backfillVolume.js",
+    "benchmark:activity": "npm run build && node dist/scripts/benchmarkActivityHistory.js"
   },
   "keywords": [
     "typescript",

@@ -2,10 +2,14 @@ import { Request, Response } from 'express';
 import pool from '../config/database';
 import { ApiResponse } from '../types';
 import { cache } from '../utils/cache';
+import { timedQuery } from '../utils/dbQuery';
+import { perfMetrics } from '../utils/perfMetrics';
 import { isValidAddress, calculateTotalFeesPaid, calculateAPR } from './helpers/controllerBase';
 
 export class SwapController {
   static async getSwaps(req: Request, res: Response): Promise<void> {
+    const endpointMetric = req.params.userAddress ? 'users.swaps' : 'swaps';
+    const endpointStartedAt = Date.now();
     try {
       const pairAddress = req.params.pairAddress;
       const userAddress = req.params.address || req.params.userAddress;
@@ -22,41 +26,52 @@ export class SwapController {
         return;
       }
 
-      const cacheKey = `swaps:${pairAddress || ''}:${userAddress || ''}:${limit}:${offset}`;
-      const data = await cache.getOrSet(cacheKey, 5 * 1000, async () => {
-        let countQuery: string;
+      const ttlMs = offset <= limit * 2 ? 20 * 1000 : 180 * 1000;
+      const cacheKey = `swaps:user:${userAddress || 'all'}:pair:${pairAddress || 'all'}:limit:${limit}:offset:${offset}`;
+      const { data, cacheStatus } = await cache.getOrSetWithMeta(cacheKey, ttlMs, async () => {
         let dataQuery: string;
         let queryParams: any[];
-        let countParams: any[];
 
         if (pairAddress && userAddress) {
-          countQuery = 'SELECT COUNT(*) FROM swaps WHERE pair = $1 AND user_address = $2';
-          dataQuery = 'SELECT * FROM swaps WHERE pair = $1 AND user_address = $2 ORDER BY id DESC LIMIT $3 OFFSET $4';
-          queryParams = [pairAddress, userAddress, limit, offset];
-          countParams = [pairAddress, userAddress];
+          dataQuery = `
+            SELECT *
+            FROM swaps
+            WHERE pair = $1 AND user_address = $2
+            ORDER BY "timestamp" DESC, id DESC
+            LIMIT $3 OFFSET $4
+          `;
+          queryParams = [pairAddress, userAddress, limit + 1, offset];
         } else if (pairAddress) {
-          countQuery = 'SELECT COUNT(*) FROM swaps WHERE pair = $1';
-          dataQuery = 'SELECT * FROM swaps WHERE pair = $1 ORDER BY id DESC LIMIT $2 OFFSET $3';
-          queryParams = [pairAddress, limit, offset];
-          countParams = [pairAddress];
+          dataQuery = `
+            SELECT *
+            FROM swaps
+            WHERE pair = $1
+            ORDER BY "timestamp" DESC, id DESC
+            LIMIT $2 OFFSET $3
+          `;
+          queryParams = [pairAddress, limit + 1, offset];
         } else {
-          countQuery = 'SELECT COUNT(*) FROM swaps WHERE user_address = $1';
-          dataQuery = 'SELECT * FROM swaps WHERE user_address = $1 ORDER BY id DESC LIMIT $2 OFFSET $3';
-          queryParams = [userAddress, limit, offset];
-          countParams = [userAddress];
+          dataQuery = `
+            SELECT *
+            FROM swaps
+            WHERE user_address = $1
+            ORDER BY "timestamp" DESC, id DESC
+            LIMIT $2 OFFSET $3
+          `;
+          queryParams = [userAddress, limit + 1, offset];
         }
 
-        const countResult = await pool.query(countQuery, countParams);
-        const totalCount = parseInt(countResult.rows[0].count);
-        const result = await pool.query(dataQuery, queryParams);
+        const result = await timedQuery('swaps.history', dataQuery, queryParams);
+        const hasNext = result.rows.length > limit;
+        const swaps = hasNext ? result.rows.slice(0, limit) : result.rows;
 
         const responseData: any = {
-          swaps: result.rows,
+          swaps,
           pagination: {
-            total: totalCount,
+            total: null,
             limit,
             offset,
-            hasNext: offset + limit < totalCount
+            hasNext
           }
         };
         if (pairAddress) responseData.pairAddress = pairAddress;
@@ -64,6 +79,7 @@ export class SwapController {
         return responseData;
       });
 
+      perfMetrics.recordCacheLookup(endpointMetric, cacheStatus);
       res.json({ success: true, data });
     } catch (error) {
       console.error('Error fetching swaps:', error);
@@ -72,6 +88,8 @@ export class SwapController {
         error: 'Failed to fetch swaps'
       };
       res.status(500).json(response);
+    } finally {
+      perfMetrics.recordEndpointLatency(endpointMetric, Date.now() - endpointStartedAt);
     }
   }
 
