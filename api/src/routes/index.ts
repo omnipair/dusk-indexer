@@ -41,7 +41,10 @@ router.get('/', (req, res) => {
         'single-position': 'GET /api/v1/positions/{positionId}'
       },
       stats: {
-        'protocol-stats': 'GET /api/v1/stats'
+        'protocol-stats': 'GET /api/v1/stats',
+        'volume-chart': 'GET /api/v1/stats/volume-chart?timeframe=7d',
+        'fees-chart': 'GET /api/v1/stats/fees-chart?timeframe=7d',
+        'interest-chart': 'GET /api/v1/stats/interest-chart?timeframe=7d'
       }
     },
     parameters: {
