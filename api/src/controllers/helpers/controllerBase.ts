@@ -48,16 +48,17 @@ export async function fetchCachedPairState(
 export async function calculateAPR(pairAddress: string): Promise<{
   apr: number;
   apr_breakdown: {
-    token0_apr: number;
-    token1_apr: number;
+    swap_apr: number;
+    interest_apr: number;
   };
 }> {
   return cache.getOrSet(`apr_calc_${pairAddress}`, 5 * 60 * 1000, async () => {
     const now = Math.floor(Date.now() / 1000);
     const week = 7 * 24 * 60 * 60;
+    const cutoff = now - week;
 
-    const result = await pool.query(`
-      WITH weekly_stats AS (
+    const [swapResult, interestResult] = await Promise.all([
+      pool.query(`
         SELECT 
           SUM(fee_paid0::numeric) as weekly_fee0,
           SUM(fee_paid1::numeric) as weekly_fee1,
@@ -68,17 +69,25 @@ export async function calculateAPR(pairAddress: string): Promise<{
           AND reserve0 > 0 
           AND reserve1 > 0
           AND pair = $2
-      )
-      SELECT 
-        ws.weekly_fee0,
-        ws.weekly_fee1,
-        ws.avg_reserve0,
-        ws.avg_reserve1
-      FROM weekly_stats ws
-    `, [now - week, pairAddress]);
+      `, [cutoff, pairAddress]),
+      pool.query(`
+        SELECT 
+          SUM(lp_interest0::numeric) as weekly_lp_interest0,
+          SUM(lp_interest1::numeric) as weekly_lp_interest1,
+          AVG(reserve0_after_interest::numeric) as avg_reserve0,
+          AVG(reserve1_after_interest::numeric) as avg_reserve1
+        FROM update_pair_events 
+        WHERE timestamp > to_timestamp($1) 
+          AND pair = $2
+      `, [cutoff, pairAddress]),
+    ]);
 
-    if (result.rows.length > 0) {
-      const row = result.rows[0];
+    let swapAPR = 0;
+    let swapToken0APR = 0;
+    let swapToken1APR = 0;
+
+    if (swapResult.rows.length > 0) {
+      const row = swapResult.rows[0];
       const weeklyFee0 = parseFloat(row.weekly_fee0 || '0');
       const weeklyFee1 = parseFloat(row.weekly_fee1 || '0');
       const avgReserve0 = parseFloat(row.avg_reserve0 || '0');
@@ -86,23 +95,34 @@ export async function calculateAPR(pairAddress: string): Promise<{
 
       const dailyFee0 = weeklyFee0 / 7;
       const dailyFee1 = weeklyFee1 / 7;
-      const token0APR = avgReserve0 > 0 ? (dailyFee0 / (avgReserve0 * 2)) * 365 * 100 : 0;
-      const token1APR = avgReserve1 > 0 ? (dailyFee1 / (avgReserve1 * 2)) * 365 * 100 : 0;
+      swapToken0APR = avgReserve0 > 0 ? (dailyFee0 / (avgReserve0 * 2)) * 365 * 100 : 0;
+      swapToken1APR = avgReserve1 > 0 ? (dailyFee1 / (avgReserve1 * 2)) * 365 * 100 : 0;
+      swapAPR = (swapToken0APR + swapToken1APR) / 2;
+    }
 
-      return {
-        apr: (token0APR + token1APR) / 2,
-        apr_breakdown: {
-          token0_apr: token0APR,
-          token1_apr: token1APR
-        }
-      };
+    let interestAPR = 0;
+    let interestToken0APR = 0;
+    let interestToken1APR = 0;
+
+    if (interestResult.rows.length > 0) {
+      const row = interestResult.rows[0];
+      const weeklyInterest0 = parseFloat(row.weekly_lp_interest0 || '0');
+      const weeklyInterest1 = parseFloat(row.weekly_lp_interest1 || '0');
+      const avgReserve0 = parseFloat(row.avg_reserve0 || '0');
+      const avgReserve1 = parseFloat(row.avg_reserve1 || '0');
+
+      const dailyInterest0 = weeklyInterest0 / 7;
+      const dailyInterest1 = weeklyInterest1 / 7;
+      interestToken0APR = avgReserve0 > 0 ? (dailyInterest0 / (avgReserve0 * 2)) * 365 * 100 : 0;
+      interestToken1APR = avgReserve1 > 0 ? (dailyInterest1 / (avgReserve1 * 2)) * 365 * 100 : 0;
+      interestAPR = interestToken0APR + interestToken1APR;
     }
 
     return {
-      apr: 0,
+      apr: swapAPR + interestAPR,
       apr_breakdown: {
-        token0_apr: 0,
-        token1_apr: 0
+        swap_apr: swapAPR,
+        interest_apr: interestAPR
       }
     };
   });
