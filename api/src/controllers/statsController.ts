@@ -7,10 +7,11 @@ import { fetchTokenPrices } from '../services/jupiterPriceService';
 export class StatsController {
   static async getStats(_req: Request, res: Response): Promise<void> {
     try {
-      const [tvlData, volumeData, feesData] = await Promise.all([
+      const [tvlData, volumeData, feesData, interestData] = await Promise.all([
         StatsController.computeTvl(),
         StatsController.computeVolume(),
         StatsController.computeFees(),
+        StatsController.computeInterest(),
       ]);
 
       res.json({
@@ -26,6 +27,7 @@ export class StatsController {
           lp_fees_24h: feesData.lpFees24h,
           total_protocol_fees: feesData.totalProtocolFees,
           protocol_fees_24h: feesData.protocolFees24h,
+          interest: interestData,
         },
       });
     } catch (error) {
@@ -213,4 +215,159 @@ export class StatsController {
       };
     });
   }
+
+  private static async computeInterest(): Promise<{
+    total_interest_usd: number;
+    interest_24h_usd: number;
+    total_lp_interest_usd: number;
+    lp_interest_24h_usd: number;
+    total_protocol_interest_usd: number;
+    protocol_interest_24h_usd: number;
+  }> {
+    return cache.getOrSet('stats:interest', 15_000, async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const oneDayAgo = now - 24 * 60 * 60;
+
+      const result = await pool.query(`
+        SELECT
+          e.pair,
+          p.token0,
+          p.token1,
+          COALESCE(SUM(e.accrued_interest0), 0) AS total_accrued0,
+          COALESCE(SUM(e.accrued_interest1), 0) AS total_accrued1,
+          COALESCE(SUM(CASE WHEN e.timestamp > to_timestamp($1) THEN e.accrued_interest0 ELSE 0 END), 0) AS accrued0_24h,
+          COALESCE(SUM(CASE WHEN e.timestamp > to_timestamp($1) THEN e.accrued_interest1 ELSE 0 END), 0) AS accrued1_24h,
+          COALESCE(SUM(e.lp_interest0), 0) AS total_lp0,
+          COALESCE(SUM(e.lp_interest1), 0) AS total_lp1,
+          COALESCE(SUM(CASE WHEN e.timestamp > to_timestamp($1) THEN e.lp_interest0 ELSE 0 END), 0) AS lp0_24h,
+          COALESCE(SUM(CASE WHEN e.timestamp > to_timestamp($1) THEN e.lp_interest1 ELSE 0 END), 0) AS lp1_24h,
+          COALESCE(SUM(e.protocol_interest0), 0) AS total_protocol0,
+          COALESCE(SUM(e.protocol_interest1), 0) AS total_protocol1,
+          COALESCE(SUM(CASE WHEN e.timestamp > to_timestamp($1) THEN e.protocol_interest0 ELSE 0 END), 0) AS protocol0_24h,
+          COALESCE(SUM(CASE WHEN e.timestamp > to_timestamp($1) THEN e.protocol_interest1 ELSE 0 END), 0) AS protocol1_24h
+        FROM update_pair_events e
+        JOIN pools p ON p.pair_address = e.pair
+        GROUP BY e.pair, p.token0, p.token1
+      `, [oneDayAgo]);
+
+      const uniqueMints = new Set<string>();
+      for (const row of result.rows) {
+        uniqueMints.add(row.token0);
+        uniqueMints.add(row.token1);
+      }
+
+      const prices = await fetchTokenPrices(Array.from(uniqueMints));
+
+      let totalInterestUsd = 0;
+      let interest24hUsd = 0;
+      let totalLpInterestUsd = 0;
+      let lpInterest24hUsd = 0;
+      let totalProtocolInterestUsd = 0;
+      let protocolInterest24hUsd = 0;
+
+      for (const row of result.rows) {
+        const p0 = prices.get(row.token0);
+        const p1 = prices.get(row.token1);
+        const toUsd0 = (raw: string) => p0 ? (parseFloat(raw) / Math.pow(10, p0.decimals)) * p0.price : 0;
+        const toUsd1 = (raw: string) => p1 ? (parseFloat(raw) / Math.pow(10, p1.decimals)) * p1.price : 0;
+
+        totalInterestUsd += toUsd0(row.total_accrued0) + toUsd1(row.total_accrued1);
+        interest24hUsd += toUsd0(row.accrued0_24h) + toUsd1(row.accrued1_24h);
+        totalLpInterestUsd += toUsd0(row.total_lp0) + toUsd1(row.total_lp1);
+        lpInterest24hUsd += toUsd0(row.lp0_24h) + toUsd1(row.lp1_24h);
+        totalProtocolInterestUsd += toUsd0(row.total_protocol0) + toUsd1(row.total_protocol1);
+        protocolInterest24hUsd += toUsd0(row.protocol0_24h) + toUsd1(row.protocol1_24h);
+      }
+
+      return {
+        total_interest_usd: totalInterestUsd,
+        interest_24h_usd: interest24hUsd,
+        total_lp_interest_usd: totalLpInterestUsd,
+        lp_interest_24h_usd: lpInterest24hUsd,
+        total_protocol_interest_usd: totalProtocolInterestUsd,
+        protocol_interest_24h_usd: protocolInterest24hUsd,
+      };
+    });
+  }
+
+  static async getInterestChart(req: Request, res: Response): Promise<void> {
+    const VALID_TIMEFRAMES = ['7d', '30d', 'all'] as const;
+    type Timeframe = typeof VALID_TIMEFRAMES[number];
+
+    const timeframe = (req.query.timeframe as string) || '7d';
+    if (!VALID_TIMEFRAMES.includes(timeframe as Timeframe)) {
+      res.status(400).json({ success: false, error: `Invalid timeframe. Must be one of: ${VALID_TIMEFRAMES.join(', ')}` });
+      return;
+    }
+
+    const intervalMap: Record<Timeframe, string | null> = {
+      '7d': "7 days",
+      '30d': "30 days",
+      'all': null,
+    };
+
+    const interval = intervalMap[timeframe as Timeframe];
+
+    try {
+      const data = await cache.getOrSet(`stats:interest_chart_${timeframe}`, 60_000, async () => {
+        const whereClause = interval ? `WHERE e.timestamp >= now() - interval '${interval}'` : '';
+        const result = await pool.query(`
+          SELECT
+            date_trunc('day', e.timestamp) AS day,
+            e.pair,
+            p.token0,
+            p.token1,
+            COALESCE(SUM(e.accrued_interest0), 0) AS accrued0,
+            COALESCE(SUM(e.accrued_interest1), 0) AS accrued1,
+            COALESCE(SUM(e.lp_interest0), 0) AS lp0,
+            COALESCE(SUM(e.lp_interest1), 0) AS lp1,
+            COALESCE(SUM(e.protocol_interest0), 0) AS protocol0,
+            COALESCE(SUM(e.protocol_interest1), 0) AS protocol1
+          FROM update_pair_events e
+          JOIN pools p ON p.pair_address = e.pair
+          ${whereClause}
+          GROUP BY day, e.pair, p.token0, p.token1
+          ORDER BY day ASC
+        `);
+
+        const uniqueMints = new Set<string>();
+        for (const row of result.rows) {
+          uniqueMints.add(row.token0);
+          uniqueMints.add(row.token1);
+        }
+        const prices = await fetchTokenPrices(Array.from(uniqueMints));
+
+        const dayMap = new Map<string, {
+          accrued_interest_usd: number;
+          lp_interest_usd: number;
+          protocol_interest_usd: number;
+        }>();
+
+        for (const row of result.rows) {
+          const date = row.day.toISOString().slice(0, 10);
+          const p0 = prices.get(row.token0);
+          const p1 = prices.get(row.token1);
+          const toUsd0 = (raw: string) => p0 ? (parseFloat(raw) / Math.pow(10, p0.decimals)) * p0.price : 0;
+          const toUsd1 = (raw: string) => p1 ? (parseFloat(raw) / Math.pow(10, p1.decimals)) * p1.price : 0;
+
+          const entry = dayMap.get(date) ?? { accrued_interest_usd: 0, lp_interest_usd: 0, protocol_interest_usd: 0 };
+          entry.accrued_interest_usd += toUsd0(row.accrued0) + toUsd1(row.accrued1);
+          entry.lp_interest_usd += toUsd0(row.lp0) + toUsd1(row.lp1);
+          entry.protocol_interest_usd += toUsd0(row.protocol0) + toUsd1(row.protocol1);
+          dayMap.set(date, entry);
+        }
+
+        return Array.from(dayMap.entries()).map(([date, v]) => ({
+          date,
+          ...v,
+        }));
+      });
+
+      res.json({ success: true, data });
+    } catch (error) {
+      console.error('Error fetching interest chart:', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch interest chart' });
+    }
+  }
+
 }
