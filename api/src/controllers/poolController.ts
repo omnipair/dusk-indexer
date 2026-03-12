@@ -313,7 +313,7 @@ export class PoolController {
               swap_fee_bps: poolData.swap_fee_bps,
               fixed_cf_bps: poolData.fixed_cf_bps,
               apr: { apr: 0, apr_breakdown: { swap_apr: 0, interest_apr: 0 } },
-              total_fees_paid: { total_fee_paid_in_token0: '0', total_fee_paid_in_token1: '0', period: 'all' },
+              total_fees_paid: { total_fees_usd: '0', lp_fees_usd: '0', protocol_fees_usd: '0', period: 'all' },
               volume_24h: { volume0: '0', volume1: '0', period: '24hrs' }
             };
           }
