@@ -129,8 +129,11 @@ export async function calculateAPR(pairAddress: string): Promise<{
 }
 
 export async function calculateTotalFeesPaid(pairAddress: string, hours?: number): Promise<{
-  total_fee_paid_in_token0: string;
-  total_fee_paid_in_token1: string;
+  total_fees_usd: string;
+  lp_fees_usd: string;
+  protocol_fees_usd: string;
+  token0_fees: string;
+  token1_fees: string;
   period: string;
 }> {
   const cacheKey = `fees_calc_${pairAddress}_${hours ? `${hours}hrs` : 'all'}`;
@@ -146,8 +149,11 @@ export async function calculateTotalFeesPaid(pairAddress: string, hours?: number
 
       query = `
         SELECT 
-          SUM(fee_paid0::numeric) as total_fee_paid0,
-          SUM(fee_paid1::numeric) as total_fee_paid1
+          COALESCE(SUM(COALESCE(lp_fee_usd, 0) + COALESCE(protocol_fee_usd, 0)), 0) as total_fees_usd,
+          COALESCE(SUM(COALESCE(lp_fee_usd, 0)), 0) as lp_fees_usd,
+          COALESCE(SUM(COALESCE(protocol_fee_usd, 0)), 0) as protocol_fees_usd,
+          COALESCE(SUM(CASE WHEN is_token0_in = true THEN fee_paid0::numeric ELSE 0 END), 0) as token0_fees,
+          COALESCE(SUM(CASE WHEN is_token0_in = false THEN fee_paid1::numeric ELSE 0 END), 0) as token1_fees
         FROM swaps 
         WHERE timestamp > to_timestamp($1) AND pair = $2
       `;
@@ -156,8 +162,11 @@ export async function calculateTotalFeesPaid(pairAddress: string, hours?: number
     } else {
       query = `
         SELECT 
-          SUM(fee_paid0::numeric) as total_fee_paid0,
-          SUM(fee_paid1::numeric) as total_fee_paid1
+          COALESCE(SUM(COALESCE(lp_fee_usd, 0) + COALESCE(protocol_fee_usd, 0)), 0) as total_fees_usd,
+          COALESCE(SUM(COALESCE(lp_fee_usd, 0)), 0) as lp_fees_usd,
+          COALESCE(SUM(COALESCE(protocol_fee_usd, 0)), 0) as protocol_fees_usd,
+          COALESCE(SUM(CASE WHEN is_token0_in = true THEN fee_paid0::numeric ELSE 0 END), 0) as token0_fees,
+          COALESCE(SUM(CASE WHEN is_token0_in = false THEN fee_paid1::numeric ELSE 0 END), 0) as token1_fees
         FROM swaps 
         WHERE pair = $1
       `;
@@ -166,10 +175,14 @@ export async function calculateTotalFeesPaid(pairAddress: string, hours?: number
     }
 
     const result = await pool.query(query, queryParams);
+    const row = result.rows[0];
 
     return {
-      total_fee_paid_in_token0: result.rows[0].total_fee_paid0 || '0',
-      total_fee_paid_in_token1: result.rows[0].total_fee_paid1 || '0',
+      total_fees_usd: String(row.total_fees_usd),
+      lp_fees_usd: String(row.lp_fees_usd),
+      protocol_fees_usd: String(row.protocol_fees_usd),
+      token0_fees: String(row.token0_fees),
+      token1_fees: String(row.token1_fees),
       period
     };
   });
