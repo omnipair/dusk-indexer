@@ -27,7 +27,7 @@ export class PositionController {
         let queryParams: any[];
 
         if (userAddress) {
-          countQuery = 'SELECT COUNT(*) as total_count FROM user_borrow_positions WHERE signer = $1';
+          countQuery = 'SELECT COUNT(*) as total_count FROM user_borrow_positions WHERE signer = $1 AND (collateral0::numeric > 0 OR collateral1::numeric > 0)';
           countParams = [userAddress];
           dataQuery = `
             SELECT 
@@ -36,13 +36,13 @@ export class PositionController {
               collateral0_liquidation_cf_bps, collateral1_liquidation_cf_bps,
               collateral0_max_cf_bps, collateral1_max_cf_bps, event_timestamp
             FROM user_borrow_positions
-            WHERE signer = $1
+            WHERE signer = $1 AND (collateral0::numeric > 0 OR collateral1::numeric > 0)
             ORDER BY event_timestamp DESC
             LIMIT $2 OFFSET $3
           `;
           queryParams = [userAddress, limit, offset];
         } else {
-          countQuery = 'SELECT COUNT(*) as total_count FROM user_borrow_positions';
+          countQuery = 'SELECT COUNT(*) as total_count FROM user_borrow_positions WHERE collateral0::numeric > 0 OR collateral1::numeric > 0';
           countParams = [];
           dataQuery = `
             SELECT 
@@ -51,6 +51,7 @@ export class PositionController {
               collateral0_liquidation_cf_bps, collateral1_liquidation_cf_bps,
               collateral0_max_cf_bps, collateral1_max_cf_bps, event_timestamp
             FROM user_borrow_positions
+            WHERE collateral0::numeric > 0 OR collateral1::numeric > 0
             ORDER BY event_timestamp DESC
             LIMIT $1 OFFSET $2
           `;
