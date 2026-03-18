@@ -7,11 +7,12 @@ import { fetchTokenPrices } from '../services/jupiterPriceService';
 export class StatsController {
   static async getStats(_req: Request, res: Response): Promise<void> {
     try {
-      const [tvlData, volumeData, feesData, interestData] = await Promise.all([
+      const [tvlData, volumeData, feesData, interestData, swapCountData] = await Promise.all([
         StatsController.computeTvl(),
         StatsController.computeVolume(),
         StatsController.computeFees(),
         StatsController.computeInterest(),
+        StatsController.computeSwapCount(),
       ]);
 
       res.json({
@@ -28,6 +29,8 @@ export class StatsController {
           total_protocol_fees: feesData.totalProtocolFees,
           protocol_fees_24h: feesData.protocolFees24h,
           interest: interestData,
+          total_swaps: swapCountData.totalSwaps,
+          swaps_24h: swapCountData.swaps24h,
         },
       });
     } catch (error) {
@@ -288,6 +291,69 @@ export class StatsController {
         protocol_interest_24h_usd: protocolInterest24hUsd,
       };
     });
+  }
+
+  private static async computeSwapCount(): Promise<{ totalSwaps: number; swaps24h: number }> {
+    return cache.getOrSet('stats:swap_count', 15_000, async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const oneDayAgo = now - 24 * 60 * 60;
+
+      const result = await pool.query(`
+        SELECT
+          COUNT(*)::int AS total_swaps,
+          COUNT(*) FILTER (WHERE timestamp > to_timestamp($1))::int AS swaps_24h
+        FROM swaps
+      `, [oneDayAgo]);
+
+      return {
+        totalSwaps: result.rows[0].total_swaps,
+        swaps24h: result.rows[0].swaps_24h,
+      };
+    });
+  }
+
+  static async getSwapCountChart(req: Request, res: Response): Promise<void> {
+    const VALID_TIMEFRAMES = ['7d', '30d', 'all'] as const;
+    type Timeframe = typeof VALID_TIMEFRAMES[number];
+
+    const timeframe = (req.query.timeframe as string) || '7d';
+    if (!VALID_TIMEFRAMES.includes(timeframe as Timeframe)) {
+      res.status(400).json({ success: false, error: `Invalid timeframe. Must be one of: ${VALID_TIMEFRAMES.join(', ')}` });
+      return;
+    }
+
+    const intervalMap: Record<Timeframe, string | null> = {
+      '7d': "7 days",
+      '30d': "30 days",
+      'all': null,
+    };
+
+    const interval = intervalMap[timeframe as Timeframe];
+
+    try {
+      const data = await cache.getOrSet(`stats:swap_count_chart_${timeframe}`, 60_000, async () => {
+        const whereClause = interval ? `WHERE timestamp >= now() - interval '${interval}'` : '';
+        const result = await pool.query(`
+          SELECT
+            date_trunc('day', timestamp) AS day,
+            COUNT(*)::int AS swap_count
+          FROM swaps
+          ${whereClause}
+          GROUP BY day
+          ORDER BY day ASC
+        `);
+
+        return result.rows.map((r: any) => ({
+          date: r.day.toISOString().slice(0, 10),
+          swapCount: r.swap_count,
+        }));
+      });
+
+      res.json({ success: true, data });
+    } catch (error) {
+      console.error('Error fetching swap count chart:', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch swap count chart' });
+    }
   }
 
   static async getInterestChart(req: Request, res: Response): Promise<void> {
