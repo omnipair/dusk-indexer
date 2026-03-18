@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use carbon_core::{error::CarbonResult, pipeline::Pipeline};
 use carbon_omnipair_decoder::{OmnipairDecoder, PROGRAM_ID as OMNIPAIR_PROGRAM_ID};
-use carbon_log_metrics::LogMetrics;
+use carbon_prometheus_metrics::PrometheusMetrics;
 
 use crate::{
     config::Config,
@@ -36,7 +36,7 @@ pub async fn create_pipeline(config: &Config) -> CarbonResult<Pipeline> {
     let pipeline = Pipeline::builder()
         //.datasource(_transaction_crawler_datasource)
         .datasource(atlas_datasource)
-        .metrics(Arc::new(LogMetrics::new()))
+        .metrics(Arc::new(PrometheusMetrics::new()))
         .metrics_flush_interval(3)
         .instruction(OmnipairDecoder, instruction_processor)
         .shutdown_strategy(carbon_core::pipeline::ShutdownStrategy::ProcessPending)

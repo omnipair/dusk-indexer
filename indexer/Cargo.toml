@@ -9,6 +9,7 @@ ignored = ["serde", "solana-instruction"]
 [dependencies]
 carbon-core = { workspace = true }
 carbon-log-metrics = { workspace = true }
+carbon-prometheus-metrics = { workspace = true }
 carbon-rpc-program-subscribe-datasource = { workspace = true }
 carbon-rpc-transaction-crawler-datasource = { workspace = true }
 carbon-helius-atlas-ws-datasource = { workspace = true }
