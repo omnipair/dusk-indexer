@@ -3,6 +3,7 @@ import poolsRoutes from './v1/poolsRoutes';
 import usersRoutes from './v1/usersRoutes';
 import positionsRoutes from './v1/positionsRoutes';
 import statsRoutes from './v1/statsRoutes';
+import coingeckoRoutes from './v1/coingeckoRoutes';
 
 const router = Router();
 
@@ -10,6 +11,7 @@ router.use('/api/v1/pools', poolsRoutes);
 router.use('/api/v1/users', usersRoutes);
 router.use('/api/v1/positions', positionsRoutes);
 router.use('/api/v1/stats', statsRoutes);
+router.use('/api/v1/coingecko', coingeckoRoutes);
 
 router.get('/', (req, res) => {
   res.json({
@@ -46,6 +48,9 @@ router.get('/', (req, res) => {
         'volume-chart': 'GET /api/v1/stats/volume-chart?timeframe=7d',
         'fees-chart': 'GET /api/v1/stats/fees-chart?timeframe=7d',
         'interest-chart': 'GET /api/v1/stats/interest-chart?timeframe=7d'
+      },
+      coingecko: {
+        'tickers': 'GET /api/v1/coingecko/tickers'
       }
     },
     parameters: {
