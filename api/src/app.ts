@@ -10,6 +10,9 @@ import { perfMetrics } from './utils/perfMetrics';
 dotenv.config();
 
 const app = express();
+
+app.set('trust proxy', 2);
+
 app.use(helmet());
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
@@ -18,9 +21,14 @@ app.use(cors({
 
 const limiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 100,
+  max: parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => {
+    const cfIp = req.headers['cf-connecting-ip'];
+    if (typeof cfIp === 'string') return cfIp;
+    return req.ip || req.socket.remoteAddress || 'unknown';
+  },
   message: { success: false, error: 'Too many requests, please try again later.' },
 });
 app.use(limiter);
