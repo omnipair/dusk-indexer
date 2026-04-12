@@ -50,7 +50,7 @@ impl Metrics for PrometheusMetrics {
 
         let mut result = Ok(());
         INIT.call_once(|| {
-            let addr = format!("127.0.0.1:{}", self.listen_port)
+            let addr = format!("0.0.0.0:{}", self.listen_port)
                 .parse::<SocketAddr>()
                 .expect("Failed to parse address");
 
