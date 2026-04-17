@@ -49,6 +49,11 @@ router.get('/:poolAddress/price-chart', normalizeWindowHours, async (req: Reques
   await SwapController.getChartPrices(req, res);
 });
 
+router.get('/:poolAddress/candles', async (req: Request, res: Response) => {
+  req.params.pairAddress = req.params.poolAddress;
+  await SwapController.getCandles(req, res);
+});
+
 router.get('/:poolAddress/swaps', async (req: Request, res: Response) => {
   req.params.pairAddress = req.params.poolAddress;
   await SwapController.getSwaps(req, res);
