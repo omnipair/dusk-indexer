@@ -250,18 +250,28 @@ export class SwapController {
               AND timestamp < to_timestamp($4::bigint)
               AND reserve0 > 0
               AND reserve1 IS NOT NULL
+          ),
+          raw_candles AS (
+            SELECT
+              EXTRACT(EPOCH FROM time_bucket($1::interval, timestamp))::bigint AS time,
+              first(price, timestamp) AS native_open,
+              MAX(price) AS high,
+              MIN(price) AS low,
+              last(price, timestamp) AS close,
+              COALESCE(SUM(volume_usd), 0) AS volume
+            FROM priced
+            WHERE price IS NOT NULL
+            GROUP BY 1
+            ORDER BY 1
           )
           SELECT
-            EXTRACT(EPOCH FROM time_bucket($1::interval, timestamp))::bigint AS time,
-            first(price, timestamp) AS open,
-            MAX(price) AS high,
-            MIN(price) AS low,
-            last(price, timestamp) AS close,
-            COALESCE(SUM(volume_usd), 0) AS volume
-          FROM priced
-          WHERE price IS NOT NULL
-          GROUP BY 1
-          ORDER BY 1
+            time,
+            COALESCE(LAG(close) OVER (ORDER BY time), native_open) AS open,
+            GREATEST(high, COALESCE(LAG(close) OVER (ORDER BY time), native_open)) AS high,
+            LEAST(low, COALESCE(LAG(close) OVER (ORDER BY time), native_open)) AS low,
+            close,
+            volume
+          FROM raw_candles
         `, [bucketInterval, pairAddress, from, to]);
 
         return {
