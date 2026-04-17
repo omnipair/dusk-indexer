@@ -211,6 +211,102 @@ export class SwapController {
     }
   }
 
+  static async getCandles(req: Request, res: Response): Promise<void> {
+    try {
+      const pairAddress = req.params.pairAddress;
+      const resolution = parseInt(req.query.resolution as string) || 15;
+      const from = parseInt(req.query.from as string);
+      const to = parseInt(req.query.to as string);
+
+      if (!pairAddress || !isValidAddress(pairAddress)) {
+        res.status(400).json({ success: false, error: 'Valid pair address is required' });
+        return;
+      }
+
+      const allowedResolutions = [1, 5, 15, 60, 240, 1440];
+      if (!allowedResolutions.includes(resolution)) {
+        res.status(400).json({ success: false, error: `Invalid resolution. Allowed: ${allowedResolutions.join(', ')} (minutes)` });
+        return;
+      }
+
+      if (!from || !to || isNaN(from) || isNaN(to) || from >= to) {
+        res.status(400).json({ success: false, error: 'Valid from/to Unix timestamps (seconds) are required, with from < to' });
+        return;
+      }
+
+      const bucketInterval = `${resolution} minutes`;
+      const cacheKey = `candles_${pairAddress}_${resolution}_${from}_${to}`;
+
+      const data = await cache.getOrSet(cacheKey, 1000, async () => {
+        const result = await pool.query(`
+          WITH priced AS (
+            SELECT
+              timestamp,
+              reserve1::numeric / NULLIF(reserve0::numeric, 0) AS price,
+              volume_usd
+            FROM swaps
+            WHERE pair = $2
+              AND timestamp >= to_timestamp($3::bigint)
+              AND timestamp < to_timestamp($4::bigint)
+              AND reserve0 > 0
+              AND reserve1 IS NOT NULL
+          ),
+          filled AS (
+            SELECT
+              time_bucket_gapfill(
+                $1::interval,
+                timestamp,
+                to_timestamp($3::bigint),
+                to_timestamp($4::bigint)
+              ) AS bucket,
+              locf(last(price, timestamp)) AS filled_close,
+              MAX(price) AS high_raw,
+              MIN(price) AS low_raw,
+              SUM(volume_usd) AS volume_raw
+            FROM priced
+            GROUP BY bucket
+          ),
+          trimmed AS (
+            SELECT * FROM filled WHERE filled_close IS NOT NULL
+          )
+          SELECT
+            EXTRACT(EPOCH FROM bucket)::bigint AS time,
+            COALESCE(LAG(filled_close) OVER (ORDER BY bucket), filled_close) AS open,
+            GREATEST(
+              COALESCE(high_raw, filled_close),
+              COALESCE(LAG(filled_close) OVER (ORDER BY bucket), filled_close)
+            ) AS high,
+            LEAST(
+              COALESCE(low_raw, filled_close),
+              COALESCE(LAG(filled_close) OVER (ORDER BY bucket), filled_close)
+            ) AS low,
+            filled_close AS close,
+            COALESCE(volume_raw, 0) AS volume
+          FROM trimmed
+          ORDER BY bucket
+        `, [bucketInterval, pairAddress, from, to]);
+
+        return {
+          candles: result.rows.map((r: any) => ({
+            time: Number(r.time),
+            open: Number(r.open),
+            high: Number(r.high),
+            low: Number(r.low),
+            close: Number(r.close),
+            volume: Number(r.volume),
+          })),
+          pairAddress,
+          resolution: String(resolution),
+        };
+      });
+
+      res.json({ success: true, data });
+    } catch (error) {
+      console.error('Error fetching candles:', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch candles' });
+    }
+  }
+
   static async getFeePaid(req: Request, res: Response): Promise<void> {
     try {
       const pairAddress = req.params.pairAddress;
