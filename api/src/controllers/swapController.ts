@@ -237,7 +237,7 @@ export class SwapController {
       const bucketInterval = `${resolution} minutes`;
       const cacheKey = `candles_${pairAddress}_${resolution}_${from}_${to}`;
 
-      const data = await cache.getOrSet(cacheKey, 10 * 1000, async () => {
+      const data = await cache.getOrSet(cacheKey, 1000, async () => {
         const result = await pool.query(`
           WITH priced AS (
             SELECT
