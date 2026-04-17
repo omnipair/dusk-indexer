@@ -18,10 +18,9 @@ export class StatsController {
       res.json({
         success: true,
         data: {
-          tvl: tvlData.liquidityTvl,
+          tvl: tvlData.tvl,
           liquidity_tvl: tvlData.liquidityTvl,
           total_collateral_deposited: tvlData.totalCollateralDeposited,
-          protocol_tvl: tvlData.protocolTvl,
           total_volume: volumeData.totalVolume,
           volume_24h: volumeData.volume24h,
           pool_count: tvlData.poolCount,
@@ -43,9 +42,9 @@ export class StatsController {
   }
 
   private static async computeTvlAndCollateral(): Promise<{
+    tvl: number;
     liquidityTvl: number;
     totalCollateralDeposited: number;
-    protocolTvl: number;
     poolCount: number;
   }> {
     const allPools = await PoolController.fetchAllPools(false);
@@ -86,9 +85,9 @@ export class StatsController {
     }
 
     return {
+      tvl: liquidityTvl + totalCollateralDeposited,
       liquidityTvl,
       totalCollateralDeposited,
-      protocolTvl: liquidityTvl + totalCollateralDeposited,
       poolCount: allPools.length,
     };
   }
