@@ -6,13 +6,11 @@ use std::time::Duration;
 mod config;
 mod database;
 mod datasources;
-mod health;
 mod pipeline;
 mod processors;
 mod signals;
 
 use config::{Args, Config};
-use health::run_health_server;
 use pipeline::{create_pipeline, run_pipeline};
 
 #[tokio::main]
@@ -35,16 +33,6 @@ pub async fn main() -> CarbonResult<()> {
 
     // Log configuration
     config.log_configuration();
-
-    // Start health check server FIRST before any other initialization
-    // This ensures Railway health checks pass while services are starting
-    if config.health_port != 0 {
-        log::info!(
-            "Starting health check server on port {}",
-            config.health_port
-        );
-        tokio::spawn(run_health_server(config.health_port));
-    }
 
     // Initialize database connection pool
     log::info!("Initializing database connection pool...");

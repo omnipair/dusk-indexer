@@ -24,9 +24,9 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     pub enable_account_monitoring: bool,
 
-    /// Health check port (0 disables /health endpoint)
+    /// Prometheus metrics port (also used by Railway's healthcheck against /metrics)
     #[arg(long, default_value_t = 8080)]
-    pub health_port: u16,
+    pub metrics_port: u16,
 }
 
 #[derive(Debug, Clone)]
@@ -35,7 +35,7 @@ pub struct Config {
     pub start_block: u64,
     pub helius_api_key: Option<String>,
     pub rpc_ws_url: Option<String>,
-    pub health_port: u16,
+    pub metrics_port: u16,
 }
 
 impl Config {
@@ -55,12 +55,19 @@ impl Config {
             None
         };
 
+        let metrics_port = env::var("METRICS_PORT")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            // Fallback to legacy HEALTH_PORT env var so existing deployments keep working.
+            .or_else(|| env::var("HEALTH_PORT").ok().and_then(|s| s.parse().ok()))
+            .unwrap_or(args.metrics_port);
+
         Self {
             http_rpc_url,
             start_block,
             helius_api_key,
             rpc_ws_url,
-            health_port: args.health_port,
+            metrics_port,
         }
     }
 
@@ -86,10 +93,10 @@ impl Config {
             log::info!("  Account monitoring: Disabled");
         }
 
-        if self.health_port != 0 {
-            log::info!("  Health check server: Port {}", self.health_port);
+        if self.metrics_port != 0 {
+            log::info!("  Prometheus metrics: Port {} (/metrics)", self.metrics_port);
         } else {
-            log::info!("  Health check server: Disabled");
+            log::info!("  Prometheus metrics: Disabled");
         }
     }
 }

@@ -38,7 +38,7 @@ pub async fn create_pipeline(config: &Config) -> CarbonResult<Pipeline> {
         //.datasource(_transaction_crawler_datasource)
         .datasource(atlas_datasource)
         .metrics(Arc::new(LogMetrics::new()))
-        .metrics(Arc::new(PrometheusMetrics::new()))
+        .metrics(Arc::new(PrometheusMetrics::new_with_port(config.metrics_port)))
         .metrics_flush_interval(3)
         .instruction(OmnipairDecoder, instruction_processor)
         .shutdown_strategy(carbon_core::pipeline::ShutdownStrategy::ProcessPending)

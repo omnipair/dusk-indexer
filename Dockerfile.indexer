@@ -56,20 +56,18 @@ RUN chown -R indexer:indexer /app
 # Switch to non-root user
 USER indexer
 
-# Expose health check and Prometheus metrics ports
+# Expose Prometheus metrics port (single public port for Railway)
 EXPOSE 8080
-EXPOSE 9100
 
 # Set default environment variables
 ENV RUST_LOG=info
 ENV RUST_BACKTRACE=1
-ENV HEALTH_PORT=8080
-ENV METRICS_PORT=9100
+ENV METRICS_PORT=8080
 ENV NODE_ENV=production
 
-# Health check
+# Health check (probes the Prometheus endpoint, which doubles as liveness)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD curl -f http://0.0.0.0:8080/health || exit 1
+  CMD curl -f http://0.0.0.0:8080/metrics || exit 1
 
 # Start the indexer
 ENTRYPOINT ["./omnipair-carbon-indexer"]

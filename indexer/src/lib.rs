@@ -6,7 +6,6 @@
 pub mod config;
 pub mod database;
 pub mod datasources;
-pub mod health;
 pub mod pipeline;
 pub mod processors;
 pub mod signals;
@@ -17,5 +16,4 @@ pub use database::{init_db_pool, upsert_swap_event};
 pub use processors::OmnipairInstructionProcessor;
 pub use datasources::{create_helius_datasource, GpaBackfillDatasource};
 pub use pipeline::{create_pipeline, run_pipeline};
-pub use health::run_health_server;
 pub use signals::shutdown_signal;
