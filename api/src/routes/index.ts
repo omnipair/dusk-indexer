@@ -4,9 +4,11 @@ import usersRoutes from './v1/usersRoutes';
 import positionsRoutes from './v1/positionsRoutes';
 import statsRoutes from './v1/statsRoutes';
 import coingeckoRoutes from './v1/coingeckoRoutes';
+import cmcApiRoutes from './v1/cmcApiRoutes';
 
 const router = Router();
 
+router.use('/api/v1/cmc', cmcApiRoutes);
 router.use('/api/v1/pools', poolsRoutes);
 router.use('/api/v1/users', usersRoutes);
 router.use('/api/v1/positions', positionsRoutes);
@@ -51,6 +53,13 @@ router.get('/', (req, res) => {
       },
       coingecko: {
         'tickers': 'GET /api/v1/coingecko/tickers'
+      },
+      cmc: {
+        factory: 'GET /api/v1/cmc/factory (Solana program id)',
+        summary: 'GET /api/v1/cmc/summary',
+        assets: 'GET /api/v1/cmc/assets',
+        ticker: 'GET /api/v1/cmc/ticker',
+        trades: 'GET /api/v1/cmc/trades/:market_pair (full 24h, no pagination; market_pair = mint0_mint1)'
       }
     },
     parameters: {

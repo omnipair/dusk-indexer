@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import routes from './routes';
@@ -13,6 +14,7 @@ const app = express();
 
 app.set('trust proxy', 2);
 
+app.use(compression());
 app.use(helmet());
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
