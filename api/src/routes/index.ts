@@ -5,6 +5,7 @@ import positionsRoutes from './v1/positionsRoutes';
 import statsRoutes from './v1/statsRoutes';
 import coingeckoRoutes from './v1/coingeckoRoutes';
 import cmcApiRoutes from './v1/cmcApiRoutes';
+import geckoTerminalRoutes from './v1/geckoTerminalRoutes';
 
 const router = Router();
 
@@ -14,6 +15,7 @@ router.use('/api/v1/users', usersRoutes);
 router.use('/api/v1/positions', positionsRoutes);
 router.use('/api/v1/stats', statsRoutes);
 router.use('/api/v1/coingecko', coingeckoRoutes);
+router.use('/api/v1/gecko', geckoTerminalRoutes);
 
 router.get('/', (req, res) => {
   res.json({
@@ -61,6 +63,12 @@ router.get('/', (req, res) => {
         assets: 'GET /api/v1/cmc/assets',
         ticker: 'GET /api/v1/cmc/ticker',
         trades: 'GET /api/v1/cmc/trades/:market_pair (full 24h, no pagination; market_pair = mint0_mint1)'
+      },
+      gecko: {
+        'latest-block': 'GET /api/v1/gecko/latest-block',
+        asset: 'GET /api/v1/gecko/asset?id=<mint>',
+        pair: 'GET /api/v1/gecko/pair?id=<pair_address>',
+        events: 'GET /api/v1/gecko/events?fromBlock=<slot>&toBlock=<slot> (inclusive; max 50000 slots)'
       }
     },
     parameters: {

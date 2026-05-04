@@ -94,6 +94,31 @@ export class PairStateService {
     this.program = getOmnipairProgram(provider);
   }
 
+  /**
+   * Public wrapper around the internal token metadata fetcher. Accepts a mint
+   * address as a string for convenience. Results are cached for 24h.
+   */
+  public async getTokenMetadata(mintAddress: string): Promise<TokenMetadata> {
+    return this.fetchTokenMetadata(new PublicKey(mintAddress));
+  }
+
+  /**
+   * Fetch the raw on-chain supply for an SPL mint as a bigint. Returns null if
+   * the mint cannot be read. Cached for 60s to avoid hammering the RPC.
+   */
+  public async getMintSupply(mintAddress: string): Promise<bigint | null> {
+    return cache.getOrSet(`mint_supply_${mintAddress}`, 60_000, async () => {
+      try {
+        const info = await this.connection.getAccountInfo(new PublicKey(mintAddress));
+        if (!info) return null;
+        return MintLayout.decode(info.data).supply;
+      } catch (err) {
+        console.warn(`Failed to fetch mint supply for ${mintAddress}:`, err);
+        return null;
+      }
+    });
+  }
+
   private async fetchTokenMetadata(mint: PublicKey): Promise<TokenMetadata> {
     const mintStr = mint.toString();
     return cache.getOrSet(`token_metadata_${mintStr}`, ONE_DAY_MS, async () => {
