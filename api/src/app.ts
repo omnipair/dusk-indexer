@@ -1,3 +1,4 @@
+import path from 'path';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -13,6 +14,8 @@ dotenv.config();
 const app = express();
 
 app.set('trust proxy', 2);
+
+app.use('/docs-assets', express.static(path.join(__dirname, '../public')));
 
 app.use(compression());
 app.use(helmet());

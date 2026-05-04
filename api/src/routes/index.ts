@@ -55,6 +55,7 @@ router.get('/', (req, res) => {
         'tickers': 'GET /api/v1/coingecko/tickers'
       },
       cmc: {
+        docs: 'GET /api/v1/cmc/docs — HTML reference for CMC endpoints',
         factory: 'GET /api/v1/cmc/factory (Solana program id)',
         summary: 'GET /api/v1/cmc/summary',
         assets: 'GET /api/v1/cmc/assets',

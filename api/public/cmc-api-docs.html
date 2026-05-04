@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CMC API — Omnipair Data API</title>
+  <link rel="stylesheet" href="/docs-assets/cmc-api-docs.css" />
+</head>
+<body>
+  <h1>CMC API</h1>
+  <p class="lede">
+    CoinMarketCap-style JSON endpoints for indexed Omnipair pools. All routes are public <code>GET</code>,
+    no auth. Responses are cached (~60s for most aggregates).
+  </p>
+
+  <div class="base">
+    <strong>Base path:</strong> <code>/api/v1/cmc</code><br />
+    <strong>Pair id:</strong> <code>baseMint_quoteMint</code> — two Solana mint addresses separated by a single underscore (token order matches the pool’s token0 / token1).
+  </div>
+
+  <section id="factory">
+    <h2><span class="method">GET</span> <span class="path">/api/v1/cmc/factory</span></h2>
+    <p class="desc">Omnipair program id on Solana (analogous to a factory).</p>
+    <div class="label">Example</div>
+    <pre>curl -s http://localhost:3000/api/v1/cmc/factory</pre>
+    <div class="label">Example response</div>
+    <pre>{
+  "factory": "3tJrAXnjofAw8oskbMaSo9oMAYuzdBgVbW3TvQLdMEBd",
+  "network": "solana"
+}</pre>
+  </section>
+
+  <section id="summary">
+    <h2><span class="method">GET</span> <span class="path">/api/v1/cmc/summary</span></h2>
+    <p class="desc">Array of all visible pools with last price, spread (from fee), 24h volumes, high/low, and % change vs. open in the rolling 24h window.</p>
+    <div class="label">Example</div>
+    <pre>curl -s http://localhost:3000/api/v1/cmc/summary</pre>
+    <div class="label">Example response (snippet)</div>
+    <pre>[
+  {
+    "trading_pairs": "So11111111111111111111111111111111111111112_EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "base_currency": "SOL",
+    "quote_currency": "USDC",
+    "last_price": 142.5,
+    "lowest_ask": 142.64,
+    "highest_bid": 142.36,
+    "base_volume": 1200.5,
+    "quote_volume": 171000.2,
+    "price_change_percent_24h": -1.2,
+    "highest_price_24h": 145.0,
+    "lowest_price_24h": 140.1
+  }
+]</pre>
+  </section>
+
+  <section id="assets">
+    <h2><span class="method">GET</span> <span class="path">/api/v1/cmc/assets</span></h2>
+    <p class="desc">Map of Solana mint address → metadata. <code>unified_cryptoasset_id</code> is the CoinMarketCap asset id when known (see <code>src/config/cmcUnifiedCryptoassetIds.ts</code>).</p>
+    <div class="label">Example</div>
+    <pre>curl -s http://localhost:3000/api/v1/cmc/assets</pre>
+    <div class="label">Example response (snippet)</div>
+    <pre>{
+  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": {
+    "name": "USD Coin",
+    "unified_cryptoasset_id": "3408",
+    "can_withdraw": "true",
+    "can_deposit": "true",
+    "contractAddress": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+  }
+}</pre>
+  </section>
+
+  <section id="ticker">
+    <h2><span class="method">GET</span> <span class="path">/api/v1/cmc/ticker</span></h2>
+    <p class="desc">Map keyed by <code>trading_pairs</code> id: 24h volume, last price, CMC ids for base/quote mints.</p>
+    <div class="label">Example</div>
+    <pre>curl -s http://localhost:3000/api/v1/cmc/ticker</pre>
+    <div class="label">Example response (snippet)</div>
+    <pre>{
+  "So11111111111111111111111111111111111111112_EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": {
+    "base_id": "5426",
+    "quote_id": "3408",
+    "last_price": "142.5",
+    "base_volume": "1200.5",
+    "quote_volume": "171000.2",
+    "isFrozen": "0"
+  }
+}</pre>
+  </section>
+
+  <section id="trades">
+    <h2><span class="method">GET</span> <span class="path">/api/v1/cmc/trades/:market_pair</span></h2>
+    <p class="desc">All swaps in the last 24 hours for the pool identified by <code>market_pair</code> (URL-encoded mints with one underscore). No pagination — full window. Timestamps are Unix ms.</p>
+    <div class="label">Example</div>
+    <pre>curl -s "http://localhost:3000/api/v1/cmc/trades/So11111111111111111111111111111111111111112_EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"</pre>
+    <div class="label">Example response (snippet)</div>
+    <pre>[
+  {
+    "trade_id": 882341,
+    "price": "142.51",
+    "base_volume": "1.5",
+    "quote_volume": "213.76",
+    "timestamp": "1714924800000",
+    "type": "buy"
+  }
+]</pre>
+  </section>
+
+  <p class="lede" style="margin-top: 2rem;">
+    Also available as JSON at the API root: <a href="/">GET /</a>
+  </p>
+</body>
+</html>
