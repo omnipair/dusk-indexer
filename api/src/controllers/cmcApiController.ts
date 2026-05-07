@@ -40,6 +40,21 @@ async function resolvePoolRowForMints(
   return r.rows[0] ?? null;
 }
 
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatFeePct(bps: unknown): string {
+  const n = typeof bps === 'number' ? bps : parseFloat(bps as string);
+  if (!Number.isFinite(n)) return '—';
+  return `${(n / 100).toFixed(2)}%`;
+}
+
 export class CmcApiController {
   /** C0: factory / program id for the protocol (Solana program address). */
   static getFactory(_req: Request, res: Response): void {
@@ -49,6 +64,143 @@ export class CmcApiController {
       return;
     }
     res.json({ factory: id, network: 'solana' });
+  }
+
+  /** HTML table of all visible pools and their swap fees (cached). */
+  static async getFeesHtml(_req: Request, res: Response): Promise<void> {
+    try {
+      const allPools = await PoolController.fetchAllPools(false);
+
+      const rows = allPools
+        .slice()
+        .sort((a, b) => {
+          const fa = parseFloat(a.swap_fee_bps) || 0;
+          const fb = parseFloat(b.swap_fee_bps) || 0;
+          if (fb !== fa) return fb - fa;
+          const pa = `${a.token0?.symbol ?? ''}/${a.token1?.symbol ?? ''}`;
+          const pb = `${b.token0?.symbol ?? ''}/${b.token1?.symbol ?? ''}`;
+          return pa.localeCompare(pb);
+        })
+        .map((p) => {
+          const base = escapeHtml(p.token0?.symbol ?? '?');
+          const quote = escapeHtml(p.token1?.symbol ?? '?');
+          const pair = `${base}/${quote}`;
+          const pairAddr = escapeHtml(p.pair_address);
+          const baseMint = escapeHtml(p.token0?.address ?? '');
+          const quoteMint = escapeHtml(p.token1?.address ?? '');
+          const bpsRaw = p.swap_fee_bps;
+          const bpsStr = bpsRaw == null || bpsRaw === '' ? '—' : escapeHtml(bpsRaw);
+          const pct = escapeHtml(formatFeePct(bpsRaw));
+          return `        <tr>
+          <td class="pair">${pair}</td>
+          <td class="num">${bpsStr}</td>
+          <td class="num">${pct}</td>
+          <td class="mono">${pairAddr}</td>
+          <td class="mono small">${baseMint}</td>
+          <td class="mono small">${quoteMint}</td>
+        </tr>`;
+        })
+        .join('\n');
+
+      const generatedAt = new Date().toISOString();
+      const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pool Swap Fees — Omnipair CMC API</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --fg: #1a1a1a;
+      --muted: #666;
+      --bg: #ffffff;
+      --row: #fafafa;
+      --border: #e5e5e5;
+      --accent: #2563eb;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --fg: #e6e6e6;
+        --muted: #9aa0a6;
+        --bg: #0e1116;
+        --row: #161b22;
+        --border: #2a2f37;
+        --accent: #60a5fa;
+      }
+    }
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+    }
+    h1 { margin: 0 0 4px; font-size: 22px; }
+    .meta { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+    .meta code { font-size: 12px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    th, td {
+      text-align: left;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    thead th {
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-size: 11px;
+    }
+    tbody tr:nth-child(odd) { background: var(--row); }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    td.pair { font-weight: 600; white-space: nowrap; }
+    td.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Courier New", monospace; }
+    td.mono.small { font-size: 12px; color: var(--muted); }
+    .empty { padding: 24px; color: var(--muted); text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>Pool Swap Fees</h1>
+  <div class="meta">
+    ${allPools.length} visible pools · cached up to 60s · generated <code>${escapeHtml(generatedAt)}</code><br />
+    Source: <code>GET /api/v1/cmc/fees</code> · JSON variant: <code>GET /api/v1/cmc/summary</code>
+  </div>
+  ${
+    rows.length === 0
+      ? '<div class="empty">No visible pools.</div>'
+      : `<table>
+    <thead>
+      <tr>
+        <th>Pair</th>
+        <th class="num">Fee (bps)</th>
+        <th class="num">Fee %</th>
+        <th>Pool address</th>
+        <th>Base mint</th>
+        <th>Quote mint</th>
+      </tr>
+    </thead>
+    <tbody>
+${rows}
+    </tbody>
+  </table>`
+  }
+</body>
+</html>`;
+
+      res.type('html').send(html);
+    } catch (e) {
+      console.error('cmc api fees html:', e);
+      res.status(500).type('html').send('<h1>500</h1><p>Failed to render pool fees.</p>');
+    }
   }
 
   /** Summary: array of all markets. */

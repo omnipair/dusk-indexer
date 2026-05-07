@@ -59,6 +59,7 @@ router.get('/', (req, res) => {
       cmc: {
         docs: 'GET /api/v1/cmc/docs — HTML reference for CMC endpoints',
         factory: 'GET /api/v1/cmc/factory (Solana program id)',
+        fees: 'GET /api/v1/cmc/fees — HTML table of all visible pools and their swap fees',
         summary: 'GET /api/v1/cmc/summary',
         assets: 'GET /api/v1/cmc/assets',
         ticker: 'GET /api/v1/cmc/ticker',

@@ -11,6 +11,7 @@ router.get('/docs', (_req: Request, res: Response) => {
 
 /** CoinMarketCap-style market data (unified asset ids, summary, ticker, trades). */
 router.get('/factory', CmcApiController.getFactory);
+router.get('/fees', CmcApiController.getFeesHtml);
 router.get('/summary', CmcApiController.getSummary);
 router.get('/assets', CmcApiController.getAssets);
 router.get('/ticker', CmcApiController.getTicker);
