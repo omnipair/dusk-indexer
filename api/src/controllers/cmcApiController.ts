@@ -55,60 +55,27 @@ function formatFeePct(bps: unknown): string {
   return `${(n / 100).toFixed(2)}%`;
 }
 
-export class CmcApiController {
-  /** C0: factory / program id for the protocol (Solana program address). */
-  static getFactory(_req: Request, res: Response): void {
-    const id = process.env.OMNIPAIR_PROGRAM_ID;
-    if (!id) {
-      res.status(503).json({ error: 'OMNIPAIR_PROGRAM_ID is not configured' });
-      return;
-    }
-    res.json({ factory: id, network: 'solana' });
-  }
+interface PoolTablePageOptions {
+  title: string;
+  heading: string;
+  metaLine: string;
+  headers: { label: string; numeric?: boolean }[];
+  bodyRows: string;
+  emptyMessage?: string;
+}
 
-  /** HTML table of all visible pools and their swap fees (cached). */
-  static async getFeesHtml(_req: Request, res: Response): Promise<void> {
-    try {
-      const allPools = await PoolController.fetchAllPools(false);
+function renderPoolTablePage(opts: PoolTablePageOptions): string {
+  const { title, heading, metaLine, headers, bodyRows, emptyMessage } = opts;
+  const headerCells = headers
+    .map((h) => `        <th${h.numeric ? ' class="num"' : ''}>${escapeHtml(h.label)}</th>`)
+    .join('\n');
 
-      const rows = allPools
-        .slice()
-        .sort((a, b) => {
-          const fa = parseFloat(a.swap_fee_bps) || 0;
-          const fb = parseFloat(b.swap_fee_bps) || 0;
-          if (fb !== fa) return fb - fa;
-          const pa = `${a.token0?.symbol ?? ''}/${a.token1?.symbol ?? ''}`;
-          const pb = `${b.token0?.symbol ?? ''}/${b.token1?.symbol ?? ''}`;
-          return pa.localeCompare(pb);
-        })
-        .map((p) => {
-          const base = escapeHtml(p.token0?.symbol ?? '?');
-          const quote = escapeHtml(p.token1?.symbol ?? '?');
-          const pair = `${base}/${quote}`;
-          const pairAddr = escapeHtml(p.pair_address);
-          const baseMint = escapeHtml(p.token0?.address ?? '');
-          const quoteMint = escapeHtml(p.token1?.address ?? '');
-          const bpsRaw = p.swap_fee_bps;
-          const bpsStr = bpsRaw == null || bpsRaw === '' ? '—' : escapeHtml(bpsRaw);
-          const pct = escapeHtml(formatFeePct(bpsRaw));
-          return `        <tr>
-          <td class="pair">${pair}</td>
-          <td class="num">${bpsStr}</td>
-          <td class="num">${pct}</td>
-          <td class="mono">${pairAddr}</td>
-          <td class="mono small">${baseMint}</td>
-          <td class="mono small">${quoteMint}</td>
-        </tr>`;
-        })
-        .join('\n');
-
-      const generatedAt = new Date().toISOString();
-      const html = `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Pool Swap Fees — Omnipair CMC API</title>
+  <title>${escapeHtml(title)}</title>
   <style>
     :root {
       color-scheme: light dark;
@@ -160,6 +127,7 @@ export class CmcApiController {
       letter-spacing: 0.04em;
       font-size: 11px;
     }
+    thead th.num { text-align: right; }
     tbody tr:nth-child(odd) { background: var(--row); }
     td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
     td.pair { font-weight: 600; white-space: nowrap; }
@@ -169,37 +137,154 @@ export class CmcApiController {
   </style>
 </head>
 <body>
-  <h1>Pool Swap Fees</h1>
-  <div class="meta">
-    ${allPools.length} visible pools · cached up to 60s · generated <code>${escapeHtml(generatedAt)}</code><br />
-    Source: <code>GET /api/v1/cmc/fees</code> · JSON variant: <code>GET /api/v1/cmc/summary</code>
-  </div>
+  <h1>${escapeHtml(heading)}</h1>
+  <div class="meta">${metaLine}</div>
   ${
-    rows.length === 0
-      ? '<div class="empty">No visible pools.</div>'
+    bodyRows.length === 0
+      ? `<div class="empty">${escapeHtml(emptyMessage ?? 'No visible pools.')}</div>`
       : `<table>
     <thead>
       <tr>
-        <th>Pair</th>
-        <th class="num">Fee (bps)</th>
-        <th class="num">Fee %</th>
-        <th>Pool address</th>
-        <th>Base mint</th>
-        <th>Quote mint</th>
+${headerCells}
       </tr>
     </thead>
     <tbody>
-${rows}
+${bodyRows}
     </tbody>
   </table>`
   }
 </body>
 </html>`;
+}
+
+export class CmcApiController {
+  /** C0: factory / program id for the protocol (Solana program address). */
+  static getFactory(_req: Request, res: Response): void {
+    const id = process.env.OMNIPAIR_PROGRAM_ID;
+    if (!id) {
+      res.status(503).json({ error: 'OMNIPAIR_PROGRAM_ID is not configured' });
+      return;
+    }
+    res.json({ factory: id, network: 'solana' });
+  }
+
+  /** HTML table of all visible pools and their swap fees (cached). */
+  static async getFeesHtml(_req: Request, res: Response): Promise<void> {
+    try {
+      const allPools = await PoolController.fetchAllPools(false);
+
+      const bodyRows = allPools
+        .slice()
+        .sort((a, b) => {
+          const fa = parseFloat(a.swap_fee_bps) || 0;
+          const fb = parseFloat(b.swap_fee_bps) || 0;
+          if (fb !== fa) return fb - fa;
+          const pa = `${a.token0?.symbol ?? ''}/${a.token1?.symbol ?? ''}`;
+          const pb = `${b.token0?.symbol ?? ''}/${b.token1?.symbol ?? ''}`;
+          return pa.localeCompare(pb);
+        })
+        .map((p) => {
+          const base = escapeHtml(p.token0?.symbol ?? '?');
+          const quote = escapeHtml(p.token1?.symbol ?? '?');
+          const pair = `${base}/${quote}`;
+          const pairAddr = escapeHtml(p.pair_address);
+          const baseMint = escapeHtml(p.token0?.address ?? '');
+          const quoteMint = escapeHtml(p.token1?.address ?? '');
+          const bpsRaw = p.swap_fee_bps;
+          const bpsStr = bpsRaw == null || bpsRaw === '' ? '—' : escapeHtml(bpsRaw);
+          const pct = escapeHtml(formatFeePct(bpsRaw));
+          return `        <tr>
+          <td class="pair">${pair}</td>
+          <td class="num">${bpsStr}</td>
+          <td class="num">${pct}</td>
+          <td class="mono">${pairAddr}</td>
+          <td class="mono small">${baseMint}</td>
+          <td class="mono small">${quoteMint}</td>
+        </tr>`;
+        })
+        .join('\n');
+
+      const generatedAt = new Date().toISOString();
+      const html = renderPoolTablePage({
+        title: 'Pool Swap Fees — Omnipair CMC API',
+        heading: 'Pool Swap Fees',
+        metaLine: `${allPools.length} visible pools · cached up to 60s · generated <code>${escapeHtml(generatedAt)}</code><br />
+    Source: <code>GET /api/v1/cmc/fees</code> · JSON variant: <code>GET /api/v1/cmc/summary</code>`,
+        headers: [
+          { label: 'Pair' },
+          { label: 'Fee (bps)', numeric: true },
+          { label: 'Fee %', numeric: true },
+          { label: 'Pool address' },
+          { label: 'Base mint' },
+          { label: 'Quote mint' },
+        ],
+        bodyRows,
+      });
 
       res.type('html').send(html);
     } catch (e) {
       console.error('cmc api fees html:', e);
       res.status(500).type('html').send('<h1>500</h1><p>Failed to render pool fees.</p>');
+    }
+  }
+
+  /**
+   * HTML table of all visible pools with their deposit / withdraw fees.
+   * Protocol-wide constants: deposit = 0%, withdraw = 1% (100 bps) for every pool.
+   */
+  static async getDepositWithdrawFeesHtml(_req: Request, res: Response): Promise<void> {
+    try {
+      const allPools = await PoolController.fetchAllPools(false);
+
+      const bodyRows = allPools
+        .slice()
+        .sort((a, b) => {
+          const pa = `${a.token0?.symbol ?? ''}/${a.token1?.symbol ?? ''}`;
+          const pb = `${b.token0?.symbol ?? ''}/${b.token1?.symbol ?? ''}`;
+          return pa.localeCompare(pb);
+        })
+        .map((p) => {
+          const base = escapeHtml(p.token0?.symbol ?? '?');
+          const quote = escapeHtml(p.token1?.symbol ?? '?');
+          const pair = `${base}/${quote}`;
+          const pairAddr = escapeHtml(p.pair_address);
+          const baseMint = escapeHtml(p.token0?.address ?? '');
+          const quoteMint = escapeHtml(p.token1?.address ?? '');
+          return `        <tr>
+          <td class="pair">${pair}</td>
+          <td class="num">0.00%</td>
+          <td class="num">1.00%</td>
+          <td class="mono">${pairAddr}</td>
+          <td class="mono small">${baseMint}</td>
+          <td class="mono small">${quoteMint}</td>
+        </tr>`;
+        })
+        .join('\n');
+
+      const generatedAt = new Date().toISOString();
+      const html = renderPoolTablePage({
+        title: 'Pool Deposit / Withdraw Fees — Omnipair CMC API',
+        heading: 'Pool Deposit / Withdraw Fees',
+        metaLine: `${allPools.length} visible pools · cached up to 60s · generated <code>${escapeHtml(generatedAt)}</code><br />
+    Protocol-wide: <code>deposit = 0%</code>, <code>withdraw = 1%</code> for every pool · Source: <code>GET /api/v1/cmc/deposit-withdraw-fees</code>`,
+        headers: [
+          { label: 'Pair' },
+          { label: 'Deposit fee', numeric: true },
+          { label: 'Withdraw fee', numeric: true },
+          { label: 'Pool address' },
+          { label: 'Base mint' },
+          { label: 'Quote mint' },
+        ],
+        bodyRows,
+      });
+
+      res.type('html').send(html);
+    } catch (e) {
+      console.error('cmc api deposit-withdraw fees html:', e);
+      res
+        .status(500)
+        .type('html')
+        .send('<h1>500</h1><p>Failed to render pool deposit/withdraw fees.</p>');
     }
   }
 
