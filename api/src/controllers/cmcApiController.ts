@@ -188,8 +188,6 @@ export class CmcApiController {
           const quote = escapeHtml(p.token1?.symbol ?? '?');
           const pair = `${base}/${quote}`;
           const pairAddr = escapeHtml(p.pair_address);
-          const baseMint = escapeHtml(p.token0?.address ?? '');
-          const quoteMint = escapeHtml(p.token1?.address ?? '');
           const bpsRaw = p.swap_fee_bps;
           const bpsStr = bpsRaw == null || bpsRaw === '' ? '—' : escapeHtml(bpsRaw);
           const pct = escapeHtml(formatFeePct(bpsRaw));
@@ -198,8 +196,6 @@ export class CmcApiController {
           <td class="num">${bpsStr}</td>
           <td class="num">${pct}</td>
           <td class="mono">${pairAddr}</td>
-          <td class="mono small">${baseMint}</td>
-          <td class="mono small">${quoteMint}</td>
         </tr>`;
         })
         .join('\n');
@@ -215,8 +211,6 @@ export class CmcApiController {
           { label: 'Fee (bps)', numeric: true },
           { label: 'Fee %', numeric: true },
           { label: 'Pool address' },
-          { label: 'Base mint' },
-          { label: 'Quote mint' },
         ],
         bodyRows,
       });
@@ -248,15 +242,11 @@ export class CmcApiController {
           const quote = escapeHtml(p.token1?.symbol ?? '?');
           const pair = `${base}/${quote}`;
           const pairAddr = escapeHtml(p.pair_address);
-          const baseMint = escapeHtml(p.token0?.address ?? '');
-          const quoteMint = escapeHtml(p.token1?.address ?? '');
           return `        <tr>
           <td class="pair">${pair}</td>
           <td class="num">0.00%</td>
           <td class="num">1.00%</td>
           <td class="mono">${pairAddr}</td>
-          <td class="mono small">${baseMint}</td>
-          <td class="mono small">${quoteMint}</td>
         </tr>`;
         })
         .join('\n');
@@ -272,8 +262,6 @@ export class CmcApiController {
           { label: 'Deposit fee', numeric: true },
           { label: 'Withdraw fee', numeric: true },
           { label: 'Pool address' },
-          { label: 'Base mint' },
-          { label: 'Quote mint' },
         ],
         bodyRows,
       });
