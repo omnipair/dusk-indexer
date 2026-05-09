@@ -6,6 +6,11 @@ import { cache } from '../utils/cache';
 import { simulateUserPositionGetter } from '../utils/pairSimulation';
 import { SimulationResult } from '../types/pairTypes';
 import { isValidAddress, initializePairStateService, splitPosition } from './helpers/controllerBase';
+import {
+  getLpPositionMetricKey,
+  getLpPositionMetricsForRows,
+  LiquidityPositionMetricInput,
+} from '../services/lpPositionMetricsService';
 
 export class PositionController {
   static async getAllPositions(req: Request, res: Response): Promise<void> {
@@ -204,6 +209,16 @@ export class PositionController {
         const countResult = await pool.query(countQuery, countParams);
         const totalCount = parseInt(countResult.rows[0].total_count);
         const result = await pool.query(dataQuery, queryParams);
+        const metricInputs: LiquidityPositionMetricInput[] = result.rows.map((row) => ({
+          signer: row.signer,
+          pair: row.pair,
+          token0Mint: row.token0_mint,
+          token1Mint: row.token1_mint,
+          amount0: row.amount0,
+          amount1: row.amount1,
+          lpAmount: row.lp_amount,
+        }));
+        const metricsByPosition = await getLpPositionMetricsForRows(pool, metricInputs);
 
         const pairStateService = await initializePairStateService();
         const program = pairStateService.getProgram();
@@ -222,6 +237,8 @@ export class PositionController {
               timestamp: row.updated_at,
               token0Address: row.token0_mint,
               token1Address: row.token1_mint,
+              earnings: metricsByPosition.get(getLpPositionMetricKey(row.signer, row.pair))?.earnings,
+              valueDelta: metricsByPosition.get(getLpPositionMetricKey(row.signer, row.pair))?.valueDelta,
             };
 
             if (program) {

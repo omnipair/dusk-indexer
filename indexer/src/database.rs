@@ -48,6 +48,8 @@ pub async fn upsert_swap_event(
     swap_event: &SwapEvent,
     tx_signature: &str,
     slot: i64,
+    instruction_index: i32,
+    instruction_path: &str,
 ) -> CarbonResult<()> {
     let pool = get_db_pool()?;
     
@@ -71,8 +73,8 @@ pub async fn upsert_swap_event(
         INSERT INTO swaps (
             pair, user_address, is_token0_in, amount_in, amount_out, 
             reserve0, reserve1, timestamp, tx_sig, slot, fee_paid0, fee_paid1,
-            lp_fee, protocol_fee
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            lp_fee, protocol_fee, instruction_index, instruction_path
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         ON CONFLICT (tx_sig, timestamp) DO UPDATE SET
             pair = EXCLUDED.pair,
             user_address = EXCLUDED.user_address,
@@ -86,7 +88,9 @@ pub async fn upsert_swap_event(
             fee_paid0 = EXCLUDED.fee_paid0,
             fee_paid1 = EXCLUDED.fee_paid1,
             lp_fee = EXCLUDED.lp_fee,
-            protocol_fee = EXCLUDED.protocol_fee
+            protocol_fee = EXCLUDED.protocol_fee,
+            instruction_index = EXCLUDED.instruction_index,
+            instruction_path = EXCLUDED.instruction_path
         "#
     )
     .bind(swap_event.metadata.pair.to_string())
@@ -103,6 +107,8 @@ pub async fn upsert_swap_event(
     .bind(bigdecimal::BigDecimal::from(fee_paid1))
     .bind(bigdecimal::BigDecimal::from(swap_event.lp_fee))
     .bind(bigdecimal::BigDecimal::from(swap_event.protocol_fee))
+    .bind(instruction_index)
+    .bind(instruction_path)
     .execute(pool)
     .await;
     
@@ -119,14 +125,17 @@ pub async fn upsert_mint_event(
     event: &MintEvent,
     tx_signature: &str,
     _slot: i64,
+    instruction_index: i32,
+    instruction_path: &str,
 ) -> CarbonResult<()> {
     let pool = get_db_pool()?;
     
     let upsert_result = sqlx::query(
         r#"
         INSERT INTO adjust_liquidity (
-            pair, user_address, amount0, amount1, liquidity, tx_sig, timestamp, event_type, slot
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::liquidity_event_type, $9)
+            pair, user_address, amount0, amount1, liquidity, tx_sig, timestamp, event_type, slot,
+            instruction_index, instruction_path
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::liquidity_event_type, $9, $10, $11)
         ON CONFLICT (tx_sig, timestamp) DO UPDATE SET
             pair = EXCLUDED.pair,
             user_address = EXCLUDED.user_address,
@@ -135,7 +144,9 @@ pub async fn upsert_mint_event(
             liquidity = EXCLUDED.liquidity,
             timestamp = EXCLUDED.timestamp,
             event_type = EXCLUDED.event_type,
-            slot = EXCLUDED.slot
+            slot = EXCLUDED.slot,
+            instruction_index = EXCLUDED.instruction_index,
+            instruction_path = EXCLUDED.instruction_path
         "#
     )
     .bind(event.metadata.pair.to_string())
@@ -147,6 +158,8 @@ pub async fn upsert_mint_event(
     .bind(chrono::Utc::now())
     .bind("add") // MintEvent = "add" liquidity
     .bind(bigdecimal::BigDecimal::from(event.metadata.slot))
+    .bind(instruction_index)
+    .bind(instruction_path)
     .execute(pool)
     .await;
     
@@ -163,14 +176,17 @@ pub async fn upsert_burn_event(
     event: &BurnEvent,
     tx_signature: &str,
     _slot: i64,
+    instruction_index: i32,
+    instruction_path: &str,
 ) -> CarbonResult<()> {
     let pool = get_db_pool()?;
     
     let upsert_result = sqlx::query(
         r#"
         INSERT INTO adjust_liquidity (
-            pair, user_address, amount0, amount1, liquidity, tx_sig, timestamp, event_type, slot
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::liquidity_event_type, $9)
+            pair, user_address, amount0, amount1, liquidity, tx_sig, timestamp, event_type, slot,
+            instruction_index, instruction_path
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::liquidity_event_type, $9, $10, $11)
         ON CONFLICT (tx_sig, timestamp) DO UPDATE SET
             pair = EXCLUDED.pair,
             user_address = EXCLUDED.user_address,
@@ -179,7 +195,9 @@ pub async fn upsert_burn_event(
             liquidity = EXCLUDED.liquidity,
             timestamp = EXCLUDED.timestamp,
             event_type = EXCLUDED.event_type,
-            slot = EXCLUDED.slot
+            slot = EXCLUDED.slot,
+            instruction_index = EXCLUDED.instruction_index,
+            instruction_path = EXCLUDED.instruction_path
         "#
     )
     .bind(event.metadata.pair.to_string())
@@ -191,6 +209,8 @@ pub async fn upsert_burn_event(
     .bind(chrono::Utc::now())
     .bind("remove") // BurnEvent = "remove" liquidity
     .bind(bigdecimal::BigDecimal::from(event.metadata.slot))
+    .bind(instruction_index)
+    .bind(instruction_path)
     .execute(pool)
     .await;
     
@@ -509,8 +529,10 @@ pub async fn upsert_pair_created_event(
 /// Upsert a UserLiquidityPositionUpdatedEvent into the database
 pub async fn upsert_user_liquidity_position_updated_event(
     event: &UserLiquidityPositionUpdatedEvent,
-    _tx_signature: &str,
+    tx_signature: &str,
     _slot: i64,
+    instruction_index: i32,
+    instruction_path: &str,
 ) -> CarbonResult<()> {
     let pool = get_db_pool()?;
     
@@ -521,8 +543,9 @@ pub async fn upsert_user_liquidity_position_updated_event(
     let insert_event_result = sqlx::query(
         r#"
         INSERT INTO user_lp_position_updated_events (
-            pair_address, lp_amount, amount0, amount1, signer, timestamp, slot
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+            pair_address, lp_amount, amount0, amount1, signer, timestamp, slot,
+            transaction_signature, instruction_index, instruction_path
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         "#
     )
     .bind(event.metadata.pair.to_string())
@@ -532,6 +555,9 @@ pub async fn upsert_user_liquidity_position_updated_event(
     .bind(event.metadata.signer.to_string())
     .bind(event_timestamp)
     .bind(bigdecimal::BigDecimal::from(event.metadata.slot))
+    .bind(tx_signature)
+    .bind(instruction_index)
+    .bind(instruction_path)
     .execute(pool)
     .await;
     
@@ -583,6 +609,8 @@ pub async fn upsert_update_pair_event(
     event: &UpdatePairEvent,
     tx_signature: &str,
     slot: i64,
+    instruction_index: i32,
+    instruction_path: &str,
 ) -> CarbonResult<()> {
     let pool = get_db_pool()?;
 
@@ -595,8 +623,9 @@ pub async fn upsert_update_pair_event(
             protocol_interest0, protocol_interest1,
             cash_reserve0, cash_reserve1,
             reserve0_after_interest, reserve1_after_interest,
-            transaction_signature, slot, timestamp
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+            transaction_signature, slot, timestamp,
+            instruction_index, instruction_path
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
         ON CONFLICT (transaction_signature, timestamp) DO UPDATE SET
             pair = EXCLUDED.pair,
             signer = EXCLUDED.signer,
@@ -614,7 +643,9 @@ pub async fn upsert_update_pair_event(
             cash_reserve1 = EXCLUDED.cash_reserve1,
             reserve0_after_interest = EXCLUDED.reserve0_after_interest,
             reserve1_after_interest = EXCLUDED.reserve1_after_interest,
-            slot = EXCLUDED.slot
+            slot = EXCLUDED.slot,
+            instruction_index = EXCLUDED.instruction_index,
+            instruction_path = EXCLUDED.instruction_path
         "#
     )
     .bind(event.metadata.pair.to_string())
@@ -636,6 +667,8 @@ pub async fn upsert_update_pair_event(
     .bind(tx_signature)
     .bind(bigdecimal::BigDecimal::from(slot))
     .bind(chrono::Utc::now())
+    .bind(instruction_index)
+    .bind(instruction_path)
     .execute(pool)
     .await;
 
@@ -646,4 +679,3 @@ pub async fn upsert_update_pair_event(
 
     Ok(())
 }
-

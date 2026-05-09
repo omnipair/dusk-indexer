@@ -17,6 +17,15 @@ impl OmnipairInstructionProcessor {
     }
 }
 
+fn instruction_path(metadata: &InstructionMetadata) -> String {
+    metadata
+        .absolute_path
+        .iter()
+        .map(|part| format!("{:06}", part))
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
 #[async_trait]
 impl Processor for OmnipairInstructionProcessor {
     type InputType = (
@@ -98,8 +107,15 @@ impl OmnipairInstructionProcessor {
         
         let tx_signature = metadata.transaction_metadata.signature.to_string();
         let slot = metadata.transaction_metadata.slot as i64;
-        
-        if let Err(e) = database::upsert_swap_event(&swap_event, &tx_signature, slot).await {
+        let instruction_index = metadata.index as i32;
+        let instruction_path = instruction_path(metadata);
+        if let Err(e) = database::upsert_swap_event(
+            &swap_event,
+            &tx_signature,
+            slot,
+            instruction_index,
+            &instruction_path,
+        ).await {
             log::error!("Failed to insert swap event: {}", e);
             return Err(e);
         }
@@ -211,9 +227,17 @@ impl OmnipairInstructionProcessor {
         
         let tx_signature = metadata.transaction_metadata.signature.to_string();
         let slot = metadata.transaction_metadata.slot as i64;
-        
+        let instruction_index = metadata.index as i32;
+        let instruction_path = instruction_path(metadata);
+
         // Save to adjust_liquidity table with event_type = "remove"
-        if let Err(e) = database::upsert_burn_event(&event, &tx_signature, slot).await {
+        if let Err(e) = database::upsert_burn_event(
+            &event,
+            &tx_signature,
+            slot,
+            instruction_index,
+            &instruction_path,
+        ).await {
             log::error!("Failed to save burn event to database: {}", e);
             return Err(e);
         }
@@ -243,9 +267,17 @@ impl OmnipairInstructionProcessor {
         
         let tx_signature = metadata.transaction_metadata.signature.to_string();
         let slot = metadata.transaction_metadata.slot as i64;
-        
+        let instruction_index = metadata.index as i32;
+        let instruction_path = instruction_path(metadata);
+
         // Save to adjust_liquidity table with event_type = "add"
-        if let Err(e) = database::upsert_mint_event(&event, &tx_signature, slot).await {
+        if let Err(e) = database::upsert_mint_event(
+            &event,
+            &tx_signature,
+            slot,
+            instruction_index,
+            &instruction_path,
+        ).await {
             log::error!("Failed to save mint event to database: {}", e);
             return Err(e);
         }
@@ -334,8 +366,16 @@ impl OmnipairInstructionProcessor {
     ) -> CarbonResult<()> {
         let tx_signature = metadata.transaction_metadata.signature.to_string();
         let slot = metadata.transaction_metadata.slot as i64;
+        let instruction_index = metadata.index as i32;
+        let instruction_path = instruction_path(metadata);
 
-        if let Err(e) = database::upsert_update_pair_event(&event, &tx_signature, slot).await {
+        if let Err(e) = database::upsert_update_pair_event(
+            &event,
+            &tx_signature,
+            slot,
+            instruction_index,
+            &instruction_path,
+        ).await {
             log::error!("Failed to insert update pair event: {}", e);
             return Err(e);
         }
@@ -455,8 +495,15 @@ impl OmnipairInstructionProcessor {
         
         let tx_signature = metadata.transaction_metadata.signature.to_string();
         let slot = metadata.transaction_metadata.slot as i64;
-        
-        if let Err(e) = database::upsert_user_liquidity_position_updated_event(&event, &tx_signature, slot).await {
+        let instruction_index = metadata.index as i32;
+        let instruction_path = instruction_path(metadata);
+        if let Err(e) = database::upsert_user_liquidity_position_updated_event(
+            &event,
+            &tx_signature,
+            slot,
+            instruction_index,
+            &instruction_path,
+        ).await {
             log::error!("Failed to insert user liquidity position updated event: {}", e);
             return Err(e);
         }
