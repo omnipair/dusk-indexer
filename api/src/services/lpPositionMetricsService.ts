@@ -1,5 +1,9 @@
 import { QueryResult, QueryResultRow } from 'pg';
 import { getCurrentTokenPrices } from './tokenPriceSnapshotService';
+import {
+  currentLpValuationKey,
+  loadCurrentLpTokenAmounts,
+} from './currentLpValuationService';
 import { calculateValueDeltaUsd, parseNumber, tokenRawToUsd } from '../utils/portfolioMath';
 
 interface Queryable {
@@ -13,6 +17,7 @@ export interface LiquidityPositionMetricInput {
   token1Mint: string;
   amount0: string;
   amount1: string;
+  lpAmount: string;
 }
 
 export interface LpPositionMetrics {
@@ -160,6 +165,15 @@ export async function getLpPositionMetricsForRows(
     loadNetContributions(db, positions),
     getCurrentTokenPrices(positions.flatMap((position) => [position.token0Mint, position.token1Mint])),
   ]);
+  const currentAmountsByPosition = await loadCurrentLpTokenAmounts(
+    positions.map((position) => ({
+      signer: position.signer,
+      pair: position.pair,
+      lpAmount: position.lpAmount,
+      amount0: position.amount0,
+      amount1: position.amount1,
+    }))
+  );
 
   const metrics = new Map<string, LpPositionMetrics>();
   for (const position of positions) {
@@ -171,8 +185,9 @@ export async function getLpPositionMetricsForRows(
 
     const netToken0 = parseNumber(contribution?.net_amount0);
     const netToken1 = parseNumber(contribution?.net_amount1);
-    const currentToken0 = parseNumber(position.amount0);
-    const currentToken1 = parseNumber(position.amount1);
+    const currentAmounts = currentAmountsByPosition.get(currentLpValuationKey(position.signer, position.pair));
+    const currentToken0 = currentAmounts?.token0Amount ?? parseNumber(position.amount0);
+    const currentToken1 = currentAmounts?.token1Amount ?? parseNumber(position.amount1);
     const currentValueUsd =
       tokenRawToUsd(currentToken0, token0Price) + tokenRawToUsd(currentToken1, token1Price);
     const netContributedUsd =

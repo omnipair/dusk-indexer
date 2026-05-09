@@ -4,6 +4,7 @@ export const HOUR_MS = 60 * 60 * 1000;
 export type SnapshotQuality = 'exact' | 'estimated';
 export type PriceQuality = 'historical' | 'current' | 'estimated' | 'missing';
 export type LpEarningSource = 'borrow_interest' | 'swap_fee';
+export type AllocationQuality = 'exact' | 'estimated';
 
 export interface TokenPrice {
   priceUsd: number;

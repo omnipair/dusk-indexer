@@ -216,6 +216,7 @@ export class PositionController {
           token1Mint: row.token1_mint,
           amount0: row.amount0,
           amount1: row.amount1,
+          lpAmount: row.lp_amount,
         }));
         const metricsByPosition = await getLpPositionMetricsForRows(pool, metricInputs);
 

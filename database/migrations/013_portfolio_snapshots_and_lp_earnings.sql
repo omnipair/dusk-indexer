@@ -1,6 +1,23 @@
 -- Migration: Portfolio snapshots and per-position LP earnings
 -- Adds durable hourly portfolio valuation data and source-attributed LP earnings.
 
+ALTER TABLE swaps
+  ADD COLUMN IF NOT EXISTS instruction_index INTEGER,
+  ADD COLUMN IF NOT EXISTS instruction_path TEXT;
+
+ALTER TABLE adjust_liquidity
+  ADD COLUMN IF NOT EXISTS instruction_index INTEGER,
+  ADD COLUMN IF NOT EXISTS instruction_path TEXT;
+
+ALTER TABLE user_lp_position_updated_events
+  ADD COLUMN IF NOT EXISTS transaction_signature TEXT,
+  ADD COLUMN IF NOT EXISTS instruction_index INTEGER,
+  ADD COLUMN IF NOT EXISTS instruction_path TEXT;
+
+ALTER TABLE update_pair_events
+  ADD COLUMN IF NOT EXISTS instruction_index INTEGER,
+  ADD COLUMN IF NOT EXISTS instruction_path TEXT;
+
 CREATE TABLE IF NOT EXISTS token_price_snapshots (
     mint TEXT NOT NULL,
     bucket TIMESTAMPTZ NOT NULL,
@@ -51,13 +68,39 @@ CREATE TABLE IF NOT EXISTS lp_position_earning_events (
     token1_usd NUMERIC NOT NULL DEFAULT 0,
     total_usd NUMERIC NOT NULL DEFAULT 0,
     price_quality TEXT NOT NULL DEFAULT 'historical',
+    allocation_quality TEXT NOT NULL DEFAULT 'exact',
+    source_instruction_index INTEGER,
+    source_instruction_path TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT lp_position_earning_events_source_check
       CHECK (source IN ('borrow_interest', 'swap_fee')),
     CONSTRAINT lp_position_earning_events_price_quality_check
       CHECK (price_quality IN ('historical', 'current', 'estimated', 'missing')),
+    CONSTRAINT lp_position_earning_events_allocation_quality_check
+      CHECK (allocation_quality IN ('exact', 'estimated')),
     CONSTRAINT lp_position_earning_events_unique_source
       UNIQUE (pair, signer, source, source_event_id)
+);
+
+CREATE TABLE IF NOT EXISTS lp_earning_source_events (
+    pair TEXT NOT NULL,
+    source TEXT NOT NULL,
+    source_event_id TEXT NOT NULL,
+    source_tx_sig TEXT,
+    event_slot BIGINT,
+    event_timestamp TIMESTAMPTZ NOT NULL,
+    source_instruction_index INTEGER,
+    source_instruction_path TEXT,
+    allocation_quality TEXT NOT NULL DEFAULT 'exact',
+    allocation_count INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    processed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (pair, source, source_event_id),
+    CONSTRAINT lp_earning_source_events_source_check
+      CHECK (source IN ('borrow_interest', 'swap_fee')),
+    CONSTRAINT lp_earning_source_events_allocation_quality_check
+      CHECK (allocation_quality IN ('exact', 'estimated'))
 );
 
 CREATE TABLE IF NOT EXISTS lp_position_earnings (
@@ -89,5 +132,20 @@ CREATE INDEX IF NOT EXISTS idx_lp_position_earning_events_signer_pair
 CREATE INDEX IF NOT EXISTS idx_lp_position_earning_events_timestamp
   ON lp_position_earning_events (event_timestamp DESC);
 
+CREATE INDEX IF NOT EXISTS idx_lp_earning_source_events_timestamp
+  ON lp_earning_source_events (event_timestamp DESC);
+
 CREATE INDEX IF NOT EXISTS idx_lp_position_earnings_signer
   ON lp_position_earnings (signer);
+
+CREATE INDEX IF NOT EXISTS idx_swaps_pair_slot_order
+  ON swaps (pair, slot, tx_sig, instruction_path);
+
+CREATE INDEX IF NOT EXISTS idx_adjust_liquidity_pair_slot_order
+  ON adjust_liquidity (pair, slot, tx_sig, instruction_path);
+
+CREATE INDEX IF NOT EXISTS idx_user_lp_position_updated_pair_slot_order
+  ON user_lp_position_updated_events (pair_address, slot, transaction_signature, instruction_path);
+
+CREATE INDEX IF NOT EXISTS idx_update_pair_events_pair_slot_order
+  ON update_pair_events (pair, slot, transaction_signature, instruction_path);

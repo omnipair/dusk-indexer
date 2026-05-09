@@ -3,6 +3,10 @@ import { QueryResult, QueryResultRow } from 'pg';
 import { getCurrentTokenPrices, getHistoricalTokenPrices } from './tokenPriceSnapshotService';
 import { simulateUserPositionGetter } from '../utils/pairSimulation';
 import {
+  currentLpValuationKey,
+  loadCurrentLpTokenAmounts,
+} from './currentLpValuationService';
+import {
   PriceQuality,
   SnapshotQuality,
   TokenPrice,
@@ -60,6 +64,8 @@ interface SnapshotRow {
 
 interface LpPositionAtBucket {
   pair: string;
+  signer: string;
+  lp_amount: string;
   amount0: string;
   amount1: string;
   position_timestamp: Date | string;
@@ -150,6 +156,8 @@ async function fetchHistoricalLpPositions(
     `
       SELECT DISTINCT ON (events.pair_address)
         events.pair_address AS pair,
+        events.signer,
+        events.lp_amount::text AS lp_amount,
         events.amount0::text AS amount0,
         events.amount1::text AS amount1,
         events."timestamp" AS position_timestamp,
@@ -174,6 +182,8 @@ async function fetchCurrentLpPositions(
     `
       SELECT
         positions.pair,
+        positions.signer,
+        positions.lp_amount::text AS lp_amount,
         positions.amount0::text AS amount0,
         positions.amount1::text AS amount1,
         positions.updated_at AS position_timestamp,
@@ -233,13 +243,23 @@ async function computeLpValueUsd(
     historical,
     dryRun
   );
+  const currentAmounts = historical
+    ? new Map()
+    : await loadCurrentLpTokenAmounts(positions.map((position) => ({
+        signer: position.signer,
+        pair: position.pair,
+        lpAmount: position.lp_amount,
+        amount0: position.amount0,
+        amount1: position.amount1,
+      })));
 
   let valueUsd = 0;
   let priceQuality: PriceQuality = 'historical';
 
   for (const position of positions) {
-    let amount0 = parseNumber(position.amount0);
-    let amount1 = parseNumber(position.amount1);
+    const liveAmounts = currentAmounts.get(currentLpValuationKey(position.signer, position.pair));
+    let amount0 = liveAmounts?.token0Amount ?? parseNumber(position.amount0);
+    let amount1 = liveAmounts?.token1Amount ?? parseNumber(position.amount1);
 
     if (historical) {
       const deltas = await fetchLpEarningDeltaAfterPosition(
@@ -251,6 +271,10 @@ async function computeLpValueUsd(
       );
       amount0 += deltas.token0;
       amount1 += deltas.token1;
+    }
+
+    if (!historical && liveAmounts && !liveAmounts.exact) {
+      priceQuality = 'estimated';
     }
 
     const token0Price = prices.get(position.token0);
