@@ -57,4 +57,5 @@ main()
   })
   .finally(async () => {
     await pool.end();
+    process.exit(process.exitCode ?? 0);
   });
