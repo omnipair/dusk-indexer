@@ -1,6 +1,7 @@
 import app from './app';
 import pool from './config/database';
 import { startActivityInvalidationListener, stopActivityInvalidationListener } from './services/activityInvalidationService';
+import { startPoolInvalidationListener, stopPoolInvalidationListener } from './services/poolInvalidationService';
 import { perfMetrics } from './utils/perfMetrics';
 
 const PORT = process.env.PORT || 3000;
@@ -12,6 +13,7 @@ const gracefulShutdown = async (signal: string) => {
   console.log(`${signal} received, shutting down gracefully`);
   perfMetrics.stopReporting();
   await stopActivityInvalidationListener();
+  await stopPoolInvalidationListener();
   
   if (server) {
     server.close(async () => {
@@ -42,6 +44,11 @@ server = app.listen(PORT, async () => {
     await startActivityInvalidationListener();
   } catch (error) {
     console.error('Failed to start activity invalidation listener:', error);
+  }
+  try {
+    await startPoolInvalidationListener();
+  } catch (error) {
+    console.error('Failed to start pool invalidation listener:', error);
   }
 });
 

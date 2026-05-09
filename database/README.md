@@ -31,6 +31,7 @@ Migrations are in `./migrations/` and applied in alphabetical order:
 | `002_add_swaps_notify_trigger.sql` | Adds PostgreSQL LISTEN/NOTIFY trigger for real-time swap updates |
 | `009_activity_history_perf_and_invalidation.sql` | Adds activity-history composite indexes and event notifications for cache invalidation |
 | `010_fix_notify_activity_update.sql` | Hardens activity notification trigger function for mixed user field schemas (`user_address`/`signer`) |
+| `013_add_pools_notify_trigger.sql` | Adds PostgreSQL LISTEN/NOTIFY trigger on `pools` (channel `pool_updates`) for API cache invalidation |
 
 ### Apply a single migration
 
