@@ -12,9 +12,14 @@
     "verify-ema": "npm run build && node dist/scripts/fillEmaPrices.js verify",
     "ema-both": "npm run build && node dist/scripts/fillEmaPrices.js both",
     "start:volume-enricher": "node dist/scripts/volumeEnricher.js",
+    "start:portfolio-snapshotter": "node dist/scripts/portfolioSnapshotter.js",
     "backfill-volume": "npm run build && node dist/scripts/backfillVolume.js",
+    "backfill-token-prices": "npm run build && node dist/scripts/backfillTokenPrices.js",
+    "backfill-lp-earnings": "npm run build && node dist/scripts/backfillLpEarnings.js",
+    "backfill-portfolio-snapshots": "npm run build && node dist/scripts/backfillPortfolioSnapshots.js",
     "benchmark:activity": "npm run build && node dist/scripts/benchmarkActivityHistory.js",
-    "generate:cmc-ucids": "node scripts/generate-cmc-unified-cryptoasset-map.mjs"
+    "generate:cmc-ucids": "node scripts/generate-cmc-unified-cryptoasset-map.mjs",
+    "test:unit": "npm run build && node --test dist/tests/*.test.js"
   },
   "keywords": [
     "typescript",

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { SwapController } from '../../controllers/swapController';
 import { UserController } from '../../controllers/userController';
 import { PositionController } from '../../controllers/positionController';
+import { PortfolioController } from '../../controllers/portfolioController';
 
 const router = Router();
 
@@ -31,6 +32,10 @@ router.get('/:userAddress/lending-events', async (req: Request, res: Response) =
 
 router.get('/:userAddress/activity', async (req: Request, res: Response) => {
   await UserController.getUserActivity(req, res);
+});
+
+router.get('/:userAddress/portfolio-snapshots', async (req: Request, res: Response) => {
+  await PortfolioController.getUserPortfolioSnapshots(req, res);
 });
 
 router.get('/:userAddress/positions', async (req: Request, res: Response) => {
