@@ -1,7 +1,10 @@
 import dotenv from 'dotenv';
 import pool from '../config/database';
-import { getHistoricalTokenPrices } from '../services/tokenPriceSnapshotService';
-import { floorToHour } from '../utils/portfolioMath';
+import {
+  backfillHistoricalTokenPricesRange,
+  createHistoricalTokenPriceCache,
+} from '../services/tokenPriceSnapshotService';
+import { HOUR_MS, floorToHour } from '../utils/portfolioMath';
 
 dotenv.config();
 
@@ -17,6 +20,18 @@ function readArg(name: string): string | undefined {
 
 function hasFlag(name: string): boolean {
   return process.argv.slice(2).includes(name);
+}
+
+function readNumberArg(name: string, fallback: number): number {
+  const value = readArg(name);
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`Invalid positive number for ${name}: ${value}`);
+  }
+  return parsed;
 }
 
 function readDateArg(name: string): Date | undefined {
@@ -73,34 +88,104 @@ async function defaultStart(): Promise<Date> {
   return start ? floorToHour(new Date(start)) : floorToHour(new Date());
 }
 
+function addHours(date: Date, hours: number): Date {
+  return new Date(date.getTime() + hours * HOUR_MS);
+}
+
+function minDate(a: Date, b: Date): Date {
+  return a <= b ? a : b;
+}
+
+function maxDate(a: Date, b: Date): Date {
+  return a >= b ? a : b;
+}
+
 async function main(): Promise<void> {
   const dryRun = hasFlag('--dry-run');
   const pair = readArg('--pair');
   const from = floorToHour(readDateArg('--from') ?? await defaultStart());
   const to = floorToHour(readDateArg('--to') ?? new Date());
-  const maxBuckets = readArg('--max-buckets') ? Number(readArg('--max-buckets')) : Number.POSITIVE_INFINITY;
+  const maxBuckets = readArg('--max-buckets') ? readNumberArg('--max-buckets', Number.POSITIVE_INFINITY) : Number.POSITIVE_INFINITY;
+  const chunkHours = Math.min(readNumberArg('--chunk-hours', 168), Math.max(maxBuckets, 1));
+  const reverse = hasFlag('--reverse');
+  const refreshMissing = hasFlag('--refresh-missing');
+  const persistMissing = !hasFlag('--no-persist-missing');
+  const delayMs = readArg('--delay-ms') ? readNumberArg('--delay-ms', 0) : 0;
   const mints = await loadMints(pair);
+  const cache = createHistoricalTokenPriceCache();
 
   console.log('=== Omnipair Token Price Backfill ===');
   if (dryRun) console.log('Dry run enabled');
+  if (reverse) console.log('Reverse mode enabled');
+  if (refreshMissing) console.log('Refreshing existing missing price markers');
   console.log(`Mints: ${mints.length}`);
   console.log(`Range: ${from.toISOString()} -> ${to.toISOString()}`);
+  console.log(`Chunk size: ${chunkHours} hourly buckets`);
+  if (delayMs > 0) console.log(`Birdeye delay: ${delayMs}ms between mint range fetches`);
 
-  let bucket = new Date(from);
-  let buckets = 0;
-  while (bucket <= to && buckets < maxBuckets) {
-    await getHistoricalTokenPrices(pool, mints, bucket, {
+  let processedBuckets = 0;
+  let written = 0;
+  let historicalWritten = 0;
+  let estimatedWritten = 0;
+  let missingWritten = 0;
+  let fetchedMints = 0;
+  let failedMints = 0;
+  let skippedExisting = 0;
+  let chunkStart = reverse
+    ? floorToHour(new Date(Math.min(to.getTime(), from.getTime() + (maxBuckets - 1) * HOUR_MS)))
+    : new Date(from);
+
+  while (
+    processedBuckets < maxBuckets
+    && (reverse ? chunkStart >= from : chunkStart <= to)
+  ) {
+    const remainingBuckets = maxBuckets - processedBuckets;
+    const currentChunkHours = Math.min(chunkHours, remainingBuckets);
+    const chunkFrom = reverse
+      ? maxDate(from, addHours(chunkStart, -(currentChunkHours - 1)))
+      : chunkStart;
+    const chunkTo = reverse
+      ? chunkStart
+      : minDate(to, addHours(chunkStart, currentChunkHours - 1));
+
+    const result = await backfillHistoricalTokenPricesRange(pool, mints, chunkFrom, chunkTo, {
       dryRun,
       allowCurrentFallback: true,
+      persistMissing,
+      refreshMissing,
+      cache,
+      delayMs,
     });
-    buckets += 1;
-    if (buckets % 24 === 0) {
-      console.log(`Processed ${buckets} hourly buckets through ${bucket.toISOString()}`);
-    }
-    bucket = new Date(bucket.getTime() + 60 * 60 * 1000);
+
+    processedBuckets += result.buckets;
+    written += result.written;
+    historicalWritten += result.historicalWritten;
+    estimatedWritten += result.estimatedWritten;
+    missingWritten += result.missingWritten;
+    fetchedMints += result.fetchedMints;
+    failedMints += result.failedMints;
+    skippedExisting += result.skippedExisting;
+    console.log(
+      `Processed ${processedBuckets} buckets through ${reverse ? chunkFrom.toISOString() : chunkTo.toISOString()} ` +
+      `(written=${written}, historical=${historicalWritten}, estimated=${estimatedWritten}, missing=${missingWritten}, fetchedMints=${fetchedMints}, failedMints=${failedMints})`
+    );
+
+    chunkStart = reverse
+      ? addHours(chunkFrom, -1)
+      : addHours(chunkTo, 1);
   }
 
-  console.log(`Backfill complete: ${buckets} hourly buckets processed`);
+  console.log('Backfill complete:', {
+    buckets: processedBuckets,
+    written,
+    historicalWritten,
+    estimatedWritten,
+    missingWritten,
+    fetchedMints,
+    failedMints,
+    skippedExisting,
+    dryRun,
+  });
 }
 
 main()

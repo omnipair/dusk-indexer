@@ -1,5 +1,9 @@
 import { QueryResult, QueryResultRow } from 'pg';
-import { getHistoricalTokenPrices } from './tokenPriceSnapshotService';
+import {
+  HistoricalTokenPriceCache,
+  createHistoricalTokenPriceCache,
+  getHistoricalTokenPrices,
+} from './tokenPriceSnapshotService';
 import {
   ActiveLpPosition,
   AllocationQuality,
@@ -26,6 +30,9 @@ export interface LpEarningsBackfillOptions {
   maxEvents?: number;
   pair?: string;
   source?: LpEarningSource;
+  priceCache?: HistoricalTokenPriceCache;
+  progressEvery?: number;
+  useBatch?: boolean;
 }
 
 export interface LpEarningsBackfillResult {
@@ -60,6 +67,17 @@ interface PairTokenRow {
 
 interface OrderingQualityRow {
   has_unknown_same_slot_ordering: boolean;
+}
+
+interface LpEarningsBackfillContext {
+  priceCache: HistoricalTokenPriceCache;
+  pairTokenCache: Map<string, PairTokenRow | null>;
+}
+
+interface BatchPersistResultRow {
+  source_events: number;
+  allocated_rows: number;
+  skipped_events: number;
 }
 
 async function withTransaction<T>(
@@ -167,28 +185,6 @@ async function fetchUnallocatedEarningEvents(
           AND existing.source_event_id = event_rows.source_event_id
       )
       AND event_rows.event_slot IS NOT NULL
-      AND EXISTS (
-        SELECT 1
-        FROM (
-          SELECT DISTINCT ON (lp.signer)
-            lp.signer,
-            lp.lp_amount
-          FROM user_lp_position_updated_events lp
-          WHERE lp.pair_address = event_rows.pair
-            AND (
-              lp.slot < event_rows.event_slot::numeric
-              OR (
-                lp.slot = event_rows.event_slot::numeric
-                AND lp.transaction_signature = event_rows.source_tx_sig
-                AND lp.instruction_path IS NOT NULL
-                AND event_rows.source_instruction_path IS NOT NULL
-                AND lp.instruction_path < event_rows.source_instruction_path
-              )
-            )
-          ORDER BY lp.signer, lp.slot DESC, lp.instruction_path DESC NULLS LAST, lp."timestamp" DESC, lp.id DESC
-        ) active_lp
-        WHERE active_lp.lp_amount > 0
-      )
       ${whereClause}
       ORDER BY event_rows.event_timestamp ASC, event_rows.source_event_id ASC
       LIMIT ${limitParam}
@@ -208,6 +204,19 @@ async function fetchPairTokens(db: Queryable, pair: string): Promise<PairTokenRo
     [pair]
   );
   return result.rows[0] ?? null;
+}
+
+async function fetchPairTokensCached(
+  db: Queryable,
+  pair: string,
+  cache: Map<string, PairTokenRow | null>
+): Promise<PairTokenRow | null> {
+  if (cache.has(pair)) {
+    return cache.get(pair) ?? null;
+  }
+  const tokens = await fetchPairTokens(db, pair);
+  cache.set(pair, tokens);
+  return tokens;
 }
 
 async function fetchActiveLpPositions(
@@ -406,14 +415,15 @@ async function refreshLpEarningsAggregate(
 async function allocateAndPersistEvent(
   db: Queryable,
   event: EarningEventRow,
-  dryRun: boolean
+  dryRun: boolean,
+  context: LpEarningsBackfillContext
 ): Promise<number> {
   const eventSlot = parseNumber(event.event_slot, -1);
   if (eventSlot < 0) {
     return 0;
   }
 
-  const pairTokens = await fetchPairTokens(db, event.pair);
+  const pairTokens = await fetchPairTokensCached(db, event.pair, context.pairTokenCache);
   if (!pairTokens) {
     return 0;
   }
@@ -425,7 +435,11 @@ async function allocateAndPersistEvent(
       db,
       [pairTokens.token0, pairTokens.token1],
       new Date(event.event_timestamp),
-      { dryRun, allowCurrentFallback: true }
+      {
+        dryRun,
+        allowCurrentFallback: true,
+        cache: context.priceCache,
+      }
     ),
     detectAllocationQuality(db, event, eventSlot),
   ]);
@@ -519,12 +533,329 @@ async function allocateAndPersistEvent(
   return allocations.length;
 }
 
+async function allocateAndPersistEventsBatch(
+  db: Queryable,
+  events: EarningEventRow[]
+): Promise<{ sourceEvents: number; allocatedRows: number; skippedEvents: number }> {
+  if (events.length === 0) {
+    return { sourceEvents: 0, allocatedRows: 0, skippedEvents: 0 };
+  }
+
+  const eventPayload = events.map((event) => ({
+    source: event.source,
+    source_event_id: event.source_event_id,
+    source_tx_sig: event.source_tx_sig,
+    pair: event.pair,
+    event_slot: event.event_slot === null ? null : String(event.event_slot),
+    event_timestamp: new Date(event.event_timestamp).toISOString(),
+    source_instruction_index: event.source_instruction_index === null
+      ? null
+      : Number(event.source_instruction_index),
+    source_instruction_path: event.source_instruction_path,
+    token0_amount: event.token0_amount ?? '0',
+    token1_amount: event.token1_amount ?? '0',
+  }));
+
+  const result = await withTransaction(db, async (client) => client.query<BatchPersistResultRow>(
+    `
+      WITH event_rows AS (
+        SELECT
+          source::text,
+          source_event_id::text,
+          source_tx_sig::text,
+          pair::text,
+          event_slot::numeric,
+          event_timestamp::timestamptz,
+          source_instruction_index::integer,
+          source_instruction_path::text,
+          token0_amount::numeric,
+          token1_amount::numeric
+        FROM jsonb_to_recordset($1::jsonb) AS events(
+          source text,
+          source_event_id text,
+          source_tx_sig text,
+          pair text,
+          event_slot text,
+          event_timestamp text,
+          source_instruction_index integer,
+          source_instruction_path text,
+          token0_amount text,
+          token1_amount text
+        )
+      ),
+      allocation_rows AS (
+        SELECT
+          event_rows.pair,
+          active_lp.signer,
+          event_rows.source,
+          event_rows.source_event_id,
+          event_rows.source_tx_sig,
+          event_rows.event_slot,
+          event_rows.event_timestamp,
+          active_lp.lp_amount,
+          supply.total_supply,
+          active_lp.lp_amount / supply.total_supply AS lp_share,
+          event_rows.token0_amount * active_lp.lp_amount / supply.total_supply AS allocated_token0,
+          event_rows.token1_amount * active_lp.lp_amount / supply.total_supply AS allocated_token1,
+          COALESCE(price0.price_usd, 0) AS token0_price_usd,
+          COALESCE(price1.price_usd, 0) AS token1_price_usd,
+          COALESCE(price0.decimals, 6) AS token0_decimals,
+          COALESCE(price1.decimals, 6) AS token1_decimals,
+          CASE
+            WHEN price0.quality = 'missing'
+              OR price1.quality = 'missing'
+              OR price0.quality IS NULL
+              OR price1.quality IS NULL
+              THEN 'missing'
+            WHEN price0.quality = 'estimated'
+              OR price1.quality = 'estimated'
+              THEN 'estimated'
+            ELSE COALESCE(price0.quality, price1.quality, 'missing')
+          END AS price_quality,
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM (
+                SELECT transaction_signature AS tx_sig, instruction_path
+                FROM user_lp_position_updated_events
+                WHERE pair_address = event_rows.pair
+                  AND slot = event_rows.event_slot
+                UNION ALL
+                SELECT tx_sig, instruction_path
+                FROM adjust_liquidity
+                WHERE pair = event_rows.pair
+                  AND slot = event_rows.event_slot
+              ) same_slot_events
+              WHERE event_rows.source_tx_sig IS NULL
+                OR event_rows.source_instruction_path IS NULL
+                OR same_slot_events.tx_sig IS NULL
+                OR same_slot_events.tx_sig <> event_rows.source_tx_sig
+                OR same_slot_events.instruction_path IS NULL
+            ) THEN 'estimated'
+            ELSE 'exact'
+          END AS allocation_quality,
+          event_rows.source_instruction_index,
+          event_rows.source_instruction_path
+        FROM event_rows
+        JOIN pools ON pools.pair_address = event_rows.pair
+        JOIN LATERAL (
+          SELECT DISTINCT ON (lp.signer)
+            lp.signer,
+            lp.lp_amount::numeric AS lp_amount
+          FROM user_lp_position_updated_events lp
+          WHERE lp.pair_address = event_rows.pair
+            AND (
+              lp.slot < event_rows.event_slot
+              OR (
+                lp.slot = event_rows.event_slot
+                AND lp.transaction_signature = event_rows.source_tx_sig
+                AND lp.instruction_path IS NOT NULL
+                AND event_rows.source_instruction_path IS NOT NULL
+                AND lp.instruction_path < event_rows.source_instruction_path
+              )
+            )
+          ORDER BY lp.signer, lp.slot DESC, lp.instruction_path DESC NULLS LAST, lp."timestamp" DESC, lp.id DESC
+        ) active_lp ON active_lp.lp_amount > 0
+        JOIN LATERAL (
+          SELECT (
+            1000 + COALESCE(SUM(
+              CASE
+                WHEN event_type IN ('add', 'mint') THEN liquidity::numeric
+                WHEN event_type IN ('remove', 'burn') THEN -liquidity::numeric
+                ELSE 0
+              END
+            ), 0)
+          )::numeric AS total_supply
+          FROM adjust_liquidity
+          WHERE pair = event_rows.pair
+            AND (
+              slot < event_rows.event_slot
+              OR (
+                slot = event_rows.event_slot
+                AND tx_sig = event_rows.source_tx_sig
+                AND instruction_path IS NOT NULL
+                AND event_rows.source_instruction_path IS NOT NULL
+                AND instruction_path < event_rows.source_instruction_path
+              )
+            )
+        ) supply ON supply.total_supply > 0
+        LEFT JOIN token_price_snapshots price0
+          ON price0.mint = pools.token0
+         AND price0.bucket = date_trunc('hour', event_rows.event_timestamp)
+         AND price0.provider = 'birdeye'
+        LEFT JOIN token_price_snapshots price1
+          ON price1.mint = pools.token1
+         AND price1.bucket = date_trunc('hour', event_rows.event_timestamp)
+         AND price1.provider = 'birdeye'
+      ),
+      allocations AS (
+        SELECT
+          *,
+          allocated_token0 / power(10::numeric, token0_decimals) * token0_price_usd AS token0_usd,
+          allocated_token1 / power(10::numeric, token1_decimals) * token1_price_usd AS token1_usd
+        FROM allocation_rows
+      ),
+      upsert_earning_events AS (
+        INSERT INTO lp_position_earning_events (
+          pair, signer, source, source_event_id, source_tx_sig,
+          event_slot, event_timestamp, lp_amount, total_supply, lp_share,
+          token0_amount, token1_amount, token0_usd, token1_usd, total_usd,
+          price_quality, allocation_quality, source_instruction_index, source_instruction_path,
+          updated_at
+        )
+        SELECT
+          pair,
+          signer,
+          source,
+          source_event_id,
+          source_tx_sig,
+          event_slot,
+          event_timestamp,
+          lp_amount,
+          total_supply,
+          lp_share,
+          allocated_token0,
+          allocated_token1,
+          token0_usd,
+          token1_usd,
+          token0_usd + token1_usd,
+          price_quality,
+          allocation_quality,
+          source_instruction_index,
+          source_instruction_path,
+          now()
+        FROM allocations
+        ON CONFLICT (pair, signer, source, source_event_id) DO UPDATE SET
+          source_tx_sig = EXCLUDED.source_tx_sig,
+          event_slot = EXCLUDED.event_slot,
+          event_timestamp = EXCLUDED.event_timestamp,
+          lp_amount = EXCLUDED.lp_amount,
+          total_supply = EXCLUDED.total_supply,
+          lp_share = EXCLUDED.lp_share,
+          token0_amount = EXCLUDED.token0_amount,
+          token1_amount = EXCLUDED.token1_amount,
+          token0_usd = EXCLUDED.token0_usd,
+          token1_usd = EXCLUDED.token1_usd,
+          total_usd = EXCLUDED.total_usd,
+          price_quality = EXCLUDED.price_quality,
+          allocation_quality = EXCLUDED.allocation_quality,
+          source_instruction_index = EXCLUDED.source_instruction_index,
+          source_instruction_path = EXCLUDED.source_instruction_path,
+          updated_at = now()
+        RETURNING pair, signer
+      ),
+      allocation_counts AS (
+        SELECT
+          pair,
+          source,
+          source_event_id,
+          COUNT(*)::integer AS allocation_count,
+          CASE
+            WHEN BOOL_OR(allocation_quality = 'estimated') THEN 'estimated'
+            ELSE 'exact'
+          END AS allocation_quality
+        FROM allocations
+        GROUP BY pair, source, source_event_id
+      ),
+      upsert_source_events AS (
+        INSERT INTO lp_earning_source_events (
+          pair, source, source_event_id, source_tx_sig, event_slot, event_timestamp,
+          source_instruction_index, source_instruction_path,
+          allocation_quality, allocation_count, processed_at
+        )
+        SELECT
+          event_rows.pair,
+          event_rows.source,
+          event_rows.source_event_id,
+          event_rows.source_tx_sig,
+          event_rows.event_slot,
+          event_rows.event_timestamp,
+          event_rows.source_instruction_index,
+          event_rows.source_instruction_path,
+          COALESCE(allocation_counts.allocation_quality, 'estimated'),
+          COALESCE(allocation_counts.allocation_count, 0),
+          now()
+        FROM event_rows
+        LEFT JOIN allocation_counts
+          ON allocation_counts.pair = event_rows.pair
+         AND allocation_counts.source = event_rows.source
+         AND allocation_counts.source_event_id = event_rows.source_event_id
+        ON CONFLICT (pair, source, source_event_id) DO UPDATE SET
+          source_tx_sig = EXCLUDED.source_tx_sig,
+          event_slot = EXCLUDED.event_slot,
+          event_timestamp = EXCLUDED.event_timestamp,
+          source_instruction_index = EXCLUDED.source_instruction_index,
+          source_instruction_path = EXCLUDED.source_instruction_path,
+          allocation_quality = EXCLUDED.allocation_quality,
+          allocation_count = EXCLUDED.allocation_count,
+          processed_at = now()
+        RETURNING pair, source, source_event_id, allocation_count
+      ),
+      affected_positions AS (
+        SELECT DISTINCT pair, signer
+        FROM upsert_earning_events
+      ),
+      refresh_aggregate AS (
+        INSERT INTO lp_position_earnings (
+          pair, signer,
+          accrued_interest0, accrued_interest1,
+          swap_fees0, swap_fees1,
+          accrued_interest_usd, swap_fees_usd,
+          total_earned_usd, updated_at
+        )
+        SELECT
+          earning_events.pair,
+          earning_events.signer,
+          COALESCE(SUM(CASE WHEN earning_events.source = 'borrow_interest' THEN earning_events.token0_amount ELSE 0 END), 0),
+          COALESCE(SUM(CASE WHEN earning_events.source = 'borrow_interest' THEN earning_events.token1_amount ELSE 0 END), 0),
+          COALESCE(SUM(CASE WHEN earning_events.source = 'swap_fee' THEN earning_events.token0_amount ELSE 0 END), 0),
+          COALESCE(SUM(CASE WHEN earning_events.source = 'swap_fee' THEN earning_events.token1_amount ELSE 0 END), 0),
+          COALESCE(SUM(CASE WHEN earning_events.source = 'borrow_interest' THEN earning_events.total_usd ELSE 0 END), 0),
+          COALESCE(SUM(CASE WHEN earning_events.source = 'swap_fee' THEN earning_events.total_usd ELSE 0 END), 0),
+          COALESCE(SUM(earning_events.total_usd), 0),
+          now()
+        FROM lp_position_earning_events earning_events
+        JOIN affected_positions
+          ON affected_positions.pair = earning_events.pair
+         AND affected_positions.signer = earning_events.signer
+        GROUP BY earning_events.pair, earning_events.signer
+        ON CONFLICT (pair, signer) DO UPDATE SET
+          accrued_interest0 = EXCLUDED.accrued_interest0,
+          accrued_interest1 = EXCLUDED.accrued_interest1,
+          swap_fees0 = EXCLUDED.swap_fees0,
+          swap_fees1 = EXCLUDED.swap_fees1,
+          accrued_interest_usd = EXCLUDED.accrued_interest_usd,
+          swap_fees_usd = EXCLUDED.swap_fees_usd,
+          total_earned_usd = EXCLUDED.total_earned_usd,
+          updated_at = now()
+        RETURNING pair, signer
+      )
+      SELECT
+        (SELECT COUNT(*) FROM event_rows)::integer AS source_events,
+        (SELECT COUNT(*) FROM allocations)::integer AS allocated_rows,
+        (SELECT COUNT(*) FROM upsert_source_events WHERE allocation_count = 0)::integer AS skipped_events
+    `,
+    [JSON.stringify(eventPayload)]
+  ));
+
+  const row = result.rows[0];
+  return {
+    sourceEvents: row?.source_events ?? events.length,
+    allocatedRows: row?.allocated_rows ?? 0,
+    skippedEvents: row?.skipped_events ?? 0,
+  };
+}
+
 export async function backfillLpEarnings(
   db: Queryable,
   options: LpEarningsBackfillOptions = {}
 ): Promise<LpEarningsBackfillResult> {
   const dryRun = Boolean(options.dryRun);
   const maxEvents = options.maxEvents ?? Number.POSITIVE_INFINITY;
+  const context: LpEarningsBackfillContext = {
+    priceCache: options.priceCache ?? createHistoricalTokenPriceCache(),
+    pairTokenCache: new Map(),
+  };
   let scannedEvents = 0;
   let allocatedRows = 0;
   let skippedEvents = 0;
@@ -542,12 +873,29 @@ export async function backfillLpEarnings(
       break;
     }
 
+    if (!dryRun && options.useBatch !== false) {
+      const batchResult = await allocateAndPersistEventsBatch(db, events);
+      scannedEvents += batchResult.sourceEvents;
+      allocatedRows += batchResult.allocatedRows;
+      skippedEvents += batchResult.skippedEvents;
+      if (options.progressEvery && scannedEvents % options.progressEvery === 0) {
+        console.log(`LP earnings progress: scanned=${scannedEvents}, allocatedRows=${allocatedRows}, skipped=${skippedEvents}`);
+      }
+      if (events.length < (remaining ?? events.length)) {
+        break;
+      }
+      continue;
+    }
+
     for (const event of events) {
       scannedEvents += 1;
-      const allocations = await allocateAndPersistEvent(db, event, dryRun);
+      const allocations = await allocateAndPersistEvent(db, event, dryRun, context);
       allocatedRows += allocations;
       if (allocations === 0) {
         skippedEvents += 1;
+      }
+      if (options.progressEvery && scannedEvents % options.progressEvery === 0) {
+        console.log(`LP earnings progress: scanned=${scannedEvents}, allocatedRows=${allocatedRows}, skipped=${skippedEvents}`);
       }
       if (scannedEvents >= maxEvents) {
         break;

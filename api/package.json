@@ -13,6 +13,7 @@
     "ema-both": "npm run build && node dist/scripts/fillEmaPrices.js both",
     "start:volume-enricher": "node dist/scripts/volumeEnricher.js",
     "start:portfolio-snapshotter": "node dist/scripts/portfolioSnapshotter.js",
+    "start:lp-earnings-worker": "node dist/scripts/lpEarningsWorker.js",
     "backfill-volume": "npm run build && node dist/scripts/backfillVolume.js",
     "backfill-token-prices": "npm run build && node dist/scripts/backfillTokenPrices.js",
     "backfill-lp-earnings": "npm run build && node dist/scripts/backfillLpEarnings.js",

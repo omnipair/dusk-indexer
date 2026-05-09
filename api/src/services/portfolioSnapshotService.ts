@@ -1,6 +1,11 @@
 import { PublicKey } from '@solana/web3.js';
 import { QueryResult, QueryResultRow } from 'pg';
-import { getCurrentTokenPrices, getHistoricalTokenPrices } from './tokenPriceSnapshotService';
+import {
+  HistoricalTokenPriceCache,
+  createHistoricalTokenPriceCache,
+  getCurrentTokenPrices,
+  getHistoricalTokenPrices,
+} from './tokenPriceSnapshotService';
 import { simulateUserPositionGetter } from '../utils/pairSimulation';
 import {
   currentLpValuationKey,
@@ -44,6 +49,11 @@ export interface PortfolioSnapshotBackfillOptions {
   to?: Date;
   limitUsers?: number;
   maxBucketsPerUser?: number;
+  skipExisting?: boolean;
+  priceCache?: HistoricalTokenPriceCache;
+  progressEveryBuckets?: number;
+  concurrency?: number;
+  startAtFirstActivity?: boolean;
 }
 
 export interface PortfolioSnapshotBackfillResult {
@@ -132,12 +142,14 @@ async function loadPrices(
   mints: string[],
   bucket: Date,
   historical: boolean,
-  dryRun: boolean
+  dryRun: boolean,
+  priceCache?: HistoricalTokenPriceCache
 ): Promise<Map<string, TokenPrice>> {
   if (historical) {
     return getHistoricalTokenPrices(db, mints, bucket, {
       dryRun,
       allowCurrentFallback: true,
+      cache: priceCache,
     });
   }
   return getCurrentTokenPrices(mints);
@@ -230,7 +242,8 @@ async function computeLpValueUsd(
   userAddress: string,
   bucket: Date,
   historical: boolean,
-  dryRun: boolean
+  dryRun: boolean,
+  priceCache?: HistoricalTokenPriceCache
 ): Promise<{ valueUsd: number; priceQuality: PriceQuality }> {
   const positions = historical
     ? await fetchHistoricalLpPositions(db, userAddress, bucket)
@@ -241,7 +254,8 @@ async function computeLpValueUsd(
     positions.flatMap((position) => [position.token0, position.token1]),
     bucket,
     historical,
-    dryRun
+    dryRun,
+    priceCache
   );
   const currentAmounts = historical
     ? new Map()
@@ -381,7 +395,8 @@ async function computeBorrowValueUsd(
   userAddress: string,
   bucket: Date,
   historical: boolean,
-  dryRun: boolean
+  dryRun: boolean,
+  priceCache?: HistoricalTokenPriceCache
 ): Promise<{ collateralUsd: number; debtUsd: number; quality: SnapshotQuality }> {
   const positions = historical
     ? await fetchHistoricalBorrowPositions(db, userAddress, bucket)
@@ -391,7 +406,8 @@ async function computeBorrowValueUsd(
     positions.flatMap((position) => [position.token0, position.token1]),
     bucket,
     historical,
-    dryRun
+    dryRun,
+    priceCache
   );
 
   let collateralUsd = 0;
@@ -433,12 +449,12 @@ export async function computePortfolioSnapshotValues(
   db: Queryable,
   userAddress: string,
   bucket: Date,
-  options: { historical?: boolean; dryRun?: boolean } = {}
+  options: { historical?: boolean; dryRun?: boolean; priceCache?: HistoricalTokenPriceCache } = {}
 ): Promise<SnapshotValues> {
   const historical = Boolean(options.historical);
   const [lpValue, borrowValue] = await Promise.all([
-    computeLpValueUsd(db, userAddress, bucket, historical, Boolean(options.dryRun)),
-    computeBorrowValueUsd(db, userAddress, bucket, historical, Boolean(options.dryRun)),
+    computeLpValueUsd(db, userAddress, bucket, historical, Boolean(options.dryRun), options.priceCache),
+    computeBorrowValueUsd(db, userAddress, bucket, historical, Boolean(options.dryRun), options.priceCache),
   ]);
   const quality: SnapshotQuality =
     historical || lpValue.priceQuality === 'estimated' || borrowValue.quality === 'estimated'
@@ -579,6 +595,56 @@ async function defaultBackfillStart(db: Queryable): Promise<Date> {
   return start ? floorToHour(new Date(start)) : floorToHour(new Date());
 }
 
+async function fetchExistingSnapshotBuckets(
+  db: Queryable,
+  userAddress: string,
+  from: Date,
+  to: Date
+): Promise<Set<number>> {
+  const result = await db.query<{ bucket: Date | string }>(
+    `
+      SELECT bucket
+      FROM portfolio_value_snapshots
+      WHERE user_address = $1
+        AND bucket >= $2
+        AND bucket <= $3
+    `,
+    [userAddress, from, to]
+  );
+
+  return new Set(result.rows.map((row) => new Date(row.bucket).getTime()));
+}
+
+async function fetchUserFirstActivityBuckets(
+  db: Queryable,
+  users: string[]
+): Promise<Map<string, Date>> {
+  if (users.length === 0) {
+    return new Map();
+  }
+
+  const result = await db.query<{ signer: string; first_seen: Date | string }>(
+    `
+      SELECT signer, MIN(first_seen) AS first_seen
+      FROM (
+        SELECT signer, MIN("timestamp") AS first_seen
+        FROM user_lp_position_updated_events
+        WHERE signer = ANY($1::text[])
+        GROUP BY signer
+        UNION ALL
+        SELECT signer, MIN(event_timestamp) AS first_seen
+        FROM user_position_updated_events
+        WHERE signer = ANY($1::text[])
+        GROUP BY signer
+      ) activity
+      GROUP BY signer
+    `,
+    [users]
+  );
+
+  return new Map(result.rows.map((row) => [row.signer, floorToHour(new Date(row.first_seen))]));
+}
+
 export async function backfillPortfolioSnapshots(
   db: Queryable,
   options: PortfolioSnapshotBackfillOptions = {}
@@ -588,18 +654,34 @@ export async function backfillPortfolioSnapshots(
   const from = floorToHour(options.from ?? await defaultBackfillStart(db));
   const to = floorToHour(options.to ?? new Date());
   const maxBucketsPerUser = options.maxBucketsPerUser ?? Number.POSITIVE_INFINITY;
+  const priceCache = options.priceCache ?? createHistoricalTokenPriceCache();
+  const concurrency = Math.min(Math.max(options.concurrency ?? 1, 1), 25);
+  const firstActivityBuckets = options.startAtFirstActivity
+    ? await fetchUserFirstActivityBuckets(db, users)
+    : new Map<string, Date>();
 
   let buckets = 0;
   let written = 0;
+  let nextUserIndex = 0;
 
-  for (const user of users) {
-    let bucket = new Date(from);
+  async function processUser(user: string): Promise<void> {
+    const userFrom = firstActivityBuckets.get(user);
+    let bucket = userFrom && userFrom > from ? new Date(userFrom) : new Date(from);
     let userBuckets = 0;
+    const existingBuckets = options.skipExisting
+      ? await fetchExistingSnapshotBuckets(db, user, bucket, to)
+      : new Set<number>();
 
     while (bucket <= to && userBuckets < maxBucketsPerUser) {
+      if (existingBuckets.has(bucket.getTime())) {
+        bucket = new Date(bucket.getTime() + 60 * 60 * 1000);
+        continue;
+      }
+
       const values = await computePortfolioSnapshotValues(db, user, bucket, {
         historical: bucket < floorToHour(new Date()),
         dryRun,
+        priceCache,
       });
 
       buckets += 1;
@@ -610,9 +692,23 @@ export async function backfillPortfolioSnapshots(
         written += 1;
       }
 
+      if (options.progressEveryBuckets && buckets % options.progressEveryBuckets === 0) {
+        console.log(`Portfolio snapshot progress: buckets=${buckets}, written=${written}, currentUser=${user}, bucket=${bucket.toISOString()}`);
+      }
+
       bucket = new Date(bucket.getTime() + 60 * 60 * 1000);
     }
   }
+
+  async function worker(): Promise<void> {
+    while (nextUserIndex < users.length) {
+      const user = users[nextUserIndex];
+      nextUserIndex += 1;
+      await processUser(user);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, users.length) }, () => worker()));
 
   return {
     users: users.length,
