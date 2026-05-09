@@ -138,14 +138,14 @@ CREATE INDEX IF NOT EXISTS idx_lp_earning_source_events_timestamp
 CREATE INDEX IF NOT EXISTS idx_lp_position_earnings_signer
   ON lp_position_earnings (signer);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_swaps_pair_slot_order
+CREATE INDEX IF NOT EXISTS idx_swaps_pair_slot_order
   ON swaps (pair, slot, tx_sig, instruction_path);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_adjust_liquidity_pair_slot_order
+CREATE INDEX IF NOT EXISTS idx_adjust_liquidity_pair_slot_order
   ON adjust_liquidity (pair, slot, tx_sig, instruction_path);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_lp_position_updated_pair_slot_order
+CREATE INDEX IF NOT EXISTS idx_user_lp_position_updated_pair_slot_order
   ON user_lp_position_updated_events (pair_address, slot, transaction_signature, instruction_path);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_update_pair_events_pair_slot_order
+CREATE INDEX IF NOT EXISTS idx_update_pair_events_pair_slot_order
   ON update_pair_events (pair, slot, transaction_signature, instruction_path);
