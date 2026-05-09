@@ -15,17 +15,31 @@ function hasFlag(name: string): boolean {
   return process.argv.slice(2).includes(name);
 }
 
+function readNumberArg(name: string): number | undefined {
+  const value = readArg(name);
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`Invalid positive number for ${name}: ${value}`);
+  }
+  return parsed;
+}
+
 async function main(): Promise<void> {
   const source = readArg('--source') as LpEarningSource | undefined;
   const pair = readArg('--pair');
-  const limit = readArg('--limit') ? Number(readArg('--limit')) : undefined;
-  const maxEvents = readArg('--max-events') ? Number(readArg('--max-events')) : undefined;
+  const limit = readNumberArg('--limit');
+  const maxEvents = readNumberArg('--max-events');
+  const progressEvery = readNumberArg('--progress-every') ?? 1000;
   const dryRun = hasFlag('--dry-run');
 
   console.log('=== Omnipair LP Earnings Backfill ===');
   if (dryRun) console.log('Dry run enabled');
   if (pair) console.log(`Pair filter: ${pair}`);
   if (source) console.log(`Source filter: ${source}`);
+  if (progressEvery) console.log(`Progress every ${progressEvery} source events`);
 
   const result = await backfillLpEarnings(pool, {
     dryRun,
@@ -33,6 +47,7 @@ async function main(): Promise<void> {
     source,
     limit,
     maxEvents,
+    progressEvery,
   });
 
   console.log('Backfill complete:', result);

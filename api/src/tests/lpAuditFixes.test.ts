@@ -129,7 +129,7 @@ test('backfillLpEarnings finalizes a source event only after transactional alloc
     },
   };
 
-  const result = await backfillLpEarnings(db, { maxEvents: 2 });
+  const result = await backfillLpEarnings(db, { maxEvents: 2, useBatch: false });
   const firstDiscovery = statements.find((statement) => statement.includes('WITH event_rows')) ?? '';
 
   assert.equal(result.scannedEvents, 1);
