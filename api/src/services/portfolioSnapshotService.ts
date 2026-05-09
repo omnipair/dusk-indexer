@@ -19,7 +19,6 @@ import {
   parseNumber,
   sumTokenValueUsd,
 } from '../utils/portfolioMath';
-import { initializePairStateService } from '../controllers/helpers/controllerBase';
 
 interface Queryable {
   query<T extends QueryResultRow = any>(text: string, params?: any[]): Promise<QueryResult<T>>;
@@ -97,6 +96,12 @@ interface BorrowPositionAtBucket {
   debt1_shares: string;
   token0: string;
   token1: string;
+}
+
+interface HistoricalDebtPrincipalRow {
+  pair: string;
+  debt0: string;
+  debt1: string;
 }
 
 interface ActiveUserRow {
@@ -353,10 +358,49 @@ async function fetchCurrentBorrowPositions(
   return result.rows;
 }
 
+async function fetchHistoricalDebtPrincipalByPair(
+  db: Queryable,
+  userAddress: string,
+  bucket: Date,
+  pairs: string[]
+): Promise<Map<string, { debt0: number; debt1: number; exact: boolean }>> {
+  const uniquePairs = [...new Set(pairs.filter(Boolean))];
+  if (uniquePairs.length === 0) {
+    return new Map();
+  }
+
+  const result = await db.query<HistoricalDebtPrincipalRow>(
+    `
+      SELECT
+        pair,
+        GREATEST(COALESCE(SUM(amount0), 0), 0)::text AS debt0,
+        GREATEST(COALESCE(SUM(amount1), 0), 0)::text AS debt1
+      FROM adjust_debt_events
+      WHERE signer = $1
+        AND pair = ANY($2::text[])
+        AND event_timestamp <= $3
+      GROUP BY pair
+    `,
+    [userAddress, uniquePairs, bucket]
+  );
+
+  const debtByPair = new Map<string, { debt0: number; debt1: number; exact: boolean }>();
+  for (const row of result.rows) {
+    debtByPair.set(row.pair, {
+      debt0: parseNumber(row.debt0),
+      debt1: parseNumber(row.debt1),
+      exact: false,
+    });
+  }
+
+  return debtByPair;
+}
+
 async function getCurrentDebtWithInterest(
   position: BorrowPositionAtBucket
 ): Promise<{ debt0: number; debt1: number; exact: boolean }> {
   try {
+    const { initializePairStateService } = await import('../controllers/helpers/controllerBase');
     const pairStateService = await initializePairStateService();
     const program = pairStateService.getProgram();
     if (!program) {
@@ -413,8 +457,19 @@ async function computeBorrowValueUsd(
   let collateralUsd = 0;
   let debtUsd = 0;
   let quality: SnapshotQuality = historical ? 'estimated' : 'exact';
+  const historicalDebtByPair = historical
+    ? await fetchHistoricalDebtPrincipalByPair(
+        db,
+        userAddress,
+        bucket,
+        positions.map((position) => position.pair)
+      )
+    : new Map<string, { debt0: number; debt1: number; exact: boolean }>();
+  const countedHistoricalDebtPairs = new Set<string>();
 
   for (const position of positions) {
+    const hasHistoricalDebt =
+      parseNumber(position.debt0_shares) > 0 || parseNumber(position.debt1_shares) > 0;
     const token0Price = prices.get(position.token0);
     const token1Price = prices.get(position.token1);
     if (priceQualityIsEstimated(token0Price) || priceQualityIsEstimated(token1Price)) {
@@ -429,12 +484,22 @@ async function computeBorrowValueUsd(
     );
 
     const debt = historical
-      ? {
-          debt0: parseNumber(position.debt0_shares),
-          debt1: parseNumber(position.debt1_shares),
-          exact: false,
-        }
+      ? countedHistoricalDebtPairs.has(position.pair)
+        ? { debt0: 0, debt1: 0, exact: false }
+        : {
+            debt0: parseNumber(position.debt0_shares) > 0
+              ? historicalDebtByPair.get(position.pair)?.debt0 ?? 0
+              : 0,
+            debt1: parseNumber(position.debt1_shares) > 0
+              ? historicalDebtByPair.get(position.pair)?.debt1 ?? 0
+              : 0,
+            exact: false,
+          }
       : await getCurrentDebtWithInterest(position);
+
+    if (historical && hasHistoricalDebt) {
+      countedHistoricalDebtPairs.add(position.pair);
+    }
 
     if (!debt.exact) {
       quality = 'estimated';
