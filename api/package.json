@@ -19,6 +19,7 @@
     "backfill-lp-earnings": "npm run build && node dist/scripts/backfillLpEarnings.js",
     "backfill-portfolio-snapshots": "npm run build && node dist/scripts/backfillPortfolioSnapshots.js",
     "benchmark:activity": "npm run build && node dist/scripts/benchmarkActivityHistory.js",
+    "check:portfolio-snapshots": "npm run build && node dist/scripts/checkPortfolioSnapshots.js",
     "generate:cmc-ucids": "node scripts/generate-cmc-unified-cryptoasset-map.mjs",
     "test:unit": "npm run build && node --test dist/tests/*.test.js"
   },
