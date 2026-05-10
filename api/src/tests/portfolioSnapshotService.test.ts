@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { QueryResult, QueryResultRow } from 'pg';
-import { computePortfolioSnapshotValues } from '../services/portfolioSnapshotService';
+import {
+  computePortfolioSnapshotValues,
+  reconstructDebtFromPrincipal,
+} from '../services/portfolioSnapshotService';
 
 function queryResult<T extends QueryResultRow>(rows: T[]): QueryResult<T> {
   return {
@@ -88,4 +91,30 @@ test('historical portfolio snapshots value debt from adjust debt principal, not 
   assert.equal(values.debtValueUsd, 287.05177);
   assert.equal(values.netValueUsd, -287.05177);
   assert.equal(statements.some((statement) => statement.includes('FROM adjust_debt_events')), true);
+});
+
+test('reconstructDebtFromPrincipal never values raw debt shares as token debt', () => {
+  const debt = reconstructDebtFromPrincipal(
+    {
+      pair: 'pair-a',
+      debt0_shares: '0',
+      debt1_shares: '287007246802295',
+    },
+    new Map([
+      [
+        'pair-a',
+        {
+          debt0: 0,
+          debt1: 287051770,
+          exact: false,
+        },
+      ],
+    ])
+  );
+
+  assert.deepEqual(debt, {
+    debt0: 0,
+    debt1: 287051770,
+    exact: false,
+  });
 });

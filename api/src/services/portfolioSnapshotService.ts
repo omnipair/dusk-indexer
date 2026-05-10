@@ -104,6 +104,12 @@ interface HistoricalDebtPrincipalRow {
   debt1: string;
 }
 
+interface DebtAmounts {
+  debt0: number;
+  debt1: number;
+  exact: boolean;
+}
+
 interface ActiveUserRow {
   signer: string;
 }
@@ -363,7 +369,7 @@ async function fetchHistoricalDebtPrincipalByPair(
   userAddress: string,
   bucket: Date,
   pairs: string[]
-): Promise<Map<string, { debt0: number; debt1: number; exact: boolean }>> {
+): Promise<Map<string, DebtAmounts>> {
   const uniquePairs = [...new Set(pairs.filter(Boolean))];
   if (uniquePairs.length === 0) {
     return new Map();
@@ -384,7 +390,7 @@ async function fetchHistoricalDebtPrincipalByPair(
     [userAddress, uniquePairs, bucket]
   );
 
-  const debtByPair = new Map<string, { debt0: number; debt1: number; exact: boolean }>();
+  const debtByPair = new Map<string, DebtAmounts>();
   for (const row of result.rows) {
     debtByPair.set(row.pair, {
       debt0: parseNumber(row.debt0),
@@ -396,19 +402,32 @@ async function fetchHistoricalDebtPrincipalByPair(
   return debtByPair;
 }
 
+function hasDebtShares(position: BorrowPositionAtBucket): boolean {
+  return parseNumber(position.debt0_shares) > 0 || parseNumber(position.debt1_shares) > 0;
+}
+
+export function reconstructDebtFromPrincipal(
+  position: Pick<BorrowPositionAtBucket, 'pair' | 'debt0_shares' | 'debt1_shares'>,
+  debtByPair: Map<string, DebtAmounts>
+): DebtAmounts {
+  const pairDebt = debtByPair.get(position.pair);
+  return {
+    debt0: parseNumber(position.debt0_shares) > 0 ? pairDebt?.debt0 ?? 0 : 0,
+    debt1: parseNumber(position.debt1_shares) > 0 ? pairDebt?.debt1 ?? 0 : 0,
+    exact: false,
+  };
+}
+
 async function getCurrentDebtWithInterest(
-  position: BorrowPositionAtBucket
-): Promise<{ debt0: number; debt1: number; exact: boolean }> {
+  position: BorrowPositionAtBucket,
+  fallbackDebt: DebtAmounts
+): Promise<DebtAmounts> {
   try {
     const { initializePairStateService } = await import('../controllers/helpers/controllerBase');
     const pairStateService = await initializePairStateService();
     const program = pairStateService.getProgram();
     if (!program) {
-      return {
-        debt0: parseNumber(position.debt0_shares),
-        debt1: parseNumber(position.debt1_shares),
-        exact: false,
-      };
+      return fallbackDebt;
     }
 
     const result = await simulateUserPositionGetter(
@@ -425,12 +444,8 @@ async function getCurrentDebtWithInterest(
       exact: true,
     };
   } catch (error) {
-    console.warn(`Falling back to debt shares for portfolio snapshot on ${position.position}:`, error);
-    return {
-      debt0: parseNumber(position.debt0_shares),
-      debt1: parseNumber(position.debt1_shares),
-      exact: false,
-    };
+    console.warn(`Falling back to reconstructed debt principal for portfolio snapshot on ${position.position}:`, error);
+    return fallbackDebt;
   }
 }
 
@@ -457,19 +472,16 @@ async function computeBorrowValueUsd(
   let collateralUsd = 0;
   let debtUsd = 0;
   let quality: SnapshotQuality = historical ? 'estimated' : 'exact';
-  const historicalDebtByPair = historical
-    ? await fetchHistoricalDebtPrincipalByPair(
-        db,
-        userAddress,
-        bucket,
-        positions.map((position) => position.pair)
-      )
-    : new Map<string, { debt0: number; debt1: number; exact: boolean }>();
-  const countedHistoricalDebtPairs = new Set<string>();
+  const reconstructedDebtByPair = await fetchHistoricalDebtPrincipalByPair(
+    db,
+    userAddress,
+    bucket,
+    positions.map((position) => position.pair)
+  );
+  const countedReconstructedDebtPairs = new Set<string>();
 
   for (const position of positions) {
-    const hasHistoricalDebt =
-      parseNumber(position.debt0_shares) > 0 || parseNumber(position.debt1_shares) > 0;
+    const hasPositionDebt = hasDebtShares(position);
     const token0Price = prices.get(position.token0);
     const token1Price = prices.get(position.token1);
     if (priceQualityIsEstimated(token0Price) || priceQualityIsEstimated(token1Price)) {
@@ -483,22 +495,15 @@ async function computeBorrowValueUsd(
       token1Price
     );
 
+    const reconstructedDebt = countedReconstructedDebtPairs.has(position.pair)
+      ? { debt0: 0, debt1: 0, exact: false }
+      : reconstructDebtFromPrincipal(position, reconstructedDebtByPair);
     const debt = historical
-      ? countedHistoricalDebtPairs.has(position.pair)
-        ? { debt0: 0, debt1: 0, exact: false }
-        : {
-            debt0: parseNumber(position.debt0_shares) > 0
-              ? historicalDebtByPair.get(position.pair)?.debt0 ?? 0
-              : 0,
-            debt1: parseNumber(position.debt1_shares) > 0
-              ? historicalDebtByPair.get(position.pair)?.debt1 ?? 0
-              : 0,
-            exact: false,
-          }
-      : await getCurrentDebtWithInterest(position);
+      ? reconstructedDebt
+      : await getCurrentDebtWithInterest(position, reconstructedDebt);
 
-    if (historical && hasHistoricalDebt) {
-      countedHistoricalDebtPairs.add(position.pair);
+    if (!debt.exact && hasPositionDebt) {
+      countedReconstructedDebtPairs.add(position.pair);
     }
 
     if (!debt.exact) {
