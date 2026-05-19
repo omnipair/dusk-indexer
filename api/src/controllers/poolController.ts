@@ -15,6 +15,14 @@ import {
   calculateSwapVolume,
 } from './helpers/controllerBase';
 
+function parseCategories(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((c) => c.trim())
+    .filter((c) => c.length > 0);
+}
+
 export class PoolController {
   static async getPoolInfo(req: Request, res: Response): Promise<void> {
     try {
@@ -218,7 +226,7 @@ export class PoolController {
       const visibilityFilter = showAll ? '' : 'WHERE visible = TRUE';
 
       const result = await pool.query(`
-        SELECT id, pair_address, token0, token1, swap_fee_bps, fixed_cf_bps 
+        SELECT id, pair_address, token0, token1, swap_fee_bps, fixed_cf_bps, categories
         FROM pools 
         ${visibilityFilter}
         ORDER BY id ASC
@@ -295,6 +303,7 @@ export class PoolController {
               },
               swap_fee_bps: poolData.swap_fee_bps,
               fixed_cf_bps: poolData.fixed_cf_bps,
+              categories: parseCategories(poolData.categories),
               apr: aprData,
               total_fees_paid: feesData,
               volume_24h: volumeData
@@ -317,6 +326,7 @@ export class PoolController {
               lp_token: { total_supply: '0', decimals: 0 },
               swap_fee_bps: poolData.swap_fee_bps,
               fixed_cf_bps: poolData.fixed_cf_bps,
+              categories: parseCategories(poolData.categories),
               apr: { apr: 0, apr_breakdown: { swap_apr: 0, interest_apr: 0 } },
               total_fees_paid: { total_fees_usd: '0', lp_fees_usd: '0', protocol_fees_usd: '0', token0_fees: '0', token1_fees: '0', period: 'all' },
               volume_24h: { volume0: '0', volume1: '0', period: '24hrs' }
