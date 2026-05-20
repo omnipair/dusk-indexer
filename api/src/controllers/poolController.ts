@@ -15,12 +15,62 @@ import {
   calculateSwapVolume,
 } from './helpers/controllerBase';
 
-function parseCategories(raw: string | null | undefined): string[] {
-  if (!raw) return [];
-  return raw
-    .split(',')
-    .map((c) => c.trim())
-    .filter((c) => c.length > 0);
+type PoolCategoriesRow = {
+  pair_address: string;
+  categories: string[] | null;
+};
+
+async function loadPoolCategories(pairAddresses: string[]): Promise<Map<string, string[]>> {
+  const uniquePairAddresses = Array.from(new Set(pairAddresses.filter(Boolean)));
+  const categoriesByPair = new Map<string, string[]>();
+
+  if (!uniquePairAddresses.length) {
+    return categoriesByPair;
+  }
+
+  try {
+    const result = await pool.query<PoolCategoriesRow>(`
+      WITH requested_pairs AS (
+        SELECT unnest($1::text[]) AS pair_address
+      ),
+      category_matches AS (
+        SELECT DISTINCT
+          p.pair_address,
+          tc.slug
+        FROM pools p
+        JOIN requested_pairs rp ON rp.pair_address = p.pair_address
+        JOIN token_category_assignments tca
+          ON tca.token_mint = p.token0 OR tca.token_mint = p.token1
+        JOIN token_categories tc
+          ON tc.id = tca.category_id
+        WHERE tc.is_archived = FALSE
+      )
+      SELECT
+        rp.pair_address,
+        COALESCE(
+          array_agg(cm.slug ORDER BY cm.slug) FILTER (WHERE cm.slug IS NOT NULL),
+          ARRAY[]::text[]
+        ) AS categories
+      FROM requested_pairs rp
+      LEFT JOIN category_matches cm ON cm.pair_address = rp.pair_address
+      GROUP BY rp.pair_address
+    `, [uniquePairAddresses]);
+
+    result.rows.forEach((row) => {
+      categoriesByPair.set(row.pair_address, row.categories ?? []);
+    });
+
+    return categoriesByPair;
+  } catch (error) {
+    const errorCode = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+    if (errorCode === '42P01') {
+      console.warn('Token category tables are not available yet; returning empty pool categories.');
+      uniquePairAddresses.forEach((pairAddress) => categoriesByPair.set(pairAddress, []));
+      return categoriesByPair;
+    }
+
+    throw error;
+  }
 }
 
 export class PoolController {
@@ -34,7 +84,7 @@ export class PoolController {
       }
 
       const poolData = await cache.getOrSet(`pool_info_${pairAddress}`, 5 * 1000, async () => {
-        const [swapResult, poolMetaResult] = await Promise.all([
+        const [swapResult, poolMetaResult, poolCategories] = await Promise.all([
           pool.query(`
             SELECT reserve0, reserve1, timestamp, ema_price
             FROM swaps 
@@ -46,7 +96,8 @@ export class PoolController {
             SELECT swap_fee_bps, fixed_cf_bps, token0, token1, lp_mint, rate_model, half_life, version
             FROM pools
             WHERE pair_address = $1
-          `, [pairAddress])
+          `, [pairAddress]),
+          loadPoolCategories([pairAddress])
         ]);
 
         if (swapResult.rows.length === 0 && poolMetaResult.rows.length === 0) {
@@ -102,7 +153,8 @@ export class PoolController {
           half_life: poolMeta.half_life ?? null,
           version: poolMeta.version ?? null,
           swap_fee_bps: poolMeta.swap_fee_bps ?? null,
-          fixed_cf_bps: poolMeta.fixed_cf_bps ?? null
+          fixed_cf_bps: poolMeta.fixed_cf_bps ?? null,
+          categories: poolCategories.get(pairAddress) ?? []
         };
       });
 
@@ -226,19 +278,21 @@ export class PoolController {
       const visibilityFilter = showAll ? '' : 'WHERE visible = TRUE';
 
       const result = await pool.query(`
-        SELECT id, pair_address, token0, token1, swap_fee_bps, fixed_cf_bps, categories
+        SELECT id, pair_address, token0, token1, swap_fee_bps, fixed_cf_bps
         FROM pools 
         ${visibilityFilter}
         ORDER BY id ASC
       `);
 
       const pairService = await initializePairStateService();
+      const categoriesByPair = await loadPoolCategories(result.rows.map((poolData: PoolRow) => poolData.pair_address));
 
       return Promise.all(
         result.rows.map(async (poolData: PoolRow) => {
           const pairAddress = poolData.pair_address;
           const token0Address = poolData.token0;
           const token1Address = poolData.token1;
+          const categories = categoriesByPair.get(pairAddress) ?? [];
 
           try {
             const [pairState, aprData, feesData, volumeData] = await Promise.all([
@@ -301,9 +355,9 @@ export class PoolController {
                 total_supply: pairState.totalSupply,
                 decimals: pairState.lpTokenDecimals
               },
+              categories,
               swap_fee_bps: poolData.swap_fee_bps,
               fixed_cf_bps: poolData.fixed_cf_bps,
-              categories: parseCategories(poolData.categories),
               apr: aprData,
               total_fees_paid: feesData,
               volume_24h: volumeData
@@ -324,9 +378,9 @@ export class PoolController {
               total_collaterals: { token0: '0', token1: '0' },
               utilization: { token0: 0, token1: 0 },
               lp_token: { total_supply: '0', decimals: 0 },
+              categories,
               swap_fee_bps: poolData.swap_fee_bps,
               fixed_cf_bps: poolData.fixed_cf_bps,
-              categories: parseCategories(poolData.categories),
               apr: { apr: 0, apr_breakdown: { swap_apr: 0, interest_apr: 0 } },
               total_fees_paid: { total_fees_usd: '0', lp_fees_usd: '0', protocol_fees_usd: '0', token0_fees: '0', token1_fees: '0', period: 'all' },
               volume_24h: { volume0: '0', volume1: '0', period: '24hrs' }
