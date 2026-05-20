@@ -50,7 +50,9 @@ TRUNCATE TABLE
     adjust_debt_events,
     leverage_position_created_events,
     leverage_position_updated_events,
-    whitelisted_tokens
+    whitelisted_tokens,
+    token_categories,
+    token_category_assignments
 RESTART IDENTITY CASCADE;
 
 -- -------------------------------------------------------------------------
@@ -74,7 +76,9 @@ DECLARE
         'adjust_debt_events',
         'leverage_position_created_events',
         'leverage_position_updated_events',
-        'whitelisted_tokens'
+        'whitelisted_tokens',
+        'token_categories',
+        'token_category_assignments'
     ];
 BEGIN
     RAISE NOTICE '========================================';
