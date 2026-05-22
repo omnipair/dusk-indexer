@@ -20,6 +20,30 @@ type PoolCategoriesRow = {
   categories: string[] | null;
 };
 
+function parsePoolCategoryFilter(rawCategories?: string): string[] | null {
+  if (rawCategories == null || rawCategories.trim() === '') {
+    return null;
+  }
+
+  const slugs = Array.from(new Set(
+    rawCategories
+      .split(',')
+      .map((category) => category.trim().toLowerCase())
+      .filter(Boolean)
+  ));
+
+  return slugs.length > 0 ? slugs : null;
+}
+
+function poolMatchesCategoryFilter(poolCategories: string[], filterSlugs: string[]): boolean {
+  if (filterSlugs.length === 0) {
+    return true;
+  }
+
+  const normalizedPoolCategories = new Set(poolCategories.map((category) => category.toLowerCase()));
+  return filterSlugs.some((slug) => normalizedPoolCategories.has(slug));
+}
+
 async function loadPoolCategories(pairAddresses: string[]): Promise<Map<string, string[]>> {
   const uniquePairAddresses = Array.from(new Set(pairAddresses.filter(Boolean)));
   const categoriesByPair = new Map<string, string[]>();
@@ -396,19 +420,24 @@ export class PoolController {
       const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 100, 1), 100);
       const offset = Math.min(Math.max(parseInt(req.query.offset as string) || 0, 0), 10000);
       const showAll = req.query.visibility === 'all';
+      const categoryFilter = parsePoolCategoryFilter(req.query.categories as string | undefined);
 
       const allPools = await PoolController.fetchAllPools(showAll);
-      const paginatedPools = allPools.slice(offset, offset + limit);
+      const filteredPools = categoryFilter
+        ? allPools.filter((pool) => poolMatchesCategoryFilter(pool.categories ?? [], categoryFilter))
+        : allPools;
+      const paginatedPools = filteredPools.slice(offset, offset + limit);
 
       res.json({
         success: true,
         data: {
           pools: paginatedPools,
+          ...(categoryFilter ? { filters: { categories: categoryFilter } } : {}),
           pagination: {
-            total: allPools.length,
+            total: filteredPools.length,
             limit,
             offset,
-            hasNext: offset + limit < allPools.length
+            hasNext: offset + limit < filteredPools.length
           }
         }
       } as ApiResponse);
