@@ -15,6 +15,158 @@ import {
   calculateSwapVolume,
 } from './helpers/controllerBase';
 
+type PoolCategoriesRow = {
+  pair_address: string;
+  categories: string[] | null;
+  category_details: PoolCategoryDetail[] | string | null;
+};
+
+type PoolCategoryDetail = {
+  slug: string;
+  label: string;
+  description: string | null;
+  icon_url: string | null;
+};
+
+type PoolCategories = {
+  categories: string[];
+  category_details: PoolCategoryDetail[];
+};
+
+function emptyPoolCategories(): PoolCategories {
+  return { categories: [], category_details: [] };
+}
+
+function parsePoolCategoryFilter(rawCategories?: string): string[] | null {
+  if (rawCategories == null || rawCategories.trim() === '') {
+    return null;
+  }
+
+  const slugs = Array.from(new Set(
+    rawCategories
+      .split(',')
+      .map((category) => category.trim().toLowerCase())
+      .filter(Boolean)
+  ));
+
+  return slugs.length > 0 ? slugs : null;
+}
+
+function poolMatchesCategoryFilter(poolCategories: string[], filterSlugs: string[]): boolean {
+  if (filterSlugs.length === 0) {
+    return true;
+  }
+
+  const normalizedPoolCategories = new Set(poolCategories.map((category) => category.toLowerCase()));
+  return filterSlugs.some((slug) => normalizedPoolCategories.has(slug));
+}
+
+function normalizeCategoryDetails(raw: PoolCategoriesRow['category_details']): PoolCategoryDetail[] {
+  let parsed: unknown = raw;
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = [];
+    }
+  }
+
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+
+  return parsed
+    .map((value): PoolCategoryDetail | null => {
+      if (!value || typeof value !== 'object') {
+        return null;
+      }
+
+      const detail = value as Partial<PoolCategoryDetail>;
+      if (typeof detail.slug !== 'string' || typeof detail.label !== 'string') {
+        return null;
+      }
+
+      return {
+        slug: detail.slug,
+        label: detail.label,
+        description: typeof detail.description === 'string' ? detail.description : null,
+        icon_url: typeof detail.icon_url === 'string' ? detail.icon_url : null,
+      };
+    })
+    .filter((value): value is PoolCategoryDetail => Boolean(value));
+}
+
+async function loadPoolCategories(pairAddresses: string[]): Promise<Map<string, PoolCategories>> {
+  const uniquePairAddresses = Array.from(new Set(pairAddresses.filter(Boolean)));
+  const categoriesByPair = new Map<string, PoolCategories>();
+
+  if (!uniquePairAddresses.length) {
+    return categoriesByPair;
+  }
+
+  try {
+    const result = await pool.query<PoolCategoriesRow>(`
+      WITH requested_pairs AS (
+        SELECT unnest($1::text[]) AS pair_address
+      ),
+      category_matches AS (
+        SELECT DISTINCT
+          p.pair_address,
+          tc.slug,
+          tc.label,
+          tc.description,
+          tc.icon_url
+        FROM pool_category_assignments pca
+        JOIN requested_pairs rp ON rp.pair_address = pca.pair_address
+        JOIN token_categories tc
+          ON tc.id = pca.category_id
+        JOIN pools p
+          ON p.pair_address = pca.pair_address
+        WHERE tc.is_archived = FALSE
+      )
+      SELECT
+        rp.pair_address,
+        COALESCE(
+          array_agg(cm.slug ORDER BY cm.slug) FILTER (WHERE cm.slug IS NOT NULL),
+          ARRAY[]::text[]
+        ) AS categories,
+        COALESCE(
+          jsonb_agg(
+            jsonb_build_object(
+              'slug', cm.slug,
+              'label', cm.label,
+              'description', cm.description,
+              'icon_url', cm.icon_url
+            )
+            ORDER BY cm.slug
+          ) FILTER (WHERE cm.slug IS NOT NULL),
+          '[]'::jsonb
+        ) AS category_details
+      FROM requested_pairs rp
+      LEFT JOIN category_matches cm ON cm.pair_address = rp.pair_address
+      GROUP BY rp.pair_address
+    `, [uniquePairAddresses]);
+
+    result.rows.forEach((row) => {
+      categoriesByPair.set(row.pair_address, {
+        categories: row.categories ?? [],
+        category_details: normalizeCategoryDetails(row.category_details),
+      });
+    });
+
+    return categoriesByPair;
+  } catch (error) {
+    const errorCode = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+    if (errorCode === '42P01') {
+      console.warn('Pool category assignment tables are not available yet; returning empty pool categories.');
+      uniquePairAddresses.forEach((pairAddress) => categoriesByPair.set(pairAddress, emptyPoolCategories()));
+      return categoriesByPair;
+    }
+
+    throw error;
+  }
+}
+
 export class PoolController {
   static async getPoolInfo(req: Request, res: Response): Promise<void> {
     try {
@@ -26,7 +178,7 @@ export class PoolController {
       }
 
       const poolData = await cache.getOrSet(`pool_info_${pairAddress}`, 5 * 1000, async () => {
-        const [swapResult, poolMetaResult] = await Promise.all([
+        const [swapResult, poolMetaResult, poolCategories] = await Promise.all([
           pool.query(`
             SELECT reserve0, reserve1, timestamp, ema_price
             FROM swaps 
@@ -38,7 +190,8 @@ export class PoolController {
             SELECT swap_fee_bps, fixed_cf_bps, token0, token1, lp_mint, rate_model, half_life, version
             FROM pools
             WHERE pair_address = $1
-          `, [pairAddress])
+          `, [pairAddress]),
+          loadPoolCategories([pairAddress])
         ]);
 
         if (swapResult.rows.length === 0 && poolMetaResult.rows.length === 0) {
@@ -46,6 +199,7 @@ export class PoolController {
         }
 
         const poolMeta = poolMetaResult.rows[0] || {};
+        const categories = poolCategories.get(pairAddress) ?? emptyPoolCategories();
 
         let reserve0: number | null = null;
         let reserve1: number | null = null;
@@ -94,7 +248,9 @@ export class PoolController {
           half_life: poolMeta.half_life ?? null,
           version: poolMeta.version ?? null,
           swap_fee_bps: poolMeta.swap_fee_bps ?? null,
-          fixed_cf_bps: poolMeta.fixed_cf_bps ?? null
+          fixed_cf_bps: poolMeta.fixed_cf_bps ?? null,
+          categories: categories.categories,
+          category_details: categories.category_details
         };
       });
 
@@ -225,12 +381,14 @@ export class PoolController {
       `);
 
       const pairService = await initializePairStateService();
+      const categoriesByPair = await loadPoolCategories(result.rows.map((poolData: PoolRow) => poolData.pair_address));
 
       return Promise.all(
         result.rows.map(async (poolData: PoolRow) => {
           const pairAddress = poolData.pair_address;
           const token0Address = poolData.token0;
           const token1Address = poolData.token1;
+          const poolCategories = categoriesByPair.get(pairAddress) ?? emptyPoolCategories();
 
           try {
             const [pairState, aprData, feesData, volumeData] = await Promise.all([
@@ -293,6 +451,8 @@ export class PoolController {
                 total_supply: pairState.totalSupply,
                 decimals: pairState.lpTokenDecimals
               },
+              categories: poolCategories.categories,
+              category_details: poolCategories.category_details,
               swap_fee_bps: poolData.swap_fee_bps,
               fixed_cf_bps: poolData.fixed_cf_bps,
               apr: aprData,
@@ -315,6 +475,8 @@ export class PoolController {
               total_collaterals: { token0: '0', token1: '0' },
               utilization: { token0: 0, token1: 0 },
               lp_token: { total_supply: '0', decimals: 0 },
+              categories: poolCategories.categories,
+              category_details: poolCategories.category_details,
               swap_fee_bps: poolData.swap_fee_bps,
               fixed_cf_bps: poolData.fixed_cf_bps,
               apr: { apr: 0, apr_breakdown: { swap_apr: 0, interest_apr: 0 } },
@@ -332,19 +494,24 @@ export class PoolController {
       const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 100, 1), 100);
       const offset = Math.min(Math.max(parseInt(req.query.offset as string) || 0, 0), 10000);
       const showAll = req.query.visibility === 'all';
+      const categoryFilter = parsePoolCategoryFilter(req.query.categories as string | undefined);
 
       const allPools = await PoolController.fetchAllPools(showAll);
-      const paginatedPools = allPools.slice(offset, offset + limit);
+      const filteredPools = categoryFilter
+        ? allPools.filter((pool) => poolMatchesCategoryFilter(pool.categories ?? [], categoryFilter))
+        : allPools;
+      const paginatedPools = filteredPools.slice(offset, offset + limit);
 
       res.json({
         success: true,
         data: {
           pools: paginatedPools,
+          ...(categoryFilter ? { filters: { categories: categoryFilter } } : {}),
           pagination: {
-            total: allPools.length,
+            total: filteredPools.length,
             limit,
             offset,
-            hasNext: offset + limit < allPools.length
+            hasNext: offset + limit < filteredPools.length
           }
         }
       } as ApiResponse);

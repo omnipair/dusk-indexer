@@ -32,6 +32,8 @@ Migrations are in `./migrations/` and applied in alphabetical order:
 | `009_activity_history_perf_and_invalidation.sql` | Adds activity-history composite indexes and event notifications for cache invalidation |
 | `010_fix_notify_activity_update.sql` | Hardens activity notification trigger function for mixed user field schemas (`user_address`/`signer`) |
 | `013_add_pools_notify_trigger.sql` | Adds PostgreSQL LISTEN/NOTIFY trigger on `pools` (channel `pool_updates`) for API cache invalidation |
+| `014_add_token_categories.sql` | Adds normalized token category tables and invalidates pool cache when assignments change |
+| `016_add_pool_category_assignments.sql` | Adds explicit pool-level category assignments and backfills legacy token/pool tags |
 
 ### Apply a single migration
 
