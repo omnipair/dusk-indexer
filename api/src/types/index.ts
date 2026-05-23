@@ -49,4 +49,5 @@ export interface PoolRow {
   fixed_cf_bps?: number;
   params_hash?: Buffer;
   version?: number;
+  categories?: string | null;
 }

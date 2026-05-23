@@ -32,7 +32,8 @@ Migrations are in `./migrations/` and applied in alphabetical order:
 | `009_activity_history_perf_and_invalidation.sql` | Adds activity-history composite indexes and event notifications for cache invalidation |
 | `010_fix_notify_activity_update.sql` | Hardens activity notification trigger function for mixed user field schemas (`user_address`/`signer`) |
 | `013_add_pools_notify_trigger.sql` | Adds PostgreSQL LISTEN/NOTIFY trigger on `pools` (channel `pool_updates`) for API cache invalidation |
-| `014_add_token_categories.sql` | Adds normalized token category tables and invalidates pool cache when assignments change |
+| `014_add_pools_categories.sql` | Adds the legacy `pools.categories` text column used by earlier pool-tag flows |
+| `015_add_token_categories.sql` | Adds normalized token category tables and invalidates pool cache when assignments change |
 | `016_add_pool_category_assignments.sql` | Adds explicit pool-level category assignments and backfills legacy token/pool tags |
 
 ### Apply a single migration
@@ -60,6 +61,7 @@ cd database
 | `init_db.sh` | Initialize fresh local database (creates DB + applies migrations) |
 | `apply_migration.sh` | Apply a single migration file |
 | `apply_all_migrations.sh` | Apply all migrations to existing DB (for Railway/prod) |
+| `apply_015_migration.sh` | Apply the normalized token category migration to an existing DB |
 | `clone_from_prod.sh` | Clone schema + data from production (requires `PUBLIC_DB_URL` in `.env`) |
 | `imitate_swaps_stream.sh` | Test utility - generates fake swaps to test NOTIFY trigger |
 

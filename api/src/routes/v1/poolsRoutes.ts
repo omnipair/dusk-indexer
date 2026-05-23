@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { PoolController } from '../../controllers/poolController';
 import { SwapController } from '../../controllers/swapController';
 import { UserController } from '../../controllers/userController';
+import { MarketValueBaselineController } from '../../controllers/marketValueBaselineController';
 
 const router = Router();
 
@@ -14,6 +15,7 @@ const normalizeWindowHours = (req: Request, res: Response, next: NextFunction) =
 
 router.get('/', PoolController.getPools);
 router.get('/tvl', PoolController.getTvl);
+router.get('/value-baselines', MarketValueBaselineController.getValueBaselines);
 
 router.get('/paired-tokens/:tokenAddress', async (req: Request, res: Response) => {
   req.params.token = req.params.tokenAddress;

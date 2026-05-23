@@ -374,7 +374,7 @@ export class PoolController {
       const visibilityFilter = showAll ? '' : 'WHERE visible = TRUE';
 
       const result = await pool.query(`
-        SELECT id, pair_address, token0, token1, swap_fee_bps, fixed_cf_bps 
+        SELECT id, pair_address, token0, token1, swap_fee_bps, fixed_cf_bps
         FROM pools 
         ${visibilityFilter}
         ORDER BY id ASC
