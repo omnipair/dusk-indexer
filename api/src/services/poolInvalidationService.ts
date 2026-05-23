@@ -6,9 +6,10 @@ let listenerClient: PoolClient | null = null;
 let started = false;
 
 const POOLS_CACHE_PREFIX = 'pools:enriched:';
+const POOL_INFO_CACHE_PREFIX = 'pool_info_';
 
 function invalidatePoolsCache(reason: string): void {
-  const removed = cache.deleteByPrefix(POOLS_CACHE_PREFIX);
+  const removed = cache.deleteByPrefix(POOLS_CACHE_PREFIX) + cache.deleteByPrefix(POOL_INFO_CACHE_PREFIX);
   if (removed > 0) {
     console.log(`[cache] invalidated pools cache reason=${reason} removed=${removed}`);
   }

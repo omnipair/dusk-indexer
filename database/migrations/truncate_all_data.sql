@@ -52,7 +52,8 @@ TRUNCATE TABLE
     leverage_position_updated_events,
     whitelisted_tokens,
     token_categories,
-    token_category_assignments
+    token_category_assignments,
+    pool_category_assignments
 RESTART IDENTITY CASCADE;
 
 -- -------------------------------------------------------------------------
@@ -78,7 +79,8 @@ DECLARE
         'leverage_position_updated_events',
         'whitelisted_tokens',
         'token_categories',
-        'token_category_assignments'
+        'token_category_assignments',
+        'pool_category_assignments'
     ];
 BEGIN
     RAISE NOTICE '========================================';

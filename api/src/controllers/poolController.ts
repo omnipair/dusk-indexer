@@ -18,7 +18,24 @@ import {
 type PoolCategoriesRow = {
   pair_address: string;
   categories: string[] | null;
+  category_details: PoolCategoryDetail[] | string | null;
 };
+
+type PoolCategoryDetail = {
+  slug: string;
+  label: string;
+  description: string | null;
+  icon_url: string | null;
+};
+
+type PoolCategories = {
+  categories: string[];
+  category_details: PoolCategoryDetail[];
+};
+
+function emptyPoolCategories(): PoolCategories {
+  return { categories: [], category_details: [] };
+}
 
 function parsePoolCategoryFilter(rawCategories?: string): string[] | null {
   if (rawCategories == null || rawCategories.trim() === '') {
@@ -44,9 +61,44 @@ function poolMatchesCategoryFilter(poolCategories: string[], filterSlugs: string
   return filterSlugs.some((slug) => normalizedPoolCategories.has(slug));
 }
 
-async function loadPoolCategories(pairAddresses: string[]): Promise<Map<string, string[]>> {
+function normalizeCategoryDetails(raw: PoolCategoriesRow['category_details']): PoolCategoryDetail[] {
+  let parsed: unknown = raw;
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = [];
+    }
+  }
+
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+
+  return parsed
+    .map((value): PoolCategoryDetail | null => {
+      if (!value || typeof value !== 'object') {
+        return null;
+      }
+
+      const detail = value as Partial<PoolCategoryDetail>;
+      if (typeof detail.slug !== 'string' || typeof detail.label !== 'string') {
+        return null;
+      }
+
+      return {
+        slug: detail.slug,
+        label: detail.label,
+        description: typeof detail.description === 'string' ? detail.description : null,
+        icon_url: typeof detail.icon_url === 'string' ? detail.icon_url : null,
+      };
+    })
+    .filter((value): value is PoolCategoryDetail => Boolean(value));
+}
+
+async function loadPoolCategories(pairAddresses: string[]): Promise<Map<string, PoolCategories>> {
   const uniquePairAddresses = Array.from(new Set(pairAddresses.filter(Boolean)));
-  const categoriesByPair = new Map<string, string[]>();
+  const categoriesByPair = new Map<string, PoolCategories>();
 
   if (!uniquePairAddresses.length) {
     return categoriesByPair;
@@ -60,13 +112,16 @@ async function loadPoolCategories(pairAddresses: string[]): Promise<Map<string, 
       category_matches AS (
         SELECT DISTINCT
           p.pair_address,
-          tc.slug
-        FROM pools p
-        JOIN requested_pairs rp ON rp.pair_address = p.pair_address
-        JOIN token_category_assignments tca
-          ON tca.token_mint = p.token0 OR tca.token_mint = p.token1
+          tc.slug,
+          tc.label,
+          tc.description,
+          tc.icon_url
+        FROM pool_category_assignments pca
+        JOIN requested_pairs rp ON rp.pair_address = pca.pair_address
         JOIN token_categories tc
-          ON tc.id = tca.category_id
+          ON tc.id = pca.category_id
+        JOIN pools p
+          ON p.pair_address = pca.pair_address
         WHERE tc.is_archived = FALSE
       )
       SELECT
@@ -74,22 +129,37 @@ async function loadPoolCategories(pairAddresses: string[]): Promise<Map<string, 
         COALESCE(
           array_agg(cm.slug ORDER BY cm.slug) FILTER (WHERE cm.slug IS NOT NULL),
           ARRAY[]::text[]
-        ) AS categories
+        ) AS categories,
+        COALESCE(
+          jsonb_agg(
+            jsonb_build_object(
+              'slug', cm.slug,
+              'label', cm.label,
+              'description', cm.description,
+              'icon_url', cm.icon_url
+            )
+            ORDER BY cm.slug
+          ) FILTER (WHERE cm.slug IS NOT NULL),
+          '[]'::jsonb
+        ) AS category_details
       FROM requested_pairs rp
       LEFT JOIN category_matches cm ON cm.pair_address = rp.pair_address
       GROUP BY rp.pair_address
     `, [uniquePairAddresses]);
 
     result.rows.forEach((row) => {
-      categoriesByPair.set(row.pair_address, row.categories ?? []);
+      categoriesByPair.set(row.pair_address, {
+        categories: row.categories ?? [],
+        category_details: normalizeCategoryDetails(row.category_details),
+      });
     });
 
     return categoriesByPair;
   } catch (error) {
     const errorCode = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
     if (errorCode === '42P01') {
-      console.warn('Token category tables are not available yet; returning empty pool categories.');
-      uniquePairAddresses.forEach((pairAddress) => categoriesByPair.set(pairAddress, []));
+      console.warn('Pool category assignment tables are not available yet; returning empty pool categories.');
+      uniquePairAddresses.forEach((pairAddress) => categoriesByPair.set(pairAddress, emptyPoolCategories()));
       return categoriesByPair;
     }
 
@@ -129,6 +199,7 @@ export class PoolController {
         }
 
         const poolMeta = poolMetaResult.rows[0] || {};
+        const categories = poolCategories.get(pairAddress) ?? emptyPoolCategories();
 
         let reserve0: number | null = null;
         let reserve1: number | null = null;
@@ -178,7 +249,8 @@ export class PoolController {
           version: poolMeta.version ?? null,
           swap_fee_bps: poolMeta.swap_fee_bps ?? null,
           fixed_cf_bps: poolMeta.fixed_cf_bps ?? null,
-          categories: poolCategories.get(pairAddress) ?? []
+          categories: categories.categories,
+          category_details: categories.category_details
         };
       });
 
@@ -316,7 +388,7 @@ export class PoolController {
           const pairAddress = poolData.pair_address;
           const token0Address = poolData.token0;
           const token1Address = poolData.token1;
-          const categories = categoriesByPair.get(pairAddress) ?? [];
+          const poolCategories = categoriesByPair.get(pairAddress) ?? emptyPoolCategories();
 
           try {
             const [pairState, aprData, feesData, volumeData] = await Promise.all([
@@ -379,7 +451,8 @@ export class PoolController {
                 total_supply: pairState.totalSupply,
                 decimals: pairState.lpTokenDecimals
               },
-              categories,
+              categories: poolCategories.categories,
+              category_details: poolCategories.category_details,
               swap_fee_bps: poolData.swap_fee_bps,
               fixed_cf_bps: poolData.fixed_cf_bps,
               apr: aprData,
@@ -402,7 +475,8 @@ export class PoolController {
               total_collaterals: { token0: '0', token1: '0' },
               utilization: { token0: 0, token1: 0 },
               lp_token: { total_supply: '0', decimals: 0 },
-              categories,
+              categories: poolCategories.categories,
+              category_details: poolCategories.category_details,
               swap_fee_bps: poolData.swap_fee_bps,
               fixed_cf_bps: poolData.fixed_cf_bps,
               apr: { apr: 0, apr_breakdown: { swap_apr: 0, interest_apr: 0 } },

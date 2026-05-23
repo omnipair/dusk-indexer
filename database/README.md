@@ -34,6 +34,7 @@ Migrations are in `./migrations/` and applied in alphabetical order:
 | `013_add_pools_notify_trigger.sql` | Adds PostgreSQL LISTEN/NOTIFY trigger on `pools` (channel `pool_updates`) for API cache invalidation |
 | `014_add_pools_categories.sql` | Adds the legacy `pools.categories` text column used by earlier pool-tag flows |
 | `015_add_token_categories.sql` | Adds normalized token category tables and invalidates pool cache when assignments change |
+| `016_add_pool_category_assignments.sql` | Adds explicit pool-level category assignments and backfills legacy token/pool tags |
 
 ### Apply a single migration
 
