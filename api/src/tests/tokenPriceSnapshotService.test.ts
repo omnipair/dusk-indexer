@@ -100,3 +100,40 @@ test('backfillHistoricalTokenPricesRange fetches one range per mint and writes m
   assert.deepEqual(inserts[0][2], [0, 1.5, 0]);
   assert.deepEqual(inserts[0][5], ['missing', 'historical', 'missing']);
 });
+
+test('backfillHistoricalTokenPricesRange uses current fallback when range fetch fails', async () => {
+  const inserts: any[][] = [];
+  const db = {
+    async query<T extends QueryResultRow = any>(text: string, params?: any[]): Promise<QueryResult<T>> {
+      if (text.includes('SELECT mint, bucket, price_usd')) {
+        return mockResult<T>([]);
+      }
+      if (text.includes('INSERT INTO token_price_snapshots')) {
+        inserts.push(params ?? []);
+        return mockResult<T>([]);
+      }
+      return mockResult<T>([]);
+    },
+  };
+
+  const result = await backfillHistoricalTokenPricesRange(
+    db,
+    ['token-a'],
+    new Date('2026-05-09T00:00:00Z'),
+    new Date('2026-05-09T01:00:00Z'),
+    {
+      allowCurrentFallback: true,
+      getCurrentPrices: async () => new Map([[
+        'token-a',
+        { priceUsd: 9, decimals: 6, quality: 'current' },
+      ]]),
+      fetchHistoricalPriceRange: async () => null,
+    }
+  );
+
+  assert.equal(result.failedMints, 1);
+  assert.equal(result.estimatedWritten, 2);
+  assert.equal(result.written, 2);
+  assert.deepEqual(inserts[0][2], [9, 9]);
+  assert.deepEqual(inserts[0][5], ['estimated', 'estimated']);
+});

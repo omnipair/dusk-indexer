@@ -17,6 +17,7 @@ export interface HistoricalPriceOptions {
   provider?: 'birdeye';
   allowCurrentFallback?: boolean;
   persistMissing?: boolean;
+  refreshEstimated?: boolean;
   refreshMissing?: boolean;
   cache?: HistoricalTokenPriceCache;
   currentPrices?: Map<string, TokenPrice>;
@@ -111,6 +112,16 @@ function priceCacheKey(provider: string, mint: string, bucket: Date): string {
   return `${provider}:${mint}:${bucket.toISOString()}`;
 }
 
+function shouldRefreshStoredPrice(
+  quality: PriceQuality,
+  options: Pick<HistoricalPriceOptions, 'refreshEstimated' | 'refreshMissing'>
+): boolean {
+  return (
+    (Boolean(options.refreshMissing) && quality === 'missing')
+    || (Boolean(options.refreshEstimated) && quality === 'estimated')
+  );
+}
+
 function buildHourlyBuckets(from: Date, to: Date): Date[] {
   const buckets: Date[] = [];
   let bucket = floorToHour(from);
@@ -168,7 +179,7 @@ async function loadStoredPricesForRange(
   from: Date,
   to: Date,
   provider: string,
-  refreshMissing: boolean
+  refreshOptions: Pick<HistoricalPriceOptions, 'refreshEstimated' | 'refreshMissing'>
 ): Promise<Map<string, StoredTokenPrice>> {
   if (mints.length === 0) {
     return new Map();
@@ -188,7 +199,7 @@ async function loadStoredPricesForRange(
 
   const prices = new Map<string, StoredTokenPrice>();
   for (const row of result.rows) {
-    if (refreshMissing && row.quality === 'missing') {
+    if (shouldRefreshStoredPrice(row.quality, refreshOptions)) {
       continue;
     }
     const price = mapRowToStoredPrice(row);
@@ -273,7 +284,7 @@ export async function getHistoricalTokenPrices(
 
   for (const mint of uniqueMints) {
     const cached = options.cache?.get(provider, mint, bucket);
-    if (cached && !(options.refreshMissing && cached.quality === 'missing')) {
+    if (cached && !shouldRefreshStoredPrice(cached.quality, options)) {
       storedPrices.set(mint, cached);
     } else {
       cacheMissMints.push(mint);
@@ -282,7 +293,7 @@ export async function getHistoricalTokenPrices(
 
   const loadedPrices = await loadStoredPrices(db, cacheMissMints, bucket, provider);
   for (const [mint, price] of loadedPrices.entries()) {
-    if (options.refreshMissing && price.quality === 'missing') {
+    if (shouldRefreshStoredPrice(price.quality, options)) {
       continue;
     }
     storedPrices.set(mint, price);
@@ -366,7 +377,7 @@ export async function backfillHistoricalTokenPricesRange(
     buckets[0] ?? floorToHour(from),
     buckets[buckets.length - 1] ?? floorToHour(to),
     provider,
-    Boolean(options.refreshMissing)
+    options
   );
   const currentPrices = options.currentPrices
     ?? await (options.getCurrentPrices ?? getCurrentTokenPrices)(uniqueMints);
@@ -383,7 +394,7 @@ export async function backfillHistoricalTokenPricesRange(
   for (const mint of uniqueMints) {
     const missingBuckets = buckets.filter((bucket) => {
       const cached = cache?.get(provider, mint, bucket);
-      if (cached && !(options.refreshMissing && cached.quality === 'missing')) {
+      if (cached && !shouldRefreshStoredPrice(cached.quality, options)) {
         return false;
       }
       const stored = storedPrices.get(priceCacheKey(provider, mint, bucket));
@@ -396,13 +407,13 @@ export async function backfillHistoricalTokenPricesRange(
     }
 
     fetchedMints += 1;
-    const points = await rangeFetcher(mint, missingBuckets[0], new Date(missingBuckets[missingBuckets.length - 1].getTime() + HOUR_MS));
+    let points = await rangeFetcher(mint, missingBuckets[0], new Date(missingBuckets[missingBuckets.length - 1].getTime() + HOUR_MS));
     if (points === null) {
       failedMints += 1;
       if (options.delayMs) {
         await new Promise((resolve) => setTimeout(resolve, options.delayMs));
       }
-      continue;
+      points = [];
     }
     const pointByBucket = new Map<string, BirdeyeHistoricalPricePoint>();
     for (const point of points) {

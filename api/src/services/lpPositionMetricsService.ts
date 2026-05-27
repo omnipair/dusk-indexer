@@ -1,10 +1,17 @@
 import { QueryResult, QueryResultRow } from 'pg';
 import { getCurrentTokenPrices } from './tokenPriceSnapshotService';
 import {
+  CurrentLpTokenAmounts,
   currentLpValuationKey,
   loadCurrentLpTokenAmounts,
 } from './currentLpValuationService';
-import { calculateValueDeltaUsd, parseNumber, tokenRawToUsd } from '../utils/portfolioMath';
+import {
+  PriceQuality,
+  TokenPrice,
+  amountAwarePriceQuality,
+  parseNumber,
+  tokenRawToUsd,
+} from '../utils/portfolioMath';
 
 interface Queryable {
   query<T extends QueryResultRow = any>(text: string, params?: any[]): Promise<QueryResult<T>>;
@@ -20,41 +27,39 @@ export interface LiquidityPositionMetricInput {
   lpAmount: string;
 }
 
+export type LpUsdPriceBasis = 'historical' | 'current';
+
+export interface LpAmountBreakdown {
+  token0Amount: string;
+  token1Amount: string;
+  token0HistoricalUsd: string;
+  token1HistoricalUsd: string;
+  token0CurrentUsd: string;
+  token1CurrentUsd: string;
+  usd: string;
+  historicalUsd: string;
+  currentUsd: string;
+  priceQuality: PriceQuality;
+  currentPriceQuality: PriceQuality;
+  priceBasis: LpUsdPriceBasis;
+}
+
 export interface LpPositionMetrics {
   earnings: {
-    accruedInterest: {
-      token0Amount: string;
-      token1Amount: string;
-      usd: string;
-    };
-    swapFees: {
-      token0Amount: string;
-      token1Amount: string;
-      usd: string;
-    };
-    totalEarned: {
-      token0Amount: string;
-      token1Amount: string;
-      usd: string;
-    };
+    accruedInterest: LpAmountBreakdown;
+    swapFees: LpAmountBreakdown;
+    totalEarned: LpAmountBreakdown;
   };
   valueDelta: {
-    netContributed: {
-      token0Amount: string;
-      token1Amount: string;
-      usd: string;
-    };
-    currentValue: {
-      token0Amount: string;
-      token1Amount: string;
-      usd: string;
-    };
-    delta: {
-      token0Amount: string;
-      token1Amount: string;
-      usd: string;
-    };
+    netContributed: LpAmountBreakdown;
+    currentValue: LpAmountBreakdown;
+    delta: LpAmountBreakdown;
   };
+}
+
+export interface LpPositionMetricsOptions {
+  currentPrices?: Map<string, TokenPrice>;
+  currentAmountsByPosition?: Map<string, CurrentLpTokenAmounts>;
 }
 
 interface EarningsRow {
@@ -67,6 +72,15 @@ interface EarningsRow {
   accrued_interest_usd: string | null;
   swap_fees_usd: string | null;
   total_earned_usd: string | null;
+  accrued_interest_token0_usd: string | null;
+  accrued_interest_token1_usd: string | null;
+  swap_fees_token0_usd: string | null;
+  swap_fees_token1_usd: string | null;
+  total_earned_token0_usd: string | null;
+  total_earned_token1_usd: string | null;
+  accrued_interest_price_quality: PriceQuality | null;
+  swap_fees_price_quality: PriceQuality | null;
+  total_earned_price_quality: PriceQuality | null;
 }
 
 interface ContributionRow {
@@ -84,6 +98,101 @@ function numericString(value: unknown): string {
   return String(parseNumber(value));
 }
 
+function normalizePriceQuality(value: unknown): PriceQuality {
+  return value === 'missing' || value === 'estimated' || value === 'current' || value === 'historical'
+    ? value
+    : 'historical';
+}
+
+function currentTokenUsdBySide(
+  token0Amount: number,
+  token1Amount: number,
+  token0Price: TokenPrice | null | undefined,
+  token1Price: TokenPrice | null | undefined
+): { token0CurrentUsd: number; token1CurrentUsd: number } {
+  return {
+    token0CurrentUsd: tokenRawToUsd(token0Amount, token0Price),
+    token1CurrentUsd: tokenRawToUsd(token1Amount, token1Price),
+  };
+}
+
+function buildHistoricalBreakdown({
+  token0Amount,
+  token1Amount,
+  historicalUsd,
+  token0HistoricalUsd,
+  token1HistoricalUsd,
+  historicalPriceQuality,
+  token0Price,
+  token1Price,
+}: {
+  token0Amount: number;
+  token1Amount: number;
+  historicalUsd: number;
+  token0HistoricalUsd: number;
+  token1HistoricalUsd: number;
+  historicalPriceQuality: PriceQuality;
+  token0Price: TokenPrice | null | undefined;
+  token1Price: TokenPrice | null | undefined;
+}): LpAmountBreakdown {
+  const { token0CurrentUsd, token1CurrentUsd } = currentTokenUsdBySide(
+    token0Amount,
+    token1Amount,
+    token0Price,
+    token1Price
+  );
+  const currentUsd = token0CurrentUsd + token1CurrentUsd;
+  return {
+    token0Amount: numericString(token0Amount),
+    token1Amount: numericString(token1Amount),
+    token0HistoricalUsd: numericString(token0HistoricalUsd),
+    token1HistoricalUsd: numericString(token1HistoricalUsd),
+    token0CurrentUsd: numericString(token0CurrentUsd),
+    token1CurrentUsd: numericString(token1CurrentUsd),
+    usd: numericString(historicalUsd),
+    historicalUsd: numericString(historicalUsd),
+    currentUsd: numericString(currentUsd),
+    priceQuality: historicalPriceQuality,
+    currentPriceQuality: amountAwarePriceQuality(token0Amount, token1Amount, token0Price, token1Price),
+    priceBasis: 'historical',
+  };
+}
+
+function buildCurrentBreakdown({
+  token0Amount,
+  token1Amount,
+  token0Price,
+  token1Price,
+}: {
+  token0Amount: number;
+  token1Amount: number;
+  token0Price: TokenPrice | null | undefined;
+  token1Price: TokenPrice | null | undefined;
+}): LpAmountBreakdown {
+  const { token0CurrentUsd, token1CurrentUsd } = currentTokenUsdBySide(
+    token0Amount,
+    token1Amount,
+    token0Price,
+    token1Price
+  );
+  const currentUsd = token0CurrentUsd + token1CurrentUsd;
+  const currentPriceQuality = amountAwarePriceQuality(token0Amount, token1Amount, token0Price, token1Price);
+  return {
+    token0Amount: numericString(token0Amount),
+    token1Amount: numericString(token1Amount),
+    token0HistoricalUsd: numericString(token0CurrentUsd),
+    token1HistoricalUsd: numericString(token1CurrentUsd),
+    token0CurrentUsd: numericString(token0CurrentUsd),
+    token1CurrentUsd: numericString(token1CurrentUsd),
+    usd: numericString(currentUsd),
+    historicalUsd: numericString(currentUsd),
+    currentUsd: numericString(currentUsd),
+    priceQuality: currentPriceQuality,
+    currentPriceQuality,
+    priceBasis: 'current',
+  };
+}
+
 async function loadEarnings(
   db: Queryable,
   positions: LiquidityPositionMetricInput[]
@@ -96,11 +205,67 @@ async function loadEarnings(
   const pairs = [...new Set(positions.map((position) => position.pair))];
   const result = await db.query<EarningsRow>(
     `
+      WITH quality_by_position AS (
+        SELECT
+          pair,
+          signer,
+          CASE
+            WHEN BOOL_OR(source = 'borrow_interest' AND price_quality = 'missing') THEN 'missing'
+            WHEN BOOL_OR(source = 'borrow_interest' AND price_quality = 'estimated') THEN 'estimated'
+            WHEN BOOL_OR(source = 'borrow_interest' AND price_quality = 'current') THEN 'current'
+            WHEN BOOL_OR(source = 'borrow_interest') THEN 'historical'
+            ELSE 'historical'
+          END AS accrued_interest_price_quality,
+          CASE
+            WHEN BOOL_OR(source = 'swap_fee' AND price_quality = 'missing') THEN 'missing'
+            WHEN BOOL_OR(source = 'swap_fee' AND price_quality = 'estimated') THEN 'estimated'
+            WHEN BOOL_OR(source = 'swap_fee' AND price_quality = 'current') THEN 'current'
+            WHEN BOOL_OR(source = 'swap_fee') THEN 'historical'
+            ELSE 'historical'
+          END AS swap_fees_price_quality,
+          CASE
+            WHEN BOOL_OR(price_quality = 'missing') THEN 'missing'
+            WHEN BOOL_OR(price_quality = 'estimated') THEN 'estimated'
+            WHEN BOOL_OR(price_quality = 'current') THEN 'current'
+            WHEN COUNT(*) > 0 THEN 'historical'
+            ELSE 'historical'
+          END AS total_earned_price_quality
+        FROM lp_position_earning_events
+        WHERE signer = ANY($1::text[])
+          AND pair = ANY($2::text[])
+        GROUP BY pair, signer
+      ),
+      event_usd_by_position AS (
+        SELECT
+          pair,
+          signer,
+          COALESCE(SUM(CASE WHEN source = 'borrow_interest' THEN token0_usd ELSE 0 END), 0) AS accrued_interest_token0_usd,
+          COALESCE(SUM(CASE WHEN source = 'borrow_interest' THEN token1_usd ELSE 0 END), 0) AS accrued_interest_token1_usd,
+          COALESCE(SUM(CASE WHEN source = 'swap_fee' THEN token0_usd ELSE 0 END), 0) AS swap_fees_token0_usd,
+          COALESCE(SUM(CASE WHEN source = 'swap_fee' THEN token1_usd ELSE 0 END), 0) AS swap_fees_token1_usd,
+          COALESCE(SUM(token0_usd), 0) AS total_earned_token0_usd,
+          COALESCE(SUM(token1_usd), 0) AS total_earned_token1_usd
+        FROM lp_position_earning_events
+        WHERE signer = ANY($1::text[])
+          AND pair = ANY($2::text[])
+        GROUP BY pair, signer
+      )
       SELECT pair, signer, accrued_interest0, accrued_interest1, swap_fees0, swap_fees1,
-        accrued_interest_usd, swap_fees_usd, total_earned_usd
-      FROM lp_position_earnings
-      WHERE signer = ANY($1::text[])
-        AND pair = ANY($2::text[])
+        accrued_interest_usd, swap_fees_usd, total_earned_usd,
+        event_usd_by_position.accrued_interest_token0_usd,
+        event_usd_by_position.accrued_interest_token1_usd,
+        event_usd_by_position.swap_fees_token0_usd,
+        event_usd_by_position.swap_fees_token1_usd,
+        event_usd_by_position.total_earned_token0_usd,
+        event_usd_by_position.total_earned_token1_usd,
+        quality_by_position.accrued_interest_price_quality,
+        quality_by_position.swap_fees_price_quality,
+        quality_by_position.total_earned_price_quality
+      FROM lp_position_earnings earnings
+      LEFT JOIN quality_by_position USING (pair, signer)
+      LEFT JOIN event_usd_by_position USING (pair, signer)
+      WHERE earnings.signer = ANY($1::text[])
+        AND earnings.pair = ANY($2::text[])
     `,
     [signers, pairs]
   );
@@ -158,22 +323,26 @@ async function loadNetContributions(
 
 export async function getLpPositionMetricsForRows(
   db: Queryable,
-  positions: LiquidityPositionMetricInput[]
+  positions: LiquidityPositionMetricInput[],
+  options: LpPositionMetricsOptions = {}
 ): Promise<Map<string, LpPositionMetrics>> {
   const [earningsByPosition, contributionsByPosition, currentPrices] = await Promise.all([
     loadEarnings(db, positions),
     loadNetContributions(db, positions),
-    getCurrentTokenPrices(positions.flatMap((position) => [position.token0Mint, position.token1Mint])),
+    options.currentPrices
+      ? Promise.resolve(options.currentPrices)
+      : getCurrentTokenPrices(positions.flatMap((position) => [position.token0Mint, position.token1Mint])),
   ]);
-  const currentAmountsByPosition = await loadCurrentLpTokenAmounts(
-    positions.map((position) => ({
-      signer: position.signer,
-      pair: position.pair,
-      lpAmount: position.lpAmount,
-      amount0: position.amount0,
-      amount1: position.amount1,
-    }))
-  );
+  const currentAmountsByPosition = options.currentAmountsByPosition
+    ?? await loadCurrentLpTokenAmounts(
+      positions.map((position) => ({
+        signer: position.signer,
+        pair: position.pair,
+        lpAmount: position.lpAmount,
+        amount0: position.amount0,
+        amount1: position.amount1,
+      }))
+    );
 
   const metrics = new Map<string, LpPositionMetrics>();
   for (const position of positions) {
@@ -188,11 +357,6 @@ export async function getLpPositionMetricsForRows(
     const currentAmounts = currentAmountsByPosition.get(currentLpValuationKey(position.signer, position.pair));
     const currentToken0 = currentAmounts?.token0Amount ?? parseNumber(position.amount0);
     const currentToken1 = currentAmounts?.token1Amount ?? parseNumber(position.amount1);
-    const currentValueUsd =
-      tokenRawToUsd(currentToken0, token0Price) + tokenRawToUsd(currentToken1, token1Price);
-    const netContributedUsd =
-      tokenRawToUsd(netToken0, token0Price) + tokenRawToUsd(netToken1, token1Price);
-    const deltaUsd = calculateValueDeltaUsd(currentValueUsd, netContributedUsd);
 
     const accruedInterest0 = parseNumber(earnings?.accrued_interest0);
     const accruedInterest1 = parseNumber(earnings?.accrued_interest1);
@@ -200,41 +364,72 @@ export async function getLpPositionMetricsForRows(
     const swapFees1 = parseNumber(earnings?.swap_fees1);
     const accruedInterestUsd = parseNumber(earnings?.accrued_interest_usd);
     const swapFeesUsd = parseNumber(earnings?.swap_fees_usd);
+    const totalEarnedUsd = parseNumber(earnings?.total_earned_usd, accruedInterestUsd + swapFeesUsd);
+    const accruedInterestToken0Usd = parseNumber(earnings?.accrued_interest_token0_usd);
+    const accruedInterestToken1Usd = parseNumber(earnings?.accrued_interest_token1_usd);
+    const swapFeesToken0Usd = parseNumber(earnings?.swap_fees_token0_usd);
+    const swapFeesToken1Usd = parseNumber(earnings?.swap_fees_token1_usd);
+    const totalEarnedToken0Usd = parseNumber(
+      earnings?.total_earned_token0_usd,
+      accruedInterestToken0Usd + swapFeesToken0Usd
+    );
+    const totalEarnedToken1Usd = parseNumber(
+      earnings?.total_earned_token1_usd,
+      accruedInterestToken1Usd + swapFeesToken1Usd
+    );
 
     metrics.set(key, {
       earnings: {
-        accruedInterest: {
-          token0Amount: numericString(accruedInterest0),
-          token1Amount: numericString(accruedInterest1),
-          usd: numericString(accruedInterestUsd),
-        },
-        swapFees: {
-          token0Amount: numericString(swapFees0),
-          token1Amount: numericString(swapFees1),
-          usd: numericString(swapFeesUsd),
-        },
-        totalEarned: {
-          token0Amount: numericString(accruedInterest0 + swapFees0),
-          token1Amount: numericString(accruedInterest1 + swapFees1),
-          usd: numericString(earnings?.total_earned_usd ?? accruedInterestUsd + swapFeesUsd),
-        },
+        accruedInterest: buildHistoricalBreakdown({
+          token0Amount: accruedInterest0,
+          token1Amount: accruedInterest1,
+          historicalUsd: accruedInterestUsd,
+          token0HistoricalUsd: accruedInterestToken0Usd,
+          token1HistoricalUsd: accruedInterestToken1Usd,
+          historicalPriceQuality: normalizePriceQuality(earnings?.accrued_interest_price_quality),
+          token0Price,
+          token1Price,
+        }),
+        swapFees: buildHistoricalBreakdown({
+          token0Amount: swapFees0,
+          token1Amount: swapFees1,
+          historicalUsd: swapFeesUsd,
+          token0HistoricalUsd: swapFeesToken0Usd,
+          token1HistoricalUsd: swapFeesToken1Usd,
+          historicalPriceQuality: normalizePriceQuality(earnings?.swap_fees_price_quality),
+          token0Price,
+          token1Price,
+        }),
+        totalEarned: buildHistoricalBreakdown({
+          token0Amount: accruedInterest0 + swapFees0,
+          token1Amount: accruedInterest1 + swapFees1,
+          historicalUsd: totalEarnedUsd,
+          token0HistoricalUsd: totalEarnedToken0Usd,
+          token1HistoricalUsd: totalEarnedToken1Usd,
+          historicalPriceQuality: normalizePriceQuality(earnings?.total_earned_price_quality),
+          token0Price,
+          token1Price,
+        }),
       },
       valueDelta: {
-        netContributed: {
-          token0Amount: numericString(netToken0),
-          token1Amount: numericString(netToken1),
-          usd: numericString(netContributedUsd),
-        },
-        currentValue: {
-          token0Amount: numericString(currentToken0),
-          token1Amount: numericString(currentToken1),
-          usd: numericString(currentValueUsd),
-        },
-        delta: {
-          token0Amount: numericString(currentToken0 - netToken0),
-          token1Amount: numericString(currentToken1 - netToken1),
-          usd: numericString(deltaUsd),
-        },
+        netContributed: buildCurrentBreakdown({
+          token0Amount: netToken0,
+          token1Amount: netToken1,
+          token0Price,
+          token1Price,
+        }),
+        currentValue: buildCurrentBreakdown({
+          token0Amount: currentToken0,
+          token1Amount: currentToken1,
+          token0Price,
+          token1Price,
+        }),
+        delta: buildCurrentBreakdown({
+          token0Amount: currentToken0 - netToken0,
+          token1Amount: currentToken1 - netToken1,
+          token0Price,
+          token1Price,
+        }),
       },
     });
   }

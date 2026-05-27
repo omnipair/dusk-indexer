@@ -9,6 +9,7 @@ import {
   AllocationQuality,
   LpEarningSource,
   allocateLpEarning,
+  floorToHour,
   parseNumber,
 } from '../utils/portfolioMath';
 
@@ -78,6 +79,10 @@ interface BatchPersistResultRow {
   source_events: number;
   allocated_rows: number;
   skipped_events: number;
+}
+
+interface BatchPairTokenRow extends PairTokenRow {
+  pair_address: string;
 }
 
 async function withTransaction<T>(
@@ -217,6 +222,71 @@ async function fetchPairTokensCached(
   const tokens = await fetchPairTokens(db, pair);
   cache.set(pair, tokens);
   return tokens;
+}
+
+async function fetchPairTokensForEvents(
+  db: Queryable,
+  events: EarningEventRow[],
+  cache: Map<string, PairTokenRow | null>
+): Promise<Map<string, PairTokenRow | null>> {
+  const pairs = [...new Set(events.map((event) => event.pair))].filter((pair) => !cache.has(pair));
+  if (pairs.length > 0) {
+    const result = await db.query<BatchPairTokenRow>(
+      'SELECT pair_address, token0, token1 FROM pools WHERE pair_address = ANY($1::text[])',
+      [pairs]
+    );
+    for (const row of result.rows) {
+      cache.set(row.pair_address, { token0: row.token0, token1: row.token1 });
+    }
+    for (const pair of pairs) {
+      if (!cache.has(pair)) {
+        cache.set(pair, null);
+      }
+    }
+  }
+
+  return new Map(events.map((event) => [event.pair, cache.get(event.pair) ?? null]));
+}
+
+async function ensureBatchPriceSnapshots(
+  db: Queryable,
+  events: EarningEventRow[],
+  dryRun: boolean,
+  context: LpEarningsBackfillContext
+): Promise<void> {
+  const pairTokensByPair = await fetchPairTokensForEvents(db, events, context.pairTokenCache);
+  const mintsByBucket = new Map<string, { bucket: Date; mints: Set<string> }>();
+
+  for (const event of events) {
+    const pairTokens = pairTokensByPair.get(event.pair);
+    if (!pairTokens) {
+      continue;
+    }
+
+    const bucket = floorToHour(new Date(event.event_timestamp));
+    const bucketKey = bucket.toISOString();
+    const entry = mintsByBucket.get(bucketKey) ?? { bucket, mints: new Set<string>() };
+
+    if (Math.abs(parseNumber(event.token0_amount)) > 0) {
+      entry.mints.add(pairTokens.token0);
+    }
+    if (Math.abs(parseNumber(event.token1_amount)) > 0) {
+      entry.mints.add(pairTokens.token1);
+    }
+
+    if (entry.mints.size > 0) {
+      mintsByBucket.set(bucketKey, entry);
+    }
+  }
+
+  for (const { bucket, mints } of mintsByBucket.values()) {
+    await getHistoricalTokenPrices(db, [...mints], bucket, {
+      dryRun,
+      allowCurrentFallback: true,
+      cache: context.priceCache,
+      refreshMissing: true,
+    });
+  }
 }
 
 async function fetchActiveLpPositions(
@@ -535,11 +605,15 @@ async function allocateAndPersistEvent(
 
 async function allocateAndPersistEventsBatch(
   db: Queryable,
-  events: EarningEventRow[]
+  events: EarningEventRow[],
+  dryRun: boolean,
+  context: LpEarningsBackfillContext
 ): Promise<{ sourceEvents: number; allocatedRows: number; skippedEvents: number }> {
   if (events.length === 0) {
     return { sourceEvents: 0, allocatedRows: 0, skippedEvents: 0 };
   }
+
+  await ensureBatchPriceSnapshots(db, events, dryRun, context);
 
   const eventPayload = events.map((event) => ({
     source: event.source,
@@ -601,17 +675,8 @@ async function allocateAndPersistEventsBatch(
           COALESCE(price1.price_usd, 0) AS token1_price_usd,
           COALESCE(price0.decimals, 6) AS token0_decimals,
           COALESCE(price1.decimals, 6) AS token1_decimals,
-          CASE
-            WHEN price0.quality = 'missing'
-              OR price1.quality = 'missing'
-              OR price0.quality IS NULL
-              OR price1.quality IS NULL
-              THEN 'missing'
-            WHEN price0.quality = 'estimated'
-              OR price1.quality = 'estimated'
-              THEN 'estimated'
-            ELSE COALESCE(price0.quality, price1.quality, 'missing')
-          END AS price_quality,
+          price0.quality AS token0_price_quality,
+          price1.quality AS token1_price_quality,
           CASE
             WHEN EXISTS (
               SELECT 1
@@ -692,7 +757,28 @@ async function allocateAndPersistEventsBatch(
         SELECT
           *,
           allocated_token0 / power(10::numeric, token0_decimals) * token0_price_usd AS token0_usd,
-          allocated_token1 / power(10::numeric, token1_decimals) * token1_price_usd AS token1_usd
+          allocated_token1 / power(10::numeric, token1_decimals) * token1_price_usd AS token1_usd,
+          CASE
+            WHEN ABS(allocated_token0) > 0
+              AND (token0_price_quality = 'missing' OR token0_price_quality IS NULL)
+              THEN 'missing'
+            WHEN ABS(allocated_token1) > 0
+              AND (token1_price_quality = 'missing' OR token1_price_quality IS NULL)
+              THEN 'missing'
+            WHEN ABS(allocated_token0) > 0
+              AND token0_price_quality = 'estimated'
+              THEN 'estimated'
+            WHEN ABS(allocated_token1) > 0
+              AND token1_price_quality = 'estimated'
+              THEN 'estimated'
+            WHEN ABS(allocated_token0) > 0
+              AND token0_price_quality = 'current'
+              THEN 'current'
+            WHEN ABS(allocated_token1) > 0
+              AND token1_price_quality = 'current'
+              THEN 'current'
+            ELSE 'historical'
+          END AS price_quality
         FROM allocation_rows
       ),
       upsert_earning_events AS (
@@ -874,7 +960,7 @@ export async function backfillLpEarnings(
     }
 
     if (!dryRun && options.useBatch !== false) {
-      const batchResult = await allocateAndPersistEventsBatch(db, events);
+      const batchResult = await allocateAndPersistEventsBatch(db, events, dryRun, context);
       scannedEvents += batchResult.sourceEvents;
       allocatedRows += batchResult.allocatedRows;
       skippedEvents += batchResult.skippedEvents;

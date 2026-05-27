@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   allocateLpEarning,
+  amountAwarePriceQuality,
   calculateValueDeltaUsd,
   reconstructTotalSupplyAtSlot,
   tokenRawToUsd,
@@ -42,6 +43,27 @@ test('allocateLpEarning splits token revenue by LP share', () => {
 
 test('tokenRawToUsd applies token decimals', () => {
   assert.equal(tokenRawToUsd(1_500_000, { priceUsd: 2, decimals: 6, quality: 'current' }), 3);
+});
+
+test('amountAwarePriceQuality ignores missing prices for zero amount sides', () => {
+  assert.equal(
+    amountAwarePriceQuality(
+      1_000_000,
+      0,
+      { priceUsd: 1, decimals: 6, quality: 'historical' },
+      undefined
+    ),
+    'historical'
+  );
+  assert.equal(
+    amountAwarePriceQuality(
+      1_000_000,
+      1,
+      { priceUsd: 1, decimals: 6, quality: 'historical' },
+      undefined
+    ),
+    'missing'
+  );
 });
 
 test('calculateValueDeltaUsd returns current value minus net contributed value', () => {
