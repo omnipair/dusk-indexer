@@ -70,6 +70,45 @@ export function sumTokenValueUsd(
   return tokenRawToUsd(token0Amount, token0Price) + tokenRawToUsd(token1Amount, token1Price);
 }
 
+function priceQualityForAmount(
+  rawAmount: unknown,
+  price: TokenPrice | null | undefined
+): PriceQuality | null {
+  if (Math.abs(parseNumber(rawAmount)) === 0) {
+    return null;
+  }
+  if (!price || price.priceUsd <= 0) {
+    return 'missing';
+  }
+  return price.quality;
+}
+
+export function amountAwarePriceQuality(
+  token0Amount: unknown,
+  token1Amount: unknown,
+  token0Price: TokenPrice | null | undefined,
+  token1Price: TokenPrice | null | undefined
+): PriceQuality {
+  const qualities = [
+    priceQualityForAmount(token0Amount, token0Price),
+    priceQualityForAmount(token1Amount, token1Price),
+  ].filter((quality): quality is PriceQuality => quality !== null);
+
+  if (qualities.length === 0) {
+    return 'historical';
+  }
+  if (qualities.includes('missing')) {
+    return 'missing';
+  }
+  if (qualities.includes('estimated')) {
+    return 'estimated';
+  }
+  if (qualities.includes('current')) {
+    return 'current';
+  }
+  return 'historical';
+}
+
 export function reconstructTotalSupplyAtSlot(events: LiquiditySupplyEvent[], slot: number): number {
   return events.reduce((totalSupply, event) => {
     if (event.slot > slot) {
@@ -95,11 +134,6 @@ export function allocateLpEarning(
     return [];
   }
 
-  const priceQuality: PriceQuality =
-    token0Price?.quality === 'missing' || token1Price?.quality === 'missing'
-      ? 'missing'
-      : token0Price?.quality || token1Price?.quality || 'missing';
-
   return activePositions
     .filter((position) => position.lpAmount > 0)
     .map((position) => {
@@ -108,6 +142,12 @@ export function allocateLpEarning(
       const allocatedToken1 = token1Amount * lpShare;
       const token0Usd = tokenRawToUsd(allocatedToken0, token0Price);
       const token1Usd = tokenRawToUsd(allocatedToken1, token1Price);
+      const priceQuality = amountAwarePriceQuality(
+        allocatedToken0,
+        allocatedToken1,
+        token0Price,
+        token1Price
+      );
 
       return {
         signer: position.signer,

@@ -140,3 +140,66 @@ test('backfillLpEarnings finalizes a source event only after transactional alloc
   assert.equal(statements.includes('COMMIT'), true);
   assert.equal(sourceCompleted, true);
 });
+
+test('batch LP earnings hydrates prices and treats zero-amount sides as price-optional', async () => {
+  const statements: string[] = [];
+  const priceSnapshotParams: any[][] = [];
+
+  const db = {
+    async query<T extends QueryResultRow = any>(text: string, params?: any[]): Promise<QueryResult<T>> {
+      statements.push(text);
+
+      if (text.includes('jsonb_to_recordset')) {
+        return mockResult<T>([{
+          source_events: 1,
+          allocated_rows: 1,
+          skipped_events: 0,
+        }]);
+      }
+
+      if (text.includes('WITH event_rows')) {
+        return mockResult<T>([{
+          source: 'swap_fee',
+          source_event_id: '42',
+          source_tx_sig: 'tx-source',
+          pair: 'pair-a',
+          event_slot: '20',
+          event_timestamp: new Date('2026-05-09T00:00:00Z'),
+          source_instruction_index: 3,
+          source_instruction_path: '000003',
+          token0_amount: '1000000',
+          token1_amount: '0',
+        }]);
+      }
+
+      if (text.includes('SELECT pair_address, token0, token1 FROM pools')) {
+        return mockResult<T>([{ pair_address: 'pair-a', token0: 'token-a', token1: 'token-b' }]);
+      }
+
+      if (text.includes('FROM token_price_snapshots')) {
+        priceSnapshotParams.push(params ?? []);
+        return mockResult<T>([
+          {
+            mint: 'token-a',
+            bucket: new Date('2026-05-09T00:00:00Z'),
+            price_usd: '1',
+            decimals: 6,
+            provider: 'birdeye',
+            quality: 'historical',
+          },
+        ]);
+      }
+
+      return mockResult<T>([]);
+    },
+  };
+
+  const result = await backfillLpEarnings(db, { maxEvents: 1 });
+  const batchSql = statements.find((statement) => statement.includes('jsonb_to_recordset')) ?? '';
+
+  assert.equal(result.scannedEvents, 1);
+  assert.equal(result.allocatedRows, 1);
+  assert.deepEqual(priceSnapshotParams[0][0], ['token-a']);
+  assert.equal(batchSql.includes('ABS(allocated_token0) > 0'), true);
+  assert.equal(batchSql.includes('ABS(allocated_token1) > 0'), true);
+});
