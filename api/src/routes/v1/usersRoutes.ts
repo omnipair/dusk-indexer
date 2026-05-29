@@ -38,6 +38,10 @@ router.get('/:userAddress/portfolio-snapshots', async (req: Request, res: Respon
   await PortfolioController.getUserPortfolioSnapshots(req, res);
 });
 
+router.get('/:userAddress/lp-earnings', async (req: Request, res: Response) => {
+  await PortfolioController.getUserLpEarnings(req, res);
+});
+
 router.get('/:userAddress/positions', async (req: Request, res: Response) => {
   req.query.userAddress = req.params.userAddress;
   await PositionController.getAllPositions(req, res);
