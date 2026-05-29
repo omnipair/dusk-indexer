@@ -41,6 +41,7 @@ router.get('/', (req, res) => {
         'lending-events': 'GET /api/v1/users/{userAddress}/lending-events?poolAddress=ADDR&limit=100&offset=0',
         'activity': 'GET /api/v1/users/{userAddress}/activity?categories=swaps,liquidity,lending&poolAddress=ADDR&limit=100&offset=0&sort=recent',
         'portfolio-snapshots': 'GET /api/v1/users/{userAddress}/portfolio-snapshots?range=7D|30D|90D|ALL',
+        'lp-earnings': 'GET /api/v1/users/{userAddress}/lp-earnings?range=7D|30D|90D|ALL&poolAddress=ADDR',
         'user-positions': 'GET /api/v1/users/{userAddress}/positions?poolAddress=ADDR&type=liquidity&status=open'
       },
       positions: {

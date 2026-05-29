@@ -62,6 +62,47 @@ export interface LpPositionMetricsOptions {
   currentAmountsByPosition?: Map<string, CurrentLpTokenAmounts>;
 }
 
+export type LpEarningsRange = '7D' | '30D' | '90D' | 'ALL';
+
+export interface LpEarningsUsdSummary {
+  usd: string;
+  historicalUsd: string;
+  currentUsd: string;
+  priceQuality: PriceQuality;
+  currentPriceQuality: PriceQuality;
+  priceBasis: LpUsdPriceBasis;
+}
+
+export interface LpEarningsRangePosition {
+  pair: string;
+  signer: string;
+  token0Mint: string;
+  token1Mint: string;
+  accruedInterest: LpAmountBreakdown;
+  swapFees: LpAmountBreakdown;
+  totalEarned: LpAmountBreakdown;
+}
+
+export interface LpEarningsRangeResponse {
+  userAddress: string;
+  range: LpEarningsRange;
+  from: string | null;
+  to: string;
+  totals: {
+    accruedInterest: LpEarningsUsdSummary;
+    swapFees: LpEarningsUsdSummary;
+    totalEarned: LpEarningsUsdSummary;
+  };
+  positions: LpEarningsRangePosition[];
+}
+
+export interface LpEarningsRangeOptions {
+  range?: unknown;
+  poolAddress?: string;
+  now?: Date;
+  currentPrices?: Map<string, TokenPrice>;
+}
+
 interface EarningsRow {
   pair: string;
   signer: string;
@@ -90,6 +131,29 @@ interface ContributionRow {
   net_amount1: string | null;
 }
 
+interface RangeEarningsRow {
+  pair: string;
+  signer: string;
+  token0_mint: string | null;
+  token1_mint: string | null;
+  accrued_interest0: string | null;
+  accrued_interest1: string | null;
+  swap_fees0: string | null;
+  swap_fees1: string | null;
+  accrued_interest_usd: string | null;
+  swap_fees_usd: string | null;
+  total_earned_usd: string | null;
+  accrued_interest_token0_usd: string | null;
+  accrued_interest_token1_usd: string | null;
+  swap_fees_token0_usd: string | null;
+  swap_fees_token1_usd: string | null;
+  total_earned_token0_usd: string | null;
+  total_earned_token1_usd: string | null;
+  accrued_interest_price_quality: PriceQuality | null;
+  swap_fees_price_quality: PriceQuality | null;
+  total_earned_price_quality: PriceQuality | null;
+}
+
 function metricKey(signer: string, pair: string): string {
   return `${signer}:${pair}`;
 }
@@ -102,6 +166,61 @@ function normalizePriceQuality(value: unknown): PriceQuality {
   return value === 'missing' || value === 'estimated' || value === 'current' || value === 'historical'
     ? value
     : 'historical';
+}
+
+function normalizeEarningsRange(value: unknown): LpEarningsRange {
+  const range = String(value || '30D').toUpperCase();
+  if (range === '7D' || range === '30D' || range === '90D' || range === 'ALL') {
+    return range;
+  }
+  return '30D';
+}
+
+function earningsRangeStart(range: LpEarningsRange, now: Date): Date | null {
+  if (range === '7D') {
+    return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  }
+  if (range === '30D') {
+    return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  }
+  if (range === '90D') {
+    return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+  }
+  return null;
+}
+
+function combinePriceQualities(qualities: PriceQuality[]): PriceQuality {
+  if (qualities.includes('missing')) {
+    return 'missing';
+  }
+  if (qualities.includes('estimated')) {
+    return 'estimated';
+  }
+  if (qualities.includes('current')) {
+    return 'current';
+  }
+  return 'historical';
+}
+
+function buildUsdSummary({
+  historicalUsd,
+  currentUsd,
+  priceQualities,
+  currentPriceQualities,
+}: {
+  historicalUsd: number;
+  currentUsd: number;
+  priceQualities: PriceQuality[];
+  currentPriceQualities: PriceQuality[];
+}): LpEarningsUsdSummary {
+  return {
+    usd: numericString(historicalUsd),
+    historicalUsd: numericString(historicalUsd),
+    currentUsd: numericString(currentUsd),
+    priceQuality: combinePriceQualities(priceQualities),
+    currentPriceQuality: combinePriceQualities(currentPriceQualities),
+    priceBasis: 'historical',
+  };
 }
 
 function currentTokenUsdBySide(
@@ -319,6 +438,199 @@ async function loadNetContributions(
     byPosition.set(metricKey(row.signer, row.pair), row);
   }
   return byPosition;
+}
+
+export async function getUserLpEarningsForRange(
+  db: Queryable,
+  userAddress: string,
+  options: LpEarningsRangeOptions = {}
+): Promise<LpEarningsRangeResponse> {
+  const range = normalizeEarningsRange(options.range);
+  const to = options.now ?? new Date();
+  const from = earningsRangeStart(range, to);
+
+  const result = await db.query<RangeEarningsRow>(
+    `
+      SELECT
+        events.pair,
+        events.signer,
+        pools.token0 AS token0_mint,
+        pools.token1 AS token1_mint,
+        COALESCE(SUM(CASE WHEN events.source = 'borrow_interest' THEN events.token0_amount ELSE 0 END), 0) AS accrued_interest0,
+        COALESCE(SUM(CASE WHEN events.source = 'borrow_interest' THEN events.token1_amount ELSE 0 END), 0) AS accrued_interest1,
+        COALESCE(SUM(CASE WHEN events.source = 'swap_fee' THEN events.token0_amount ELSE 0 END), 0) AS swap_fees0,
+        COALESCE(SUM(CASE WHEN events.source = 'swap_fee' THEN events.token1_amount ELSE 0 END), 0) AS swap_fees1,
+        COALESCE(SUM(CASE WHEN events.source = 'borrow_interest' THEN events.token0_usd ELSE 0 END), 0) AS accrued_interest_token0_usd,
+        COALESCE(SUM(CASE WHEN events.source = 'borrow_interest' THEN events.token1_usd ELSE 0 END), 0) AS accrued_interest_token1_usd,
+        COALESCE(SUM(CASE WHEN events.source = 'swap_fee' THEN events.token0_usd ELSE 0 END), 0) AS swap_fees_token0_usd,
+        COALESCE(SUM(CASE WHEN events.source = 'swap_fee' THEN events.token1_usd ELSE 0 END), 0) AS swap_fees_token1_usd,
+        COALESCE(SUM(events.token0_usd), 0) AS total_earned_token0_usd,
+        COALESCE(SUM(events.token1_usd), 0) AS total_earned_token1_usd,
+        COALESCE(SUM(CASE WHEN events.source = 'borrow_interest' THEN events.total_usd ELSE 0 END), 0) AS accrued_interest_usd,
+        COALESCE(SUM(CASE WHEN events.source = 'swap_fee' THEN events.total_usd ELSE 0 END), 0) AS swap_fees_usd,
+        COALESCE(SUM(events.total_usd), 0) AS total_earned_usd,
+        CASE
+          WHEN BOOL_OR(events.source = 'borrow_interest' AND events.price_quality = 'missing') THEN 'missing'
+          WHEN BOOL_OR(events.source = 'borrow_interest' AND events.price_quality = 'estimated') THEN 'estimated'
+          WHEN BOOL_OR(events.source = 'borrow_interest' AND events.price_quality = 'current') THEN 'current'
+          WHEN BOOL_OR(events.source = 'borrow_interest') THEN 'historical'
+          ELSE 'historical'
+        END AS accrued_interest_price_quality,
+        CASE
+          WHEN BOOL_OR(events.source = 'swap_fee' AND events.price_quality = 'missing') THEN 'missing'
+          WHEN BOOL_OR(events.source = 'swap_fee' AND events.price_quality = 'estimated') THEN 'estimated'
+          WHEN BOOL_OR(events.source = 'swap_fee' AND events.price_quality = 'current') THEN 'current'
+          WHEN BOOL_OR(events.source = 'swap_fee') THEN 'historical'
+          ELSE 'historical'
+        END AS swap_fees_price_quality,
+        CASE
+          WHEN BOOL_OR(events.price_quality = 'missing') THEN 'missing'
+          WHEN BOOL_OR(events.price_quality = 'estimated') THEN 'estimated'
+          WHEN BOOL_OR(events.price_quality = 'current') THEN 'current'
+          WHEN COUNT(*) > 0 THEN 'historical'
+          ELSE 'historical'
+        END AS total_earned_price_quality
+      FROM lp_position_earning_events events
+      LEFT JOIN pools ON pools.pair_address = events.pair
+      WHERE events.signer = $1
+        AND ($2::text IS NULL OR events.pair = $2)
+        AND ($3::timestamptz IS NULL OR events.event_timestamp >= $3)
+        AND events.event_timestamp <= $4
+      GROUP BY events.pair, events.signer, pools.token0, pools.token1
+      ORDER BY MAX(events.event_timestamp) DESC, events.pair
+    `,
+    [userAddress, options.poolAddress ?? null, from, to]
+  );
+
+  const mints = [
+    ...new Set(
+      result.rows
+        .flatMap((row) => [row.token0_mint, row.token1_mint])
+        .filter((mint): mint is string => Boolean(mint))
+    ),
+  ];
+  const currentPrices = options.currentPrices ?? await getCurrentTokenPrices(mints);
+
+  const positions: LpEarningsRangePosition[] = [];
+  let accruedInterestHistoricalUsd = 0;
+  let accruedInterestCurrentUsd = 0;
+  let swapFeesHistoricalUsd = 0;
+  let swapFeesCurrentUsd = 0;
+  let totalEarnedHistoricalUsd = 0;
+  let totalEarnedCurrentUsd = 0;
+  const accruedInterestQualities: PriceQuality[] = [];
+  const swapFeesQualities: PriceQuality[] = [];
+  const totalEarnedQualities: PriceQuality[] = [];
+  const accruedInterestCurrentQualities: PriceQuality[] = [];
+  const swapFeesCurrentQualities: PriceQuality[] = [];
+  const totalEarnedCurrentQualities: PriceQuality[] = [];
+
+  for (const row of result.rows) {
+    const token0Price = row.token0_mint ? currentPrices.get(row.token0_mint) : undefined;
+    const token1Price = row.token1_mint ? currentPrices.get(row.token1_mint) : undefined;
+
+    const accruedInterest0 = parseNumber(row.accrued_interest0);
+    const accruedInterest1 = parseNumber(row.accrued_interest1);
+    const swapFees0 = parseNumber(row.swap_fees0);
+    const swapFees1 = parseNumber(row.swap_fees1);
+    const accruedInterestUsd = parseNumber(row.accrued_interest_usd);
+    const swapFeesUsd = parseNumber(row.swap_fees_usd);
+    const totalEarnedUsd = parseNumber(row.total_earned_usd, accruedInterestUsd + swapFeesUsd);
+    const accruedInterestToken0Usd = parseNumber(row.accrued_interest_token0_usd);
+    const accruedInterestToken1Usd = parseNumber(row.accrued_interest_token1_usd);
+    const swapFeesToken0Usd = parseNumber(row.swap_fees_token0_usd);
+    const swapFeesToken1Usd = parseNumber(row.swap_fees_token1_usd);
+    const totalEarnedToken0Usd = parseNumber(
+      row.total_earned_token0_usd,
+      accruedInterestToken0Usd + swapFeesToken0Usd
+    );
+    const totalEarnedToken1Usd = parseNumber(
+      row.total_earned_token1_usd,
+      accruedInterestToken1Usd + swapFeesToken1Usd
+    );
+
+    const accruedInterest = buildHistoricalBreakdown({
+      token0Amount: accruedInterest0,
+      token1Amount: accruedInterest1,
+      historicalUsd: accruedInterestUsd,
+      token0HistoricalUsd: accruedInterestToken0Usd,
+      token1HistoricalUsd: accruedInterestToken1Usd,
+      historicalPriceQuality: normalizePriceQuality(row.accrued_interest_price_quality),
+      token0Price,
+      token1Price,
+    });
+    const swapFees = buildHistoricalBreakdown({
+      token0Amount: swapFees0,
+      token1Amount: swapFees1,
+      historicalUsd: swapFeesUsd,
+      token0HistoricalUsd: swapFeesToken0Usd,
+      token1HistoricalUsd: swapFeesToken1Usd,
+      historicalPriceQuality: normalizePriceQuality(row.swap_fees_price_quality),
+      token0Price,
+      token1Price,
+    });
+    const totalEarned = buildHistoricalBreakdown({
+      token0Amount: accruedInterest0 + swapFees0,
+      token1Amount: accruedInterest1 + swapFees1,
+      historicalUsd: totalEarnedUsd,
+      token0HistoricalUsd: totalEarnedToken0Usd,
+      token1HistoricalUsd: totalEarnedToken1Usd,
+      historicalPriceQuality: normalizePriceQuality(row.total_earned_price_quality),
+      token0Price,
+      token1Price,
+    });
+
+    positions.push({
+      pair: row.pair,
+      signer: row.signer,
+      token0Mint: row.token0_mint ?? '',
+      token1Mint: row.token1_mint ?? '',
+      accruedInterest,
+      swapFees,
+      totalEarned,
+    });
+
+    accruedInterestHistoricalUsd += accruedInterestUsd;
+    accruedInterestCurrentUsd += parseNumber(accruedInterest.currentUsd);
+    swapFeesHistoricalUsd += swapFeesUsd;
+    swapFeesCurrentUsd += parseNumber(swapFees.currentUsd);
+    totalEarnedHistoricalUsd += totalEarnedUsd;
+    totalEarnedCurrentUsd += parseNumber(totalEarned.currentUsd);
+    accruedInterestQualities.push(accruedInterest.priceQuality);
+    swapFeesQualities.push(swapFees.priceQuality);
+    totalEarnedQualities.push(totalEarned.priceQuality);
+    accruedInterestCurrentQualities.push(accruedInterest.currentPriceQuality);
+    swapFeesCurrentQualities.push(swapFees.currentPriceQuality);
+    totalEarnedCurrentQualities.push(totalEarned.currentPriceQuality);
+  }
+
+  return {
+    userAddress,
+    range,
+    from: from ? from.toISOString() : null,
+    to: to.toISOString(),
+    totals: {
+      accruedInterest: buildUsdSummary({
+        historicalUsd: accruedInterestHistoricalUsd,
+        currentUsd: accruedInterestCurrentUsd,
+        priceQualities: accruedInterestQualities,
+        currentPriceQualities: accruedInterestCurrentQualities,
+      }),
+      swapFees: buildUsdSummary({
+        historicalUsd: swapFeesHistoricalUsd,
+        currentUsd: swapFeesCurrentUsd,
+        priceQualities: swapFeesQualities,
+        currentPriceQualities: swapFeesCurrentQualities,
+      }),
+      totalEarned: buildUsdSummary({
+        historicalUsd: totalEarnedHistoricalUsd,
+        currentUsd: totalEarnedCurrentUsd,
+        priceQualities: totalEarnedQualities,
+        currentPriceQualities: totalEarnedCurrentQualities,
+      }),
+    },
+    positions,
+  };
 }
 
 export async function getLpPositionMetricsForRows(
