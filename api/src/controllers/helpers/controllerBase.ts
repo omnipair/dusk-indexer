@@ -2,6 +2,7 @@ import pool from '../../config/database';
 import { cache } from '../../utils/cache';
 import { PairStateService, PairState } from '../../services/PairStateService';
 import { loadOmnipairIdl } from '../../config/idl-loader';
+import { fetchTokenPrices } from '../../services/jupiterPriceService';
 
 export const KNOWN_TOKEN_ICONS: Record<string, string> = {
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png',
@@ -128,18 +129,28 @@ export async function calculateAPR(pairAddress: string): Promise<{
   });
 }
 
+function rawAmountToUsd(raw: string, mint: string, prices: Awaited<ReturnType<typeof fetchTokenPrices>>): number {
+  const price = prices.get(mint);
+  if (!price) {
+    return 0;
+  }
+  return (parseFloat(raw) / Math.pow(10, price.decimals)) * price.price;
+}
+
 export async function calculateTotalFeesPaid(pairAddress: string, hours?: number): Promise<{
   total_fees_usd: string;
   lp_fees_usd: string;
   protocol_fees_usd: string;
   token0_fees: string;
   token1_fees: string;
+  total_interest: string;
   period: string;
 }> {
   const cacheKey = `fees_calc_${pairAddress}_${hours ? `${hours}hrs` : 'all'}`;
 
   return cache.getOrSet(cacheKey, 60 * 1000, async () => {
-    let query: string;
+    let feesQuery: string;
+    let interestQuery: string;
     let queryParams: any[];
     let period: string;
 
@@ -147,7 +158,7 @@ export async function calculateTotalFeesPaid(pairAddress: string, hours?: number
       const now = Math.floor(Date.now() / 1000);
       const timestamp = now - (hours * 60 * 60);
 
-      query = `
+      feesQuery = `
         SELECT 
           COALESCE(SUM(COALESCE(lp_fee_usd, 0) + COALESCE(protocol_fee_usd, 0)), 0) as total_fees_usd,
           COALESCE(SUM(COALESCE(lp_fee_usd, 0)), 0) as lp_fees_usd,
@@ -157,10 +168,23 @@ export async function calculateTotalFeesPaid(pairAddress: string, hours?: number
         FROM swaps 
         WHERE timestamp > to_timestamp($1) AND pair = $2
       `;
+      interestQuery = `
+        SELECT
+          p.token0,
+          p.token1,
+          COALESCE(SUM(e.accrued_interest0), 0) AS accrued0,
+          COALESCE(SUM(e.accrued_interest1), 0) AS accrued1
+        FROM pools p
+        LEFT JOIN update_pair_events e
+          ON e.pair = p.pair_address
+         AND e.timestamp > to_timestamp($1)
+        WHERE p.pair_address = $2
+        GROUP BY p.token0, p.token1
+      `;
       queryParams = [timestamp, pairAddress];
       period = hours === 24 ? '24hrs' : `${hours}hrs`;
     } else {
-      query = `
+      feesQuery = `
         SELECT 
           COALESCE(SUM(COALESCE(lp_fee_usd, 0) + COALESCE(protocol_fee_usd, 0)), 0) as total_fees_usd,
           COALESCE(SUM(COALESCE(lp_fee_usd, 0)), 0) as lp_fees_usd,
@@ -170,12 +194,35 @@ export async function calculateTotalFeesPaid(pairAddress: string, hours?: number
         FROM swaps 
         WHERE pair = $1
       `;
+      interestQuery = `
+        SELECT
+          p.token0,
+          p.token1,
+          COALESCE(SUM(e.accrued_interest0), 0) AS accrued0,
+          COALESCE(SUM(e.accrued_interest1), 0) AS accrued1
+        FROM pools p
+        LEFT JOIN update_pair_events e ON e.pair = p.pair_address
+        WHERE p.pair_address = $1
+        GROUP BY p.token0, p.token1
+      `;
       queryParams = [pairAddress];
       period = 'all';
     }
 
-    const result = await pool.query(query, queryParams);
-    const row = result.rows[0];
+    const [feesResult, interestResult] = await Promise.all([
+      pool.query(feesQuery, queryParams),
+      pool.query(interestQuery, queryParams),
+    ]);
+    const row = feesResult.rows[0];
+    const interestRow = interestResult.rows[0];
+
+    let totalInterestUsd = 0;
+    if (interestRow) {
+      const prices = await fetchTokenPrices([interestRow.token0, interestRow.token1]);
+      totalInterestUsd =
+        rawAmountToUsd(String(interestRow.accrued0), interestRow.token0, prices) +
+        rawAmountToUsd(String(interestRow.accrued1), interestRow.token1, prices);
+    }
 
     return {
       total_fees_usd: String(row.total_fees_usd),
@@ -183,6 +230,7 @@ export async function calculateTotalFeesPaid(pairAddress: string, hours?: number
       protocol_fees_usd: String(row.protocol_fees_usd),
       token0_fees: String(row.token0_fees),
       token1_fees: String(row.token1_fees),
+      total_interest: String(totalInterestUsd),
       period
     };
   });
