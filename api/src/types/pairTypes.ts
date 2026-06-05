@@ -37,5 +37,6 @@ export interface SimulationResult {
 export interface EmitValueArgs {
   amount: number | null;
   tokenMint: PublicKey | null;
+  debtAmount: number | null;
 }
 

@@ -113,7 +113,7 @@ export async function simulatePairGetter(
       const ix = await program.methods
         .viewPairData(
           getter,
-          args || { amount: null, tokenMint: null }
+          args || { amount: null, tokenMint: null, debtAmount: null }
         )
         .accounts({ pair: pairPda, rateModel: rateModelPda })
         .instruction();

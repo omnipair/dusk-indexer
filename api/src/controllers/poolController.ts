@@ -432,8 +432,8 @@ export class PoolController {
                 token1: pairState.spotPrices.token1
               },
               interest_rates: {
-                token0: Math.max(pairState.rates.token0, 1),
-                token1: Math.max(pairState.rates.token1, 1)
+                token0: pairState.rates.token0,
+                token1: pairState.rates.token1
               },
               total_debts: {
                 token0: pairState.totalDebts.token0,
@@ -470,7 +470,7 @@ export class PoolController {
               cash_reserves: { token0: '0', token1: '0' },
               oracle_prices: { token0: '0', token1: '0' },
               spot_prices: { token0: '0', token1: '0' },
-              interest_rates: { token0: 1, token1: 1 },
+              interest_rates: { token0: 0, token1: 0 },
               total_debts: { token0: '0', token1: '0' },
               total_collaterals: { token0: '0', token1: '0' },
               utilization: { token0: 0, token1: 0 },
