@@ -433,6 +433,11 @@ export class UserController {
               NULL::text AS collateral1,
               NULL::text AS debt0_shares,
               NULL::text AS debt1_shares,
+              NULL::text AS collateral0_liquidated,
+              NULL::text AS collateral1_liquidated,
+              NULL::text AS debt0_liquidated,
+              NULL::text AS debt1_liquidated,
+              NULL::text AS collateral_price,
               s.slot::text AS slot
             FROM swaps s
             WHERE s.user_address = $${userParamIndex} ${wherePool}
@@ -462,6 +467,11 @@ export class UserController {
               NULL::text AS collateral1,
               NULL::text AS debt0_shares,
               NULL::text AS debt1_shares,
+              NULL::text AS collateral0_liquidated,
+              NULL::text AS collateral1_liquidated,
+              NULL::text AS debt0_liquidated,
+              NULL::text AS debt1_liquidated,
+              NULL::text AS collateral_price,
               al.slot::text AS slot
             FROM adjust_liquidity al
             WHERE al.user_address = $${userParamIndex} ${wherePool}
@@ -491,6 +501,11 @@ export class UserController {
               NULL::text AS collateral1,
               NULL::text AS debt0_shares,
               NULL::text AS debt1_shares,
+              NULL::text AS collateral0_liquidated,
+              NULL::text AS collateral1_liquidated,
+              NULL::text AS debt0_liquidated,
+              NULL::text AS debt1_liquidated,
+              NULL::text AS collateral_price,
               ace.slot::text AS slot
             FROM adjust_collateral_events ace
             WHERE ace.signer = $${userParamIndex} ${wherePool}
@@ -516,6 +531,11 @@ export class UserController {
               NULL::text AS collateral1,
               NULL::text AS debt0_shares,
               NULL::text AS debt1_shares,
+              NULL::text AS collateral0_liquidated,
+              NULL::text AS collateral1_liquidated,
+              NULL::text AS debt0_liquidated,
+              NULL::text AS debt1_liquidated,
+              NULL::text AS collateral_price,
               ade.slot::text AS slot
             FROM adjust_debt_events ade
             WHERE ade.signer = $${userParamIndex} ${wherePool}
@@ -541,6 +561,11 @@ export class UserController {
               NULL::text AS collateral1,
               NULL::text AS debt0_shares,
               NULL::text AS debt1_shares,
+              uple.collateral0_liquidated::text AS collateral0_liquidated,
+              uple.collateral1_liquidated::text AS collateral1_liquidated,
+              uple.debt0_liquidated::text AS debt0_liquidated,
+              uple.debt1_liquidated::text AS debt1_liquidated,
+              uple.collateral_price::text AS collateral_price,
               uple.slot::text AS slot
             FROM user_position_liquidated_events uple
             WHERE uple.signer = $${userParamIndex} ${wherePool}
@@ -566,6 +591,11 @@ export class UserController {
               upue.collateral1::text AS collateral1,
               upue.debt0_shares::text AS debt0_shares,
               upue.debt1_shares::text AS debt1_shares,
+              NULL::text AS collateral0_liquidated,
+              NULL::text AS collateral1_liquidated,
+              NULL::text AS debt0_liquidated,
+              NULL::text AS debt1_liquidated,
+              NULL::text AS collateral_price,
               upue.slot::text AS slot
             FROM user_position_updated_events upue
             WHERE upue.signer = $${userParamIndex} ${wherePool}
@@ -628,7 +658,11 @@ export class UserController {
             collateral0: row.collateral0,
             collateral1: row.collateral1,
             debt0Shares: row.debt0_shares,
-            debt1Shares: row.debt1_shares
+            debt1Shares: row.debt1_shares,
+            collateral0Liquidated: row.collateral0_liquidated,
+            collateral1Liquidated: row.collateral1_liquidated,
+            debt0Liquidated: row.debt0_liquidated,
+            debt1Liquidated: row.debt1_liquidated
           },
           details: {
             eventId: row.event_id,
@@ -636,6 +670,7 @@ export class UserController {
             liquidityEventType: row.liquidity_event_type,
             lendingEventType: row.lending_event_type,
             isToken0In: row.is_token0_in,
+            collateralPrice: row.collateral_price,
             actor: row.actor,
             position: row.position,
             liquidator: row.liquidator,
