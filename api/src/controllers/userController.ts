@@ -437,6 +437,7 @@ export class UserController {
               NULL::text AS collateral1_liquidated,
               NULL::text AS debt0_liquidated,
               NULL::text AS debt1_liquidated,
+              NULL::text AS collateral_price,
               s.slot::text AS slot
             FROM swaps s
             WHERE s.user_address = $${userParamIndex} ${wherePool}
@@ -470,6 +471,7 @@ export class UserController {
               NULL::text AS collateral1_liquidated,
               NULL::text AS debt0_liquidated,
               NULL::text AS debt1_liquidated,
+              NULL::text AS collateral_price,
               al.slot::text AS slot
             FROM adjust_liquidity al
             WHERE al.user_address = $${userParamIndex} ${wherePool}
@@ -503,6 +505,7 @@ export class UserController {
               NULL::text AS collateral1_liquidated,
               NULL::text AS debt0_liquidated,
               NULL::text AS debt1_liquidated,
+              NULL::text AS collateral_price,
               ace.slot::text AS slot
             FROM adjust_collateral_events ace
             WHERE ace.signer = $${userParamIndex} ${wherePool}
@@ -532,6 +535,7 @@ export class UserController {
               NULL::text AS collateral1_liquidated,
               NULL::text AS debt0_liquidated,
               NULL::text AS debt1_liquidated,
+              NULL::text AS collateral_price,
               ade.slot::text AS slot
             FROM adjust_debt_events ade
             WHERE ade.signer = $${userParamIndex} ${wherePool}
@@ -561,6 +565,7 @@ export class UserController {
               uple.collateral1_liquidated::text AS collateral1_liquidated,
               uple.debt0_liquidated::text AS debt0_liquidated,
               uple.debt1_liquidated::text AS debt1_liquidated,
+              uple.collateral_price::text AS collateral_price,
               uple.slot::text AS slot
             FROM user_position_liquidated_events uple
             WHERE uple.signer = $${userParamIndex} ${wherePool}
@@ -590,6 +595,7 @@ export class UserController {
               NULL::text AS collateral1_liquidated,
               NULL::text AS debt0_liquidated,
               NULL::text AS debt1_liquidated,
+              NULL::text AS collateral_price,
               upue.slot::text AS slot
             FROM user_position_updated_events upue
             WHERE upue.signer = $${userParamIndex} ${wherePool}
@@ -664,6 +670,7 @@ export class UserController {
             liquidityEventType: row.liquidity_event_type,
             lendingEventType: row.lending_event_type,
             isToken0In: row.is_token0_in,
+            collateralPrice: row.collateral_price,
             actor: row.actor,
             position: row.position,
             liquidator: row.liquidator,
