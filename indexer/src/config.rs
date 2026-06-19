@@ -27,6 +27,15 @@ pub struct Args {
     /// Prometheus metrics port (also used by Railway's healthcheck against /metrics)
     #[arg(long, default_value_t = 8080)]
     pub metrics_port: u16,
+
+    /// Run a one-shot historical backfill (oldest -> newest) instead of the realtime daemon
+    #[arg(long, default_value_t = false)]
+    pub backfill: bool,
+
+    /// Lowest slot to backfill from, inclusive (falls back to BACKFILL_FROM_SLOT env).
+    /// The backfill covers the range [backfill_from_slot, most recent transaction].
+    #[arg(long)]
+    pub backfill_from_slot: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -36,6 +45,8 @@ pub struct Config {
     pub helius_api_key: Option<String>,
     pub rpc_ws_url: Option<String>,
     pub metrics_port: u16,
+    pub backfill: bool,
+    pub backfill_from_slot: Option<u64>,
 }
 
 impl Config {
@@ -62,16 +73,32 @@ impl Config {
             .or_else(|| env::var("HEALTH_PORT").ok().and_then(|s| s.parse().ok()))
             .unwrap_or(args.metrics_port);
 
+        let backfill = args.backfill;
+        let backfill_from_slot = args.backfill_from_slot.or_else(|| {
+            env::var("BACKFILL_FROM_SLOT").ok().and_then(|s| s.parse().ok())
+        });
+
         Self {
             http_rpc_url,
             start_block,
             helius_api_key,
             rpc_ws_url,
             metrics_port,
+            backfill,
+            backfill_from_slot,
         }
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        // Backfill mode crawls historical transactions over the HTTP RPC and does
+        // not require a Helius API key, but it does need a starting slot.
+        if self.backfill {
+            if self.backfill_from_slot.is_none() {
+                return Err("--backfill-from-slot (or BACKFILL_FROM_SLOT env) is required when --backfill is set".to_string());
+            }
+            return Ok(());
+        }
+
         if self.helius_api_key.is_none() {
             return Err("HELIUS_API_KEY is required for transaction monitoring".to_string());
         }
@@ -80,7 +107,16 @@ impl Config {
 
     pub fn log_configuration(&self) {
         log::info!("Configuration:");
-        
+
+        if self.backfill {
+            log::info!("  Mode: One-shot historical backfill (oldest -> newest)");
+            if let Some(slot) = self.backfill_from_slot {
+                log::info!("  Backfill from slot: {} (to most recent)", slot);
+            }
+            log::info!("  Historical RPC: {}", self.http_rpc_url);
+            return;
+        }
+
         if self.helius_api_key.is_some() {
             log::info!("  Transaction monitoring: Helius Atlas WebSocket");
         } else {

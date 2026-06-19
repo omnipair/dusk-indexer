@@ -1,12 +1,14 @@
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{collections::HashSet, str::FromStr, sync::Arc, time::Duration};
 use async_trait::async_trait;
 use carbon_core::{
     error::CarbonResult,
     metrics::MetricsCollection,
-    datasource::{AccountUpdate, Datasource, DatasourceId, Update, UpdateType},
+    datasource::{AccountUpdate, Datasource, DatasourceId, TransactionUpdate, Update, UpdateType},
+    transformers::transaction_metadata_from_original_meta,
 };
 use carbon_helius_atlas_ws_datasource::{Filters, HeliusWebsocket};
 use carbon_rpc_transaction_crawler_datasource::{ConnectionConfig, Filters as TransactionFilters, RpcTransactionCrawler, RetryConfig};
+use futures::StreamExt;
 use helius::types::{
     Cluster, RpcTransactionsConfig, TransactionSubscribeFilter, 
     TransactionSubscribeOptions, TransactionCommitment, 
@@ -14,9 +16,10 @@ use helius::types::{
 };
 use solana_client::{
     nonblocking::rpc_client::RpcClient,
-    rpc_config::{RpcProgramAccountsConfig, RpcBlockConfig},
+    rpc_client::GetConfirmedSignaturesForAddress2Config,
+    rpc_config::{RpcProgramAccountsConfig, RpcBlockConfig, RpcTransactionConfig},
 };
-use solana_transaction_status::{UiTransactionEncoding, TransactionDetails};
+use solana_transaction_status::{EncodedConfirmedTransactionWithStatusMeta, UiTransactionEncoding, TransactionDetails};
 use solana_commitment_config::CommitmentConfig;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
@@ -288,5 +291,247 @@ impl Datasource for GpaBackfillDatasource {
 
     fn update_types(&self) -> Vec<UpdateType> {
         vec![UpdateType::AccountUpdate]
+    }
+}
+
+/// One-shot datasource that backfills historical transactions in chronological
+/// order (oldest -> newest), starting from `from_slot` up to the most recent
+/// transaction for the program.
+///
+/// The realtime crawler (`RpcTransactionCrawler`) processes signatures
+/// newest-first because that is the only direction Solana's
+/// `getSignaturesForAddress` supports. This datasource instead enumerates every
+/// signature in the requested range up front, reverses the list, and then
+/// replays the transactions oldest-first. Because the pipeline processes updates
+/// sequentially in arrival order, replaying oldest-first means downstream DB
+/// inserts also happen oldest-first.
+///
+/// It is intended to be run once (via `--backfill`) and exits when the range has
+/// been fully replayed, allowing the pipeline to shut down gracefully.
+pub struct OrderedBackfillDatasource {
+    pub rpc_url: String,
+    pub program_id: Pubkey,
+    /// Lowest slot to include, inclusive.
+    pub from_slot: u64,
+    /// Number of signatures to request per `getSignaturesForAddress` page.
+    pub batch_limit: usize,
+    /// Number of transactions fetched concurrently (order is still preserved).
+    pub max_concurrent_requests: usize,
+    pub commitment: CommitmentConfig,
+}
+
+impl OrderedBackfillDatasource {
+    pub fn new(rpc_url: String, program_id: Pubkey, from_slot: u64) -> Self {
+        Self {
+            rpc_url,
+            program_id,
+            from_slot,
+            batch_limit: 1000,
+            max_concurrent_requests: 5,
+            commitment: CommitmentConfig::confirmed(),
+        }
+    }
+}
+
+/// Converts a fetched transaction into a carbon `TransactionUpdate`, mirroring
+/// the logic used by the realtime crawler's task processor. Returns `None` for
+/// transactions that are malformed, failed, or cannot be decoded.
+fn build_transaction_update(
+    signature: Signature,
+    fetched_transaction: EncodedConfirmedTransactionWithStatusMeta,
+) -> Option<Update> {
+    let slot = fetched_transaction.slot;
+    let block_time = fetched_transaction.block_time;
+    let transaction = fetched_transaction.transaction;
+
+    let meta_original = match transaction.clone().meta {
+        Some(meta) => meta,
+        None => {
+            log::warn!("Backfill: meta is malformed for transaction: {:?}", signature);
+            return None;
+        }
+    };
+
+    // Skip failed transactions; they never produced state changes to index.
+    if meta_original.status.is_err() {
+        return None;
+    }
+
+    let decoded_transaction = match transaction.transaction.decode() {
+        Some(decoded) => decoded,
+        None => {
+            log::error!("Backfill: failed to decode transaction: {:?}", signature);
+            return None;
+        }
+    };
+
+    let meta_needed = match transaction_metadata_from_original_meta(meta_original) {
+        Ok(meta) => meta,
+        Err(e) => {
+            log::error!("Backfill: error getting metadata from original meta: {:?}", e);
+            return None;
+        }
+    };
+
+    Some(Update::Transaction(Box::new(TransactionUpdate {
+        signature,
+        transaction: decoded_transaction,
+        meta: meta_needed,
+        is_vote: false,
+        slot,
+        block_time,
+        block_hash: None,
+    })))
+}
+
+#[async_trait]
+impl Datasource for OrderedBackfillDatasource {
+    async fn consume(
+        &self,
+        id: DatasourceId,
+        sender: Sender<(Update, DatasourceId)>,
+        cancellation_token: CancellationToken,
+        _metrics: Arc<MetricsCollection>,
+    ) -> CarbonResult<()> {
+        let rpc_client = Arc::new(RpcClient::new_with_commitment(
+            self.rpc_url.clone(),
+            self.commitment,
+        ));
+
+        // --- Phase 1: enumerate every signature in [from_slot, latest] ---------
+        // getSignaturesForAddress only pages newest -> oldest, so we collect the
+        // whole range first and reverse it afterwards.
+        log::info!(
+            "Backfill: enumerating signatures for {} from slot {} to latest...",
+            self.program_id, self.from_slot
+        );
+
+        let mut signatures: Vec<Signature> = Vec::new();
+        let mut before: Option<Signature> = None;
+
+        'enumerate: loop {
+            if cancellation_token.is_cancelled() {
+                log::info!("Backfill cancelled during signature enumeration");
+                return Ok(());
+            }
+
+            let batch = match rpc_client
+                .get_signatures_for_address_with_config(
+                    &self.program_id,
+                    GetConfirmedSignaturesForAddress2Config {
+                        before,
+                        until: None,
+                        limit: Some(self.batch_limit),
+                        commitment: Some(self.commitment),
+                    },
+                )
+                .await
+            {
+                Ok(batch) => batch,
+                Err(e) => {
+                    return Err(carbon_core::error::Error::FailedToConsumeDatasource(
+                        format!("Failed to fetch signatures during backfill: {:?}", e),
+                    ));
+                }
+            };
+
+            if batch.is_empty() {
+                break;
+            }
+
+            for sig_info in &batch {
+                // Signatures arrive newest-first; once we drop below the floor we
+                // have collected the entire requested range.
+                if sig_info.slot < self.from_slot {
+                    break 'enumerate;
+                }
+                match Signature::from_str(&sig_info.signature) {
+                    Ok(sig) => signatures.push(sig),
+                    Err(e) => log::error!("Backfill: invalid signature {}: {:?}", sig_info.signature, e),
+                }
+            }
+
+            // Advance the cursor to the oldest signature in this page.
+            before = batch
+                .last()
+                .and_then(|s| Signature::from_str(&s.signature).ok());
+
+            // A short page means we've reached the end of available history.
+            if batch.len() < self.batch_limit {
+                break;
+            }
+        }
+
+        let total = signatures.len();
+        log::info!(
+            "Backfill: collected {} signatures in range; replaying oldest -> newest",
+            total
+        );
+
+        // --- Phase 2: reverse to oldest-first ---------------------------------
+        signatures.reverse();
+
+        // --- Phase 3: fetch concurrently, but emit in chronological order ------
+        // `buffered` preserves input ordering while allowing N concurrent fetches,
+        // so updates are still sent oldest-first.
+        let commitment = self.commitment;
+        let fetch_stream = futures::stream::iter(signatures.into_iter().map(|signature| {
+            let rpc_client = Arc::clone(&rpc_client);
+            async move {
+                let result = rpc_client
+                    .get_transaction_with_config(
+                        &signature,
+                        RpcTransactionConfig {
+                            encoding: Some(UiTransactionEncoding::Base64),
+                            commitment: Some(commitment),
+                            max_supported_transaction_version: Some(0),
+                        },
+                    )
+                    .await;
+                (signature, result)
+            }
+        }))
+        .buffered(self.max_concurrent_requests);
+
+        futures::pin_mut!(fetch_stream);
+
+        let mut processed = 0usize;
+        while let Some((signature, result)) = fetch_stream.next().await {
+            if cancellation_token.is_cancelled() {
+                log::info!("Backfill cancelled during transaction replay");
+                break;
+            }
+
+            let fetched = match result {
+                Ok(tx) => tx,
+                Err(e) => {
+                    log::error!("Backfill: failed to fetch transaction {}: {:?}", signature, e);
+                    continue;
+                }
+            };
+
+            let Some(update) = build_transaction_update(signature, fetched) else {
+                continue;
+            };
+
+            if let Err(e) = sender.send((update, id.clone())).await {
+                log::error!("Backfill: failed to send update: {:?}", e);
+                break;
+            }
+
+            processed += 1;
+            if processed % 500 == 0 {
+                log::info!("Backfill progress: {}/{} transactions replayed", processed, total);
+            }
+        }
+
+        log::info!("Backfill complete: {}/{} transactions replayed", processed, total);
+        // Returning drops `sender`; once all datasource senders are dropped the
+        // pipeline drains pending updates and shuts down.
+        Ok(())
+    }
+
+    fn update_types(&self) -> Vec<UpdateType> {
+        vec![UpdateType::Transaction]
     }
 }

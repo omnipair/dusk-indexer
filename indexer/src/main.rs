@@ -11,7 +11,7 @@ mod processors;
 mod signals;
 
 use config::{Args, Config};
-use pipeline::{create_pipeline, run_pipeline};
+use pipeline::{create_backfill_pipeline, create_pipeline, run_pipeline};
 
 #[tokio::main]
 pub async fn main() -> CarbonResult<()> {
@@ -39,6 +39,28 @@ pub async fn main() -> CarbonResult<()> {
     if let Err(e) = database::init_db_pool().await {
         log::error!("Failed to initialize database pool: {}", e);
         return Err(e);
+    }
+
+    // One-shot historical backfill mode: replay transactions oldest -> newest
+    // from the configured slot, then exit (no daemon loop / reconnection).
+    if config.backfill {
+        let from_slot = match config.backfill_from_slot {
+            Some(slot) => slot,
+            None => {
+                let msg = "backfill_from_slot is required in backfill mode".to_string();
+                log::error!("{}", msg);
+                return Err(carbon_core::error::Error::Custom(msg).into());
+            }
+        };
+
+        log::info!("Running one-shot backfill from slot {} to most recent", from_slot);
+        let pipeline = create_backfill_pipeline(&config, from_slot).await?;
+        let result = run_pipeline(pipeline).await;
+        match &result {
+            Ok(_) => log::info!("Backfill finished; exiting."),
+            Err(e) => log::error!("Backfill failed: {:?}", e),
+        }
+        return result;
     }
 
     // Main daemon loop with exponential backoff for reconnection
