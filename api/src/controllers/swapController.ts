@@ -6,6 +6,108 @@ import { timedQuery } from '../utils/dbQuery';
 import { perfMetrics } from '../utils/perfMetrics';
 import { isValidAddress, calculateTotalFeesPaid, calculateAPR } from './helpers/controllerBase';
 
+export interface SwapHistoryCursor {
+  timestamp: string;
+  id: number;
+}
+
+export interface SwapHistoryQueryInput {
+  pairAddress?: string;
+  userAddress?: string;
+  limit: number;
+  offset: number;
+  from?: string;
+  to?: string;
+  cursor?: SwapHistoryCursor;
+}
+
+function parseDateQuery(value: unknown, name: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error(`${name} must be an ISO-8601 date or Unix timestamp`);
+  }
+
+  const trimmed = value.trim();
+  const numericValue = Number(trimmed);
+  const date = Number.isFinite(numericValue)
+    ? new Date(numericValue < 10_000_000_000 ? numericValue * 1000 : numericValue)
+    : new Date(trimmed);
+
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`${name} must be an ISO-8601 date or Unix timestamp`);
+  }
+  return date.toISOString();
+}
+
+export function encodeSwapHistoryCursor(cursor: SwapHistoryCursor): string {
+  return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
+}
+
+export function decodeSwapHistoryCursor(value: unknown): SwapHistoryCursor | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error('cursor is invalid');
+  }
+
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+    const timestamp = parseDateQuery(parsed.timestamp, 'cursor timestamp');
+    const id = Number(parsed.id);
+    if (!timestamp || !Number.isInteger(id) || id < 0) throw new Error();
+    return { timestamp, id };
+  } catch {
+    throw new Error('cursor is invalid');
+  }
+}
+
+export function parseSwapHistoryRange(query: Request['query']): {
+  from?: string;
+  to?: string;
+  cursor?: SwapHistoryCursor;
+} {
+  const from = parseDateQuery(query.from, 'from');
+  const to = parseDateQuery(query.to, 'to');
+  if (from && to && new Date(from).getTime() >= new Date(to).getTime()) {
+    throw new Error('from must be earlier than to');
+  }
+  return { from, to, cursor: decodeSwapHistoryCursor(query.cursor) };
+}
+
+export function buildSwapHistoryQuery(input: SwapHistoryQueryInput): {
+  query: string;
+  params: any[];
+} {
+  const params: any[] = [];
+  const filters: string[] = [];
+  const addParam = (value: any): string => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+
+  if (input.pairAddress) filters.push(`pair = ${addParam(input.pairAddress)}`);
+  if (input.userAddress) filters.push(`user_address = ${addParam(input.userAddress)}`);
+  if (input.from) filters.push(`"timestamp" >= ${addParam(input.from)}::timestamptz`);
+  if (input.to) filters.push(`"timestamp" < ${addParam(input.to)}::timestamptz`);
+  if (input.cursor) {
+    const timestampParam = addParam(input.cursor.timestamp);
+    const idParam = addParam(input.cursor.id);
+    filters.push(`("timestamp", id) < (${timestampParam}::timestamptz, ${idParam})`);
+  }
+
+  const limitParam = addParam(input.limit + 1);
+  const offsetParam = addParam(input.cursor ? 0 : input.offset);
+  return {
+    query: `
+      SELECT *
+      FROM swaps
+      WHERE ${filters.join(' AND ')}
+      ORDER BY "timestamp" DESC, id DESC
+      LIMIT ${limitParam} OFFSET ${offsetParam}
+    `,
+    params,
+  };
+}
+
 export class SwapController {
   static async getSwaps(req: Request, res: Response): Promise<void> {
     const endpointMetric = req.params.userAddress ? 'users.swaps' : 'swaps';
@@ -15,6 +117,13 @@ export class SwapController {
       const userAddress = req.params.address || req.params.userAddress;
       const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 100, 1), 100);
       const offset = Math.min(Math.max(parseInt(req.query.offset as string) || 0, 0), 10000);
+      let range: ReturnType<typeof parseSwapHistoryRange>;
+      try {
+        range = parseSwapHistoryRange(req.query);
+      } catch (error) {
+        res.status(400).json({ success: false, error: (error as Error).message });
+        return;
+      }
 
       if (!pairAddress && !userAddress) {
         res.status(400).json({ success: false, error: 'Either pair address or user address is required' });
@@ -26,44 +135,35 @@ export class SwapController {
         return;
       }
 
-      const ttlMs = offset <= limit * 2 ? 20 * 1000 : 180 * 1000;
-      const cacheKey = `swaps:user:${userAddress || 'all'}:pair:${pairAddress || 'all'}:limit:${limit}:offset:${offset}`;
+      const ttlMs = offset <= limit * 2 && !range.cursor ? 20 * 1000 : 180 * 1000;
+      const cacheKey = [
+        `swaps:user:${userAddress || 'all'}`,
+        `pair:${pairAddress || 'all'}`,
+        `limit:${limit}`,
+        `offset:${offset}`,
+        `from:${range.from || 'none'}`,
+        `to:${range.to || 'none'}`,
+        `cursor:${req.query.cursor || 'none'}`,
+      ].join(':');
       const { data, cacheStatus } = await cache.getOrSetWithMeta(cacheKey, ttlMs, async () => {
-        let dataQuery: string;
-        let queryParams: any[];
-
-        if (pairAddress && userAddress) {
-          dataQuery = `
-            SELECT *
-            FROM swaps
-            WHERE pair = $1 AND user_address = $2
-            ORDER BY "timestamp" DESC, id DESC
-            LIMIT $3 OFFSET $4
-          `;
-          queryParams = [pairAddress, userAddress, limit + 1, offset];
-        } else if (pairAddress) {
-          dataQuery = `
-            SELECT *
-            FROM swaps
-            WHERE pair = $1
-            ORDER BY "timestamp" DESC, id DESC
-            LIMIT $2 OFFSET $3
-          `;
-          queryParams = [pairAddress, limit + 1, offset];
-        } else {
-          dataQuery = `
-            SELECT *
-            FROM swaps
-            WHERE user_address = $1
-            ORDER BY "timestamp" DESC, id DESC
-            LIMIT $2 OFFSET $3
-          `;
-          queryParams = [userAddress, limit + 1, offset];
-        }
+        const { query: dataQuery, params: queryParams } = buildSwapHistoryQuery({
+          pairAddress,
+          userAddress,
+          limit,
+          offset,
+          ...range,
+        });
 
         const result = await timedQuery('swaps.history', dataQuery, queryParams);
         const hasNext = result.rows.length > limit;
         const swaps = hasNext ? result.rows.slice(0, limit) : result.rows;
+        const lastSwap = swaps[swaps.length - 1];
+        const nextCursor = hasNext && lastSwap
+          ? encodeSwapHistoryCursor({
+              timestamp: new Date(lastSwap.timestamp).toISOString(),
+              id: Number(lastSwap.id),
+            })
+          : null;
 
         const responseData: any = {
           swaps,
@@ -71,7 +171,8 @@ export class SwapController {
             total: null,
             limit,
             offset,
-            hasNext
+            hasNext,
+            nextCursor
           }
         };
         if (pairAddress) responseData.pairAddress = pairAddress;
