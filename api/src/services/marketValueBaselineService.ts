@@ -1,6 +1,15 @@
 import { QueryResult, QueryResultRow } from 'pg';
 
-export const MARKET_VALUE_BASELINE_RANGES = ['1H', '2H', '4H', '12H', '24H', '7D'] as const;
+export const MARKET_VALUE_BASELINE_RANGES = [
+  '1H',
+  '2H',
+  '4H',
+  '12H',
+  '24H',
+  '7D',
+  '30D',
+  '90D',
+] as const;
 
 export type MarketValueBaselineRange = typeof MARKET_VALUE_BASELINE_RANGES[number];
 export type MarketValueBaselineVisibility = 'visible' | 'all';
@@ -174,6 +183,8 @@ const RANGE_WINDOW_HOURS: Record<MarketValueBaselineRange, number> = {
   '12H': 12,
   '24H': 24,
   '7D': 24 * 7,
+  '30D': 24 * 30,
+  '90D': 24 * 90,
 };
 
 const PRE_INDEX_TOTAL_FEES = 47396 * 0.0025;

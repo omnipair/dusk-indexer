@@ -168,7 +168,30 @@ function createMockDb(options: { missingTokenBPrice?: boolean } = {}) {
 test('normalizes supported market value baseline ranges', () => {
   assert.deepEqual(normalizeMarketValueBaselineRange(undefined), { range: '2H', windowHours: 2 });
   assert.deepEqual(normalizeMarketValueBaselineRange('7d'), { range: '7D', windowHours: 168 });
+  assert.deepEqual(normalizeMarketValueBaselineRange('30d'), { range: '30D', windowHours: 720 });
+  assert.deepEqual(normalizeMarketValueBaselineRange('90D'), { range: '90D', windowHours: 2160 });
   assert.throws(() => normalizeMarketValueBaselineRange('30M'), /Unsupported range/);
+});
+
+test('month ranges calculate exact historical baseline timestamps', async () => {
+  const { db } = createMockDb();
+  const now = new Date('2026-05-10T12:00:00Z');
+
+  const thirtyDayResult = await getMarketValueBaselines(db, {
+    range: '30D',
+    now,
+  });
+  const ninetyDayResult = await getMarketValueBaselines(db, {
+    range: '90D',
+    now,
+  });
+
+  assert.equal(thirtyDayResult.range, '30D');
+  assert.equal(thirtyDayResult.windowHours, 720);
+  assert.equal(thirtyDayResult.baselineAt, '2026-04-10T12:00:00.000Z');
+  assert.equal(ninetyDayResult.range, '90D');
+  assert.equal(ninetyDayResult.windowHours, 2160);
+  assert.equal(ninetyDayResult.baselineAt, '2026-02-09T12:00:00.000Z');
 });
 
 test('value baselines use stored DB prices without external historical fetches', async () => {
