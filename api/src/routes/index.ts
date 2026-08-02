@@ -27,7 +27,7 @@ router.get('/', (req, res) => {
       pools: {
         'list-pools': 'GET /api/v1/pools?token0=ADDR&token1=ADDR&limit=100&offset=0&sortBy=tvl&sortOrder=desc',
         'pool-tvl': 'GET /api/v1/pools/tvl',
-        'market-value-baselines': 'GET /api/v1/pools/value-baselines?range=1H|2H|4H|12H|24H|7D&visibility=visible|all',
+        'market-value-baselines': 'GET /api/v1/pools/value-baselines?range=1H|2H|4H|12H|24H|7D|30D|90D&visibility=visible|all',
         'paired-tokens': 'GET /api/v1/pools/paired-tokens/{tokenAddress}',
         'pool-info': 'GET /api/v1/pools/{poolAddress}',
         'pool-stats': 'GET /api/v1/pools/{poolAddress}/stats?windowHours=24',
