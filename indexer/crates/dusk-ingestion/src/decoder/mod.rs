@@ -4,15 +4,16 @@
 //! accepts only the two program identities pinned by Local Snapshot 0 and
 //! retains every raw envelope, including unknown and malformed events.
 
+mod accounts;
 mod borsh;
 mod logs;
+mod projections;
 
-pub use logs::{LogDecodeOutput, LogDiagnostic, LogDiagnosticKind};
 use {
     crate::{
-        CanonicalEventKey, Commitment, DUSK_IDL, DUSK_PROGRAM_ID, EventObservation,
-        FoundationError, LEVERAGE_DELEGATE_IDL, LEVERAGE_DELEGATE_PROGRAM_ID, ProtocolIdentity,
-        sha256_hex, verify_vendored_protocol,
+        sha256_hex, verify_vendored_protocol, CanonicalEventKey, Commitment, EventObservation,
+        FoundationError, ProtocolIdentity, DUSK_IDL, DUSK_PROGRAM_ID, LEVERAGE_DELEGATE_IDL,
+        LEVERAGE_DELEGATE_PROGRAM_ID,
     },
     borsh::{DecodeLimits, TypeRegistry},
     serde::{Deserialize, Serialize},
@@ -20,6 +21,24 @@ use {
     solana_sha256_hasher::hash,
     std::collections::BTreeMap,
     thiserror::Error,
+};
+pub use {
+    accounts::{
+        AccountDecodeStatus, AccountFreshness, AccountLayoutScope, AccountObservationContext,
+        DecodedAccountEnvelope,
+    },
+    logs::{LogDecodeOutput, LogDiagnostic, LogDiagnosticKind},
+    projections::{
+        AccountProjections, AmmKind, AssetSide, AuctionDestination,
+        BorrowLiquidationDiscoveryProjection, BorrowPortfolioProjection, KeeperDiscoveryProjection,
+        LeverageDelegationPortfolioProjection, LeverageLiquidationDiscoveryProjection,
+        LeverageOrderDiscoveryProjection, LeverageOrderPortfolioProjection,
+        LeveragePortfolioProjection, MarketAssetProjection, MarketProjection, PortfolioProjection,
+        ProposalExecutionDiscoveryProjection, ProposalSupportPortfolioProjection,
+        ProtocolAuctionConfigDiscoveryProjection, ProtocolAuctionLaneProjection,
+        ReferralAccrualPortfolioProjection, ReferralPartnerPortfolioProjection, RevenueSource,
+        SignedInteger, UnsignedInteger, YieldPortfolioProjection,
+    },
 };
 
 /// Anchor's `emit_cpi!` instruction prefix. Anchor interprets the first eight
@@ -55,6 +74,8 @@ pub enum DecoderError {
     NotAnchorEventCpi,
     #[error("event ordinal overflow")]
     EventOrdinalOverflow,
+    #[error("invalid account observation context: {0}")]
+    InvalidAccountContext(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -187,6 +208,12 @@ struct InstructionDescriptor {
 }
 
 #[derive(Debug, Clone)]
+struct AccountDescriptor {
+    name: String,
+    layout_scope: AccountLayoutScope,
+}
+
+#[derive(Debug, Clone)]
 struct EventOccurrence {
     instruction_path: Vec<u16>,
     event_ordinal: u16,
@@ -195,6 +222,7 @@ struct EventOccurrence {
 
 #[derive(Debug, Clone)]
 struct ProgramRegistry {
+    accounts: BTreeMap<[u8; 8], AccountDescriptor>,
     events: BTreeMap<[u8; 8], EventDescriptor>,
     instructions: BTreeMap<[u8; 8], InstructionDescriptor>,
     types: TypeRegistry,
@@ -215,6 +243,52 @@ impl ProgramRegistry {
         }
 
         let types = TypeRegistry::from_idl(&idl).map_err(DecoderError::InvalidIdl)?;
+        let mut accounts = BTreeMap::new();
+        let empty_accounts = Vec::new();
+        for account in idl
+            .get("accounts")
+            .and_then(Value::as_array)
+            .unwrap_or(&empty_accounts)
+        {
+            let name = required_name(account, "account")?;
+            if !types.contains(name) {
+                return Err(DecoderError::InvalidIdl(format!(
+                    "account {name} has no matching IDL type"
+                )));
+            }
+            if !types.is_struct(name) {
+                return Err(DecoderError::InvalidIdl(format!(
+                    "account {name} does not reference a struct layout"
+                )));
+            }
+            let discriminator = required_discriminator(account, "account", name)?;
+            let expected = anchor_discriminator("account", name);
+            if discriminator != expected {
+                return Err(DecoderError::InvalidIdl(format!(
+                    "account {name} discriminator does not equal sha256(account:{name})[..8]"
+                )));
+            }
+            if accounts
+                .insert(
+                    discriminator,
+                    AccountDescriptor {
+                        name: name.to_owned(),
+                        layout_scope: if expected_address == LEVERAGE_DELEGATE_PROGRAM_ID
+                            && name != "LeverageOrder"
+                        {
+                            AccountLayoutScope::ReferencedExternalLayout
+                        } else {
+                            AccountLayoutScope::ExpectedProgramOwned
+                        },
+                    },
+                )
+                .is_some()
+            {
+                return Err(DecoderError::InvalidIdl(format!(
+                    "duplicate account discriminator for {name}"
+                )));
+            }
+        }
         let mut events = BTreeMap::new();
         let empty_events = Vec::new();
         for event in idl
@@ -289,6 +363,7 @@ impl ProgramRegistry {
             }
         }
         Ok(Self {
+            accounts,
             events,
             instructions,
             types,
@@ -327,6 +402,14 @@ impl PinnedIdlDecoder {
             .events
             .values()
             .map(|event| event.name.as_str())
+            .collect()
+    }
+
+    pub fn account_names(&self, program: PinnedProgram) -> Vec<&str> {
+        self.registry(program)
+            .accounts
+            .values()
+            .map(|account| account.name.as_str())
             .collect()
     }
 

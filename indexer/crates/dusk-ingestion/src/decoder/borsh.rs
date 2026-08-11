@@ -1,5 +1,5 @@
 use {
-    base64::{Engine, engine::general_purpose::STANDARD},
+    base64::{engine::general_purpose::STANDARD, Engine},
     serde_json::{Map, Number, Value},
     solana_pubkey::Pubkey,
     std::collections::BTreeMap,
@@ -55,6 +55,15 @@ impl TypeRegistry {
         self.definitions.contains_key(name)
     }
 
+    pub fn is_struct(&self, name: &str) -> bool {
+        self.definitions
+            .get(name)
+            .and_then(|definition| definition.get("type"))
+            .and_then(|definition| definition.get("kind"))
+            .and_then(Value::as_str)
+            == Some("struct")
+    }
+
     pub fn decode_named_type(
         &self,
         name: &str,
@@ -66,6 +75,35 @@ impl TypeRegistry {
         let value = self.decode_defined(name, &mut cursor, limits, 0)?;
         cursor.finish()?;
         Ok(value)
+    }
+
+    /// Anchor accounts may be allocated to the maximum serialized size of an
+    /// enum and therefore retain zero-filled bytes after the decoded value.
+    /// Accept only zero allocation padding; non-zero trailing data is an
+    /// ambiguous layout and must remain a malformed raw observation.
+    pub fn decode_named_account_type(
+        &self,
+        name: &str,
+        bytes: &[u8],
+        limits: DecodeLimits,
+    ) -> Result<(Value, usize), String> {
+        self.require_payload_limit(bytes, limits)?;
+        let mut cursor = BorshCursor::new(bytes);
+        let value = self.decode_defined(name, &mut cursor, limits, 0)?;
+        let consumed = cursor.offset();
+        let padding = cursor.remaining();
+        if let Some((offset, byte)) = padding
+            .iter()
+            .copied()
+            .enumerate()
+            .find(|(_, byte)| *byte != 0)
+        {
+            return Err(format!(
+                "account has non-zero trailing byte 0x{byte:02x} at payload offset {}",
+                consumed + offset
+            ));
+        }
+        Ok((value, padding.len()))
     }
 
     pub fn decode_fields(
@@ -367,6 +405,14 @@ impl<'a> BorshCursor<'a> {
 
     fn read_u8(&mut self) -> Result<u8, String> {
         Ok(self.read_array::<1>()?[0])
+    }
+
+    fn offset(&self) -> usize {
+        self.offset
+    }
+
+    fn remaining(&self) -> &'a [u8] {
+        &self.bytes[self.offset..]
     }
 
     fn read_len(&mut self, maximum: usize, label: &str) -> Result<usize, String> {

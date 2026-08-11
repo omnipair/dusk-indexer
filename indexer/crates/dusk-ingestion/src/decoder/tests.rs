@@ -1,7 +1,7 @@
 use {
     super::*,
-    base64::{Engine, engine::general_purpose::STANDARD},
-    serde_json::{Value, json},
+    base64::{engine::general_purpose::STANDARD, Engine},
+    serde_json::{json, Value},
     solana_pubkey::Pubkey,
     std::collections::BTreeSet,
 };
@@ -53,6 +53,26 @@ const DELEGATE_INSTRUCTIONS: [&str; 6] = [
     "update_leverage_order",
 ];
 
+const DUSK_ACCOUNTS: [&str; 10] = [
+    "BorrowPosition",
+    "FutarchyAuthority",
+    "LeverageDelegation",
+    "LeveragePosition",
+    "Market",
+    "ParameterProposal",
+    "ProposalSupport",
+    "ReferralAccrual",
+    "ReferralPartner",
+    "YieldAccount",
+];
+
+const DELEGATE_ACCOUNTS: [&str; 4] = [
+    "LeverageDelegation",
+    "LeverageOrder",
+    "LeveragePosition",
+    "Market",
+];
+
 fn decoder() -> PinnedIdlDecoder {
     PinnedIdlDecoder::new("surfpool-mainnet-fork").unwrap()
 }
@@ -66,6 +86,20 @@ fn context() -> TransactionObservationContext {
         commitment: Commitment::Confirmed,
         observed_at_unix_ms: 1_754_953_200_000,
         source: "fixture".to_owned(),
+    }
+}
+
+fn account_context() -> AccountObservationContext {
+    AccountObservationContext {
+        account_pubkey: Pubkey::new_from_array([9; 32]).to_string(),
+        transaction_signature: Some("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQhP4uG7XK5uY".to_owned()),
+        write_version: Some(3),
+        slot: 43,
+        blockhash: "9xQeWvG816bUx9EPfEZ8hYTTwYHHQ7QgjbLm9bRfL3J".to_owned(),
+        parent_slot: Some(42),
+        commitment: Commitment::Confirmed,
+        observed_at_unix_ms: 1_754_953_200_001,
+        source: "account-fixture".to_owned(),
     }
 }
 
@@ -176,6 +210,18 @@ fn event_data(decoder: &PinnedIdlDecoder, name: &str) -> Vec<u8> {
     data
 }
 
+fn account_data(decoder: &PinnedIdlDecoder, program: PinnedProgram, name: &str) -> Vec<u8> {
+    let registry = decoder.registry(program);
+    let (discriminator, descriptor) = registry
+        .accounts
+        .iter()
+        .find(|(_, descriptor)| descriptor.name == name)
+        .unwrap();
+    let mut data = discriminator.to_vec();
+    data.extend_from_slice(&zero_named_type(&registry.types, &descriptor.name));
+    data
+}
+
 #[test]
 fn registry_classifies_every_pinned_event_and_instruction() {
     let decoder = decoder();
@@ -185,11 +231,9 @@ fn registry_classifies_every_pinned_event_and_instruction() {
         .collect();
     let expected_events: BTreeSet<_> = DUSK_EVENTS.into_iter().collect();
     assert_eq!(actual_events, expected_events);
-    assert!(
-        decoder
-            .event_names(PinnedProgram::LeverageDelegate)
-            .is_empty()
-    );
+    assert!(decoder
+        .event_names(PinnedProgram::LeverageDelegate)
+        .is_empty());
     assert_eq!(decoder.instruction_names(PinnedProgram::Dusk).len(), 53);
     let actual_delegate: BTreeSet<_> = decoder
         .instruction_names(PinnedProgram::LeverageDelegate)
@@ -336,13 +380,11 @@ fn event_cpi_unknown_missing_and_malformed_envelopes_remain_persistable() {
         .decode_event_cpi_instruction(&context(), DUSK_PROGRAM_ID, vec![2, 2], 0, &malformed)
         .unwrap();
     assert_eq!(decoded.status, EventDecodeStatus::MalformedKnownPayload);
-    assert!(
-        decoded
-            .decode_error
-            .as_deref()
-            .unwrap()
-            .contains("truncated")
-    );
+    assert!(decoded
+        .decode_error
+        .as_deref()
+        .unwrap()
+        .contains("truncated"));
     assert_eq!(decoded.raw_envelope, malformed);
 }
 
@@ -355,13 +397,11 @@ fn trailing_known_payload_bytes_are_rejected_without_losing_raw_data() {
         .decode_event_cpi_instruction(&context(), DUSK_PROGRAM_ID, vec![7, 0], 0, &data)
         .unwrap();
     assert_eq!(decoded.status, EventDecodeStatus::MalformedKnownPayload);
-    assert!(
-        decoded
-            .decode_error
-            .as_deref()
-            .unwrap()
-            .contains("trailing bytes")
-    );
+    assert!(decoded
+        .decode_error
+        .as_deref()
+        .unwrap()
+        .contains("trailing bytes"));
     assert_eq!(decoded.raw_envelope, data);
 }
 
@@ -511,12 +551,256 @@ fn instruction_envelopes_distinguish_event_cpi_unknown_and_short_data() {
         malformed.instruction_name.as_deref(),
         Some("add_leverage_margin")
     );
-    assert!(
-        malformed
-            .decode_error
-            .as_deref()
-            .unwrap()
-            .contains("truncated")
-    );
+    assert!(malformed
+        .decode_error
+        .as_deref()
+        .unwrap()
+        .contains("truncated"));
     assert_eq!(malformed.raw_instruction, known_discriminator);
+}
+
+#[test]
+fn registry_classifies_all_10_dusk_and_four_delegate_account_declarations() {
+    let decoder = decoder();
+    let dusk: BTreeSet<_> = decoder
+        .account_names(PinnedProgram::Dusk)
+        .into_iter()
+        .collect();
+    let delegate: BTreeSet<_> = decoder
+        .account_names(PinnedProgram::LeverageDelegate)
+        .into_iter()
+        .collect();
+    assert_eq!(dusk, DUSK_ACCOUNTS.into_iter().collect());
+    assert_eq!(delegate, DELEGATE_ACCOUNTS.into_iter().collect());
+    assert_eq!(decoder.dusk.accounts.len(), 10);
+    assert_eq!(decoder.delegate.accounts.len(), 4);
+
+    let mut idl: Value = serde_json::from_slice(DUSK_IDL).unwrap();
+    idl["accounts"][0]["discriminator"][0] = json!(0);
+    let tampered = serde_json::to_vec(&idl).unwrap();
+    assert!(matches!(
+        ProgramRegistry::from_bytes(&tampered, DUSK_PROGRAM_ID),
+        Err(DecoderError::InvalidIdl(message)) if message.contains("account") && message.contains("discriminator")
+    ));
+}
+
+#[test]
+fn all_14_pinned_account_declarations_decode_and_project_deterministically() {
+    let decoder = decoder();
+    for (program, names) in [
+        (PinnedProgram::Dusk, DUSK_ACCOUNTS.as_slice()),
+        (
+            PinnedProgram::LeverageDelegate,
+            DELEGATE_ACCOUNTS.as_slice(),
+        ),
+    ] {
+        for name in names {
+            let data = account_data(&decoder, program, name);
+            let decoded = decoder
+                .decode_account(&account_context(), program.program_id(), &data)
+                .unwrap();
+            assert_eq!(decoded.status, AccountDecodeStatus::Decoded, "{name}");
+            assert_eq!(decoded.account_name.as_deref(), Some(*name));
+            assert!(decoded.decoded_fields.is_some(), "{name}");
+            assert!(decoded.projection_error.is_none(), "{name}");
+            assert_eq!(decoded.raw_account, data, "{name}");
+            assert_eq!(decoded.allocation_padding_bytes, 0, "{name}");
+            assert_eq!(
+                decoded.freshness.identity.program_id,
+                program.program_id(),
+                "{name}"
+            );
+            decoded.freshness.validate().unwrap();
+            let expected_scope =
+                if program == PinnedProgram::LeverageDelegate && *name != "LeverageOrder" {
+                    AccountLayoutScope::ReferencedExternalLayout
+                } else {
+                    AccountLayoutScope::ExpectedProgramOwned
+                };
+            assert_eq!(decoded.layout_scope, Some(expected_scope), "{name}");
+            if expected_scope == AccountLayoutScope::ReferencedExternalLayout {
+                assert_eq!(decoded.projections, AccountProjections::default(), "{name}");
+            }
+        }
+    }
+}
+
+#[test]
+fn shared_account_discriminators_never_override_runtime_owner_identity() {
+    let decoder = decoder();
+    let dusk_data = account_data(&decoder, PinnedProgram::Dusk, "Market");
+    let delegate_data = account_data(&decoder, PinnedProgram::LeverageDelegate, "Market");
+    assert_eq!(dusk_data, delegate_data);
+
+    let dusk = decoder
+        .decode_account(&account_context(), DUSK_PROGRAM_ID, &dusk_data)
+        .unwrap();
+    let delegate = decoder
+        .decode_account(
+            &account_context(),
+            LEVERAGE_DELEGATE_PROGRAM_ID,
+            &delegate_data,
+        )
+        .unwrap();
+    assert_eq!(dusk.account_name.as_deref(), Some("Market"));
+    assert_eq!(delegate.account_name.as_deref(), Some("Market"));
+    assert_eq!(dusk.freshness.data_hash, delegate.freshness.data_hash);
+    assert_ne!(
+        dusk.freshness.identity.program_id,
+        delegate.freshness.identity.program_id
+    );
+    assert_ne!(
+        dusk.freshness.identity.idl_hash,
+        delegate.freshness.identity.idl_hash
+    );
+}
+
+#[test]
+fn account_allocation_padding_is_explicit_and_nonzero_trailing_data_is_malformed() {
+    let decoder = decoder();
+    let mut padded = account_data(&decoder, PinnedProgram::Dusk, "Market");
+    padded.extend_from_slice(&[0; 32]);
+    let decoded = decoder
+        .decode_account(&account_context(), DUSK_PROGRAM_ID, &padded)
+        .unwrap();
+    assert_eq!(decoded.status, AccountDecodeStatus::Decoded);
+    assert_eq!(decoded.allocation_padding_bytes, 32);
+    assert_eq!(decoded.raw_account, padded);
+
+    let mut ambiguous = account_data(&decoder, PinnedProgram::Dusk, "Market");
+    ambiguous.extend_from_slice(&[0, 0, 7]);
+    let decoded = decoder
+        .decode_account(&account_context(), DUSK_PROGRAM_ID, &ambiguous)
+        .unwrap();
+    assert_eq!(decoded.status, AccountDecodeStatus::MalformedKnownPayload);
+    assert!(decoded
+        .decode_error
+        .as_deref()
+        .unwrap()
+        .contains("non-zero trailing byte"));
+    assert_eq!(decoded.raw_account, ambiguous);
+}
+
+#[test]
+fn unknown_missing_and_truncated_accounts_preserve_raw_data_and_freshness() {
+    let decoder = decoder();
+    let mut unknown = vec![255; 8];
+    unknown.extend_from_slice(&[4, 5, 6]);
+    let decoded = decoder
+        .decode_account(&account_context(), DUSK_PROGRAM_ID, &unknown)
+        .unwrap();
+    assert_eq!(decoded.status, AccountDecodeStatus::UnknownDiscriminator);
+    assert_eq!(decoded.raw_account, unknown);
+    assert_eq!(decoded.payload, vec![4, 5, 6]);
+    decoded.freshness.validate().unwrap();
+
+    let short = vec![1, 2, 3];
+    let decoded = decoder
+        .decode_account(&account_context(), DUSK_PROGRAM_ID, &short)
+        .unwrap();
+    assert_eq!(decoded.status, AccountDecodeStatus::MissingDiscriminator);
+    assert_eq!(decoded.raw_account, short);
+
+    let known = account_data(&decoder, PinnedProgram::Dusk, "BorrowPosition");
+    let truncated = known[..12].to_vec();
+    let decoded = decoder
+        .decode_account(&account_context(), DUSK_PROGRAM_ID, &truncated)
+        .unwrap();
+    assert_eq!(decoded.status, AccountDecodeStatus::MalformedKnownPayload);
+    assert_eq!(decoded.account_name.as_deref(), Some("BorrowPosition"));
+    assert_eq!(decoded.raw_account, truncated);
+    assert!(decoded
+        .decode_error
+        .as_deref()
+        .unwrap()
+        .contains("truncated"));
+}
+
+#[test]
+fn market_and_keeper_projections_cover_curve_and_all_protocol_auction_lanes() {
+    let decoder = decoder();
+    let data = account_data(&decoder, PinnedProgram::Dusk, "Market");
+    let decoded = decoder
+        .decode_account(&account_context(), DUSK_PROGRAM_ID, &data)
+        .unwrap();
+    let market = decoded.projections.market.as_ref().unwrap();
+    assert_eq!(market.amm_kind, AmmKind::ConstantProduct);
+    assert_eq!(market.auction_lanes.len(), 8);
+    assert_eq!(decoded.projections.keeper_discovery.len(), 8);
+    assert_eq!(market.base.live_reserve.as_str(), "0");
+    assert_eq!(market.params_hash_hex, format!("0x{}", "00".repeat(32)));
+
+    let mut fields = decoded.decoded_fields.unwrap();
+    fields["config"]["amm"]["peak_depth_nad"] = json!("1");
+    let concentrated = projections::build_product_projections(
+        "Market",
+        &account_context().account_pubkey,
+        &fields,
+    )
+    .unwrap();
+    let market = concentrated.market.unwrap();
+    assert_eq!(market.amm_kind, AmmKind::ConstantProduct);
+    assert_eq!(market.configured_amm_kind, AmmKind::Concentrated);
+
+    fields["amm"]["applied_curve_parameters"]["peak_depth_nad"] = json!("1");
+    let concentrated = projections::build_product_projections(
+        "Market",
+        &account_context().account_pubkey,
+        &fields,
+    )
+    .unwrap();
+    assert_eq!(concentrated.market.unwrap().amm_kind, AmmKind::Concentrated);
+}
+
+#[test]
+fn portfolio_and_keeper_projection_values_remain_lossless_and_semantically_bounded() {
+    let decoder = decoder();
+    let data = account_data(&decoder, PinnedProgram::Dusk, "BorrowPosition");
+    let decoded = decoder
+        .decode_account(&account_context(), DUSK_PROGRAM_ID, &data)
+        .unwrap();
+    let mut fields = decoded.decoded_fields.unwrap();
+    fields["fixed_base_shares"] = json!(u128::MAX.to_string());
+    fields["auction_debt_asset"] = json!("9");
+    let projected = projections::build_product_projections(
+        "BorrowPosition",
+        &account_context().account_pubkey,
+        &fields,
+    )
+    .unwrap();
+    let PortfolioProjection::BorrowPosition(portfolio) = projected.portfolio.unwrap() else {
+        panic!("expected borrow portfolio projection");
+    };
+    assert_eq!(portfolio.fixed_base_shares.as_str(), u128::MAX.to_string());
+    let KeeperDiscoveryProjection::BorrowLiquidation(keeper) = &projected.keeper_discovery[0]
+    else {
+        panic!("expected borrow liquidation discovery projection");
+    };
+    assert_eq!(keeper.auction_debt_asset, AssetSide::Unknown(9));
+}
+
+#[test]
+fn account_context_rejects_identity_and_freshness_ambiguity() {
+    let decoder = decoder();
+    let data = account_data(&decoder, PinnedProgram::Dusk, "YieldAccount");
+    let mut invalid = account_context();
+    invalid.account_pubkey = "not-a-pubkey".to_owned();
+    assert!(matches!(
+        decoder.decode_account(&invalid, DUSK_PROGRAM_ID, &data),
+        Err(DecoderError::InvalidAccountContext(_))
+    ));
+    let mut invalid = account_context();
+    invalid.source.clear();
+    assert!(matches!(
+        decoder.decode_account(&invalid, DUSK_PROGRAM_ID, &data),
+        Err(DecoderError::InvalidAccountContext(_))
+    ));
+    assert!(matches!(
+        decoder.decode_account(
+            &account_context(),
+            "11111111111111111111111111111111",
+            &data
+        ),
+        Err(DecoderError::UnpinnedProgram(_))
+    ));
 }
