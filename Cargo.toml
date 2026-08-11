@@ -4,6 +4,7 @@ members = [
     "indexer/crates/macros",
     "indexer/crates/proc-macros",
     "indexer/crates/test-utils",
+    "indexer/crates/dusk-ingestion",
     "indexer/metrics/*",
     "indexer/datasources/*",
     "indexer/decoders/*",
@@ -74,6 +75,7 @@ solana-message = "~2.2"
 solana-program = "~2.2"
 solana-pubkey = { version = "~2.2", features = ["serde", "borsh", "curve25519"] }
 solana-signature = { version = "~2.2", features = ["rand"] }
+solana-sha256-hasher = "~2.2"
 solana-transaction = "~2.2"
 solana-transaction-context = "~2.2"
 solana-transaction-status = "~2.2"

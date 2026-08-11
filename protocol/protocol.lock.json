@@ -1,0 +1,42 @@
+{
+  "$schema": "./protocol/schemas/protocol-lock.schema.json",
+  "schemaVersion": 1,
+  "revision": "local-snapshot-0",
+  "status": "captured",
+  "generatedAt": "2026-08-11T17:20:53Z",
+  "source": {
+    "repository": "https://github.com/omnipair/dusk",
+    "branch": "feat/optimizations",
+    "gitCommit": "5d01a82272a79ee43c64eb6719ac9abfcdd8c2ea",
+    "worktreeFingerprintSha256": "d87e5189c0da4fe823a1504243aea31eefa66f380b62370b27b591a4b4e780fd"
+  },
+  "toolchain": {
+    "anchor": "0.31.1",
+    "rust": "1.97.1",
+    "solana": "4.1.0-rc.1",
+    "surfpool": "1.2.0",
+    "node": "24.9.0"
+  },
+  "programs": [
+    {
+      "name": "dusk",
+      "programId": "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv",
+      "binary": { "path": "artifacts/dusk.so", "sha256": "48d39d5726e27d6cbb5bbaa3dd26e7d7ec914849bc9b36c7f364f95b943a31d1" },
+      "idl": { "path": "artifacts/dusk.json", "sha256": "5e67579b6dbec5620a5578844cd56c44458a3167095d8db2e85fd76643d5473f" }
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "EPGF9iFrbGnhWgC3To9rC9vxinEYuDHaz4RXgLPvuRkp",
+      "binary": { "path": "artifacts/leverage_delegate.so", "sha256": "763942b752424248cbbdea5b704354eaf0f875564b0b67ed8df8dc3728432f92" },
+      "idl": { "path": "artifacts/leverage_delegate.json", "sha256": "948b9475071daa318cbc9f0e3cc2f8d150191a4ec3dc54e63a661ea489cc5f4a" }
+    }
+  ],
+  "sdk": { "path": "artifacts/dusk-sdk.tgz", "sha256": "67180063bfb2ce6f3c1c47df42732f3fc92d6426be0692a87b203f18322458b1" },
+  "compatibility": {
+    "accountLayoutFingerprintSha256": "2f91ab01643fec77707e2c98f646b5f9f295c81ea686dd671147f60048a24e7c",
+    "instructionFingerprintSha256": "b8984b5b276843b347fcafcdeaa34686e12179f2473719e80f7d697bf2ce5579",
+    "eventFingerprintSha256": "2aa5a08fe6cf597a0b5de184b9f37661ba8b4bc477e7a2a05620f8f0632a2038",
+    "errorFingerprintSha256": "70e7c5e33d917eaa9fb4cd193d8b2b6d10cdd43737ea98b46abdc8e9a8978b63",
+    "pdaFingerprintSha256": "f98c2a184bcc7047c14100306d2eae8f93746ac008ff83b90ee8d8d52c133c82"
+  }
+}
