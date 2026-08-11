@@ -3,6 +3,8 @@
 //! This crate intentionally has no dependency on the legacy Omnipair decoder
 //! or its `Pair`/`UserPosition` database model.
 
+pub mod decoder;
+
 use {
     serde::{Deserialize, Serialize},
     solana_pubkey::Pubkey,
@@ -91,6 +93,15 @@ impl ProtocolIdentity {
 
     pub fn vendored_dusk(cluster: impl Into<String>) -> Result<Self, FoundationError> {
         Self::new(cluster, DUSK_PROGRAM_ID, DUSK_IDL_SHA256, PROTOCOL_REVISION)
+    }
+
+    pub fn vendored_leverage_delegate(cluster: impl Into<String>) -> Result<Self, FoundationError> {
+        Self::new(
+            cluster,
+            LEVERAGE_DELEGATE_PROGRAM_ID,
+            LEVERAGE_DELEGATE_IDL_SHA256,
+            PROTOCOL_REVISION,
+        )
     }
 
     pub fn validate(&self) -> Result<(), FoundationError> {
@@ -251,6 +262,11 @@ impl EventObservation {
         if !is_sha256(&self.payload_hash) {
             return Err(FoundationError::InvalidEventKey(
                 "payload hash is not a lowercase SHA-256 value".into(),
+            ));
+        }
+        if self.source.is_empty() {
+            return Err(FoundationError::InvalidEventKey(
+                "observation source must not be empty".into(),
             ));
         }
         Ok(())
@@ -422,7 +438,7 @@ fn verify_bytes(name: &str, bytes: &[u8], expected: &str) -> Result<(), Foundati
     Ok(())
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     let bytes = solana_sha256_hasher::hash(bytes).to_bytes();
     let mut encoded = String::with_capacity(64);
     for byte in bytes {
