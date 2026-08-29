@@ -1,0 +1,37 @@
+# Dusk read API.
+#
+# The same Express app as the v1 data API; the Dusk routes it adds serve the
+# dusk_ingestion tables the daemon fills, plus the deployment envelope built
+# from the vendored protocol/ pin. Both are needed at runtime, so protocol/
+# ships in the image and DUSK_PROTOCOL_DIR points at it.
+
+FROM node:20-bookworm-slim AS builder
+
+WORKDIR /app/api
+COPY api/package.json api/package-lock.json ./
+RUN npm ci
+
+COPY api/tsconfig.json ./
+COPY api/src ./src
+RUN npx tsc
+
+FROM node:20-bookworm-slim
+
+RUN apt-get update && apt-get install -y \
+  ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app/api
+COPY api/package.json api/package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+COPY --from=builder /app/api/dist ./dist
+COPY api/public ./public
+# The pinned identity the envelope attests to; read at runtime, not compiled.
+COPY protocol /app/protocol
+
+ENV NODE_ENV=production
+ENV DUSK_PROTOCOL_DIR=/app/protocol
+
+EXPOSE 3000
+CMD ["node", "dist/index.js"]

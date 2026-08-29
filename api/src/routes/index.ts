@@ -6,8 +6,14 @@ import statsRoutes from './v1/statsRoutes';
 import coingeckoRoutes from './v1/coingeckoRoutes';
 import cmcApiRoutes from './v1/cmcApiRoutes';
 import geckoTerminalRoutes from './v1/geckoTerminalRoutes';
+import duskRoutes, { forkCompatRouter } from './v1/duskRoutes';
 
 const router = Router();
+
+// Dusk (v2 protocol) reads the dusk_ingestion tables; the v1 routes below
+// serve the original Omnipair schema and are untouched by it.
+router.use('/api/dusk/v1', duskRoutes);
+router.use('/api/v2/fork', forkCompatRouter);
 
 router.use('/api/v1/cmc', cmcApiRoutes);
 router.use('/api/v1/pools', poolsRoutes);
