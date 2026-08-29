@@ -10,26 +10,44 @@ import duskRoutes, { forkCompatRouter } from './v1/duskRoutes';
 
 const router = Router();
 
-// Dusk (v2 protocol) reads the dusk_ingestion tables; the v1 routes below
-// serve the original Omnipair schema and are untouched by it.
-router.use('/api/dusk/v1', duskRoutes);
-router.use('/api/v2/fork', forkCompatRouter);
+/**
+ * The v1 routes read the original Omnipair schema; the Dusk routes read
+ * `dusk_ingestion`. A deployment usually has one of those schemas, not both —
+ * the Dusk devnet database has no v1 tables at all, and mounting v1 there
+ * advertises endpoints that can only ever answer "Failed to fetch". Each
+ * family is mounted only where its schema exists.
+ */
+const V1_ENABLED = process.env.ENABLE_V1_ROUTES !== 'false';
+const DUSK_ENABLED = process.env.ENABLE_DUSK_ROUTES !== 'false';
 
-router.use('/api/v1/cmc', cmcApiRoutes);
-router.use('/api/v1/pools', poolsRoutes);
-router.use('/api/v1/users', usersRoutes);
-router.use('/api/v1/positions', positionsRoutes);
-router.use('/api/v1/stats', statsRoutes);
-router.use('/api/v1/coingecko', coingeckoRoutes);
-router.use('/api/v1/gecko', geckoTerminalRoutes);
+if (DUSK_ENABLED) {
+  router.use('/api/dusk/v1', duskRoutes);
+  router.use('/api/v2/fork', forkCompatRouter);
+}
+
+if (V1_ENABLED) {
+  router.use('/api/v1/cmc', cmcApiRoutes);
+  router.use('/api/v1/pools', poolsRoutes);
+  router.use('/api/v1/users', usersRoutes);
+  router.use('/api/v1/positions', positionsRoutes);
+  router.use('/api/v1/stats', statsRoutes);
+  router.use('/api/v1/coingecko', coingeckoRoutes);
+  router.use('/api/v1/gecko', geckoTerminalRoutes);
+}
+
+const DUSK_ENDPOINTS = {
+  deployment: 'GET /api/dusk/v1/deployment',
+  markets: 'GET /api/dusk/v1/markets?limit=100&offset=0',
+  'market-detail': 'GET /api/dusk/v1/markets/{market}',
+  'market-events':
+    'GET /api/dusk/v1/markets/{market}/events?events=SwapExecuted&since=ISO&until=ISO&limit=100&offset=0',
+  activity: 'GET /api/dusk/v1/events?market=ADDR&events=Name1,Name2&limit=100',
+  health: 'GET /api/dusk/v1/health',
+  'fork-config-alias': 'GET /api/v2/fork/config'
+};
 
 router.get('/', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Omnipair Data API',
-    version: '1.0.0',
-    baseUrl: '/api/v1',
-    endpoints: {
+  const v1 = {
       pools: {
         'list-pools': 'GET /api/v1/pools?token0=ADDR&token1=ADDR&limit=100&offset=0&sortBy=tvl&sortOrder=desc',
         'pool-tvl': 'GET /api/v1/pools/tvl',
@@ -87,8 +105,9 @@ router.get('/', (req, res) => {
         pair: 'GET /api/v1/gecko/pair?id=<pair_address>',
         events: 'GET /api/v1/gecko/events?fromBlock=<slot>&toBlock=<slot> (inclusive; max 50000 slots)'
       }
-    },
-    parameters: {
+  };
+
+  const parameters = {
       poolAddress: 'Required - The address of the trading pool',
       tokenAddress: 'Required - The address of a token mint',
       token0: 'Optional - The address of the first token (query param)',
@@ -113,13 +132,27 @@ router.get('/', (req, res) => {
       id: 'Required for Gecko asset/pair endpoints - Token mint or pair address',
       fromBlock: 'Required for Gecko events - Start slot',
       toBlock: 'Required for Gecko events - End slot'
-    },
-    notes: {
+  };
+
+  const notes = {
       'chart-intervals': 'Chart automatically selects intervals: ≤24hrs=1min, ≤168hrs=1hr, >168hrs=1day',
       'caching': 'Responses are cached per pool to improve performance',
       'pagination': 'Most endpoints support pagination with limit and offset parameters',
       'pool-fields': 'Pool endpoints return swap_fee_bps (swap fee in basis points) and fixed_cf_bps (fixed collateral factor in basis points)'
-    }
+  };
+
+  // Only advertise what is mounted; a listed endpoint that cannot answer is
+  // worse than an absent one.
+  res.json({
+    success: true,
+    message: V1_ENABLED ? 'Omnipair Data API' : 'Dusk Data API',
+    version: '1.0.0',
+    baseUrl: V1_ENABLED ? '/api/v1' : '/api/dusk/v1',
+    endpoints: {
+      ...(DUSK_ENABLED ? { dusk: DUSK_ENDPOINTS } : {}),
+      ...(V1_ENABLED ? v1 : {})
+    },
+    ...(V1_ENABLED ? { parameters, notes } : {})
   });
 });
 
