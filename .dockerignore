@@ -48,6 +48,7 @@ database/
 # Exceptions must follow the directory rule: the last matching rule wins.
 !database/migrations/018_dusk_ingestion_foundation.sql
 !database/migrations/019_dusk_event_stream.sql
+!database/migrations/020_dusk_v1_compatibility.sql
 
 # Other language artifacts
 *.pyc

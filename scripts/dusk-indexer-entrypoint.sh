@@ -30,4 +30,9 @@ fi
 echo "applying 019_dusk_event_stream.sql"
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /app/migrations/019_dusk_event_stream.sql
 
+# The v1 compatibility views. Re-runnable, and a no-op where the real
+# Omnipair v1 tables exist.
+echo "applying 020_dusk_v1_compatibility.sql"
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /app/migrations/020_dusk_v1_compatibility.sql
+
 exec dusk-indexer-daemon
