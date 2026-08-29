@@ -5,7 +5,10 @@
 # pinned protocol artifacts under protocol/ are compiled into the binary and
 # byte-verified at startup — a build from the wrong revision refuses to run.
 
-FROM rustlang/rust:nightly-bookworm AS builder
+# Pinned to the nightly the workspace is proven on: sqlx 0.6 (shared with the
+# legacy indexer) no longer compiles on current nightlies, and an unpinned
+# nightly tag re-rolls the toolchain on every build.
+FROM rustlang/rust:nightly-2025-09-28-bookworm AS builder
 
 RUN apt-get update && apt-get install -y \
   build-essential \
