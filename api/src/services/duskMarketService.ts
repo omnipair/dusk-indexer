@@ -22,6 +22,7 @@ import {
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
+import pool from '../config/database';
 import {
   DUSK_DEPLOYMENT_COMMITMENT,
   duskApiConfig,
@@ -314,6 +315,16 @@ async function associatedAddresses(
     throw new Error(`market ${market.toBase58()} references a missing mint`);
   }
 
+  const baseDecimals = numberValue(field(baseSide, 'assetDecimals', 'asset_decimals'));
+  const quoteDecimals = numberValue(field(quoteSide, 'assetDecimals', 'asset_decimals'));
+  // Decimals are needed to turn raw reserves into value, and the mint accounts
+  // are the only place they live. This is the one point where the API already
+  // has them, so it records them for the valuation views.
+  void recordTokenMetadata([
+    { mint: baseMint.toBase58(), decimals: baseDecimals, tokenProgram: baseMintInfo.owner.toBase58() },
+    { mint: quoteMint.toBase58(), decimals: quoteDecimals, tokenProgram: quoteMintInfo.owner.toBase58() },
+  ]);
+
   const marketBytes = market.toBuffer();
   const seed = (text: string) => Buffer.from(text, 'utf8');
   const hlpYlpVault = (hlpMint: string) =>
@@ -330,8 +341,8 @@ async function associatedAddresses(
   return {
     baseMint: baseMint.toBase58(),
     quoteMint: quoteMint.toBase58(),
-    baseDecimals: numberValue(field(baseSide, 'assetDecimals', 'asset_decimals')),
-    quoteDecimals: numberValue(field(quoteSide, 'assetDecimals', 'asset_decimals')),
+    baseDecimals,
+    quoteDecimals,
     baseTokenProgram: baseMintInfo.owner.toBase58(),
     quoteTokenProgram: quoteMintInfo.owner.toBase58(),
     ylpMint,
@@ -542,6 +553,35 @@ export async function marketPayload(
       observedAt: iso(sourceBlockTime),
     },
   };
+}
+
+/**
+ * Persist mint decimals for the valuation views. Best effort on purpose: a
+ * market read must not fail because a bookkeeping write did, and the views
+ * degrade to no prices rather than wrong ones when a mint is missing.
+ */
+async function recordTokenMetadata(
+  tokens: { mint: string; decimals: number; tokenProgram: string }[],
+): Promise<void> {
+  try {
+    for (const token of tokens) {
+      if (!Number.isInteger(token.decimals) || token.decimals < 0) continue;
+      await pool.query(
+        `INSERT INTO dusk_ingestion.token_metadata (mint, decimals, token_program)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (mint) DO UPDATE
+           SET decimals = EXCLUDED.decimals,
+               token_program = EXCLUDED.token_program,
+               updated_at = now()`,
+        [token.mint, token.decimals, token.tokenProgram],
+      );
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/does not exist/i.test(message)) {
+      console.warn(`Recording token metadata failed: ${message}`);
+    }
+  }
 }
 
 export interface DiscoveredMarket {

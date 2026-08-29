@@ -38,6 +38,7 @@ COPY --from=builder /app/target/release/dusk-indexer-daemon /usr/local/bin/dusk-
 COPY database/migrations/018_dusk_ingestion_foundation.sql /app/migrations/018_dusk_ingestion_foundation.sql
 COPY database/migrations/019_dusk_event_stream.sql /app/migrations/019_dusk_event_stream.sql
 COPY database/migrations/020_dusk_v1_compatibility.sql /app/migrations/020_dusk_v1_compatibility.sql
+COPY database/migrations/021_dusk_valuation_and_positions.sql /app/migrations/021_dusk_valuation_and_positions.sql
 COPY scripts/dusk-indexer-entrypoint.sh /usr/local/bin/dusk-indexer-entrypoint.sh
 RUN chmod +x /usr/local/bin/dusk-indexer-entrypoint.sh
 
