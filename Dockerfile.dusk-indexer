@@ -6,9 +6,13 @@
 # byte-verified at startup — a build from the wrong revision refuses to run.
 
 # Pinned to the nightly the workspace is proven on: sqlx 0.6 (shared with the
-# legacy indexer) no longer compiles on current nightlies, and an unpinned
-# nightly tag re-rolls the toolchain on every build.
-FROM rustlang/rust:nightly-2025-09-28-bookworm AS builder
+# legacy indexer) no longer compiles on current nightlies. The image tag stays
+# floating because Docker Hub only publishes some dated tags; the toolchain is
+# pinned through rustup instead, and RUSTUP_TOOLCHAIN outranks the repo's
+# rust-toolchain.toml (whose channel is an unpinned "nightly").
+FROM rustlang/rust:nightly-bookworm AS builder
+RUN rustup toolchain install nightly-2025-09-28 --profile minimal
+ENV RUSTUP_TOOLCHAIN=nightly-2025-09-28
 
 RUN apt-get update && apt-get install -y \
   build-essential \
