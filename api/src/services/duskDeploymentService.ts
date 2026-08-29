@@ -63,6 +63,18 @@ export interface DuskDeploymentEnvelope {
 
 const API_STARTED_AT = new Date().toISOString();
 
+/** A cluster's genesis hash never changes; read it once per process. */
+let genesisHashPromise: Promise<string> | undefined;
+function cachedGenesisHash(rpc: Connection): Promise<string> {
+  if (!genesisHashPromise) {
+    genesisHashPromise = rpc.getGenesisHash().catch((error) => {
+      genesisHashPromise = undefined;
+      throw error;
+    });
+  }
+  return genesisHashPromise;
+}
+
 let connection: Connection | undefined;
 let config: DuskApiConfig | undefined;
 
@@ -270,7 +282,7 @@ async function buildEnvelope(): Promise<DuskDeploymentEnvelope> {
   const { connection: rpc, config: apiConfig } = runtime();
 
   const [genesisHash, slot] = await Promise.all([
-    rpc.getGenesisHash(),
+    cachedGenesisHash(rpc),
     rpc.getSlot(DUSK_DEPLOYMENT_COMMITMENT),
   ]);
   if (genesisHash !== pinned.genesisHash) {
@@ -330,9 +342,22 @@ async function buildEnvelope(): Promise<DuskDeploymentEnvelope> {
 let cached: { value: DuskDeploymentEnvelope; observedAtMs: number } | undefined;
 let inflight: Promise<DuskDeploymentEnvelope> | undefined;
 
-export async function deploymentEnvelope(): Promise<DuskDeploymentEnvelope> {
+/**
+ * @param minimumSourceSlot The envelope must be at least this fresh. A payload
+ * read at slot N cannot be stamped with an envelope observed before N — the
+ * client rejects that as a source-slot mismatch, correctly, since the identity
+ * would not yet have covered the data. A cached envelope below the floor is
+ * rebuilt rather than returned.
+ */
+export async function deploymentEnvelope(
+  minimumSourceSlot = 0,
+): Promise<DuskDeploymentEnvelope> {
   const { config: apiConfig } = runtime();
-  if (cached && Date.now() - cached.observedAtMs < apiConfig.envelopeCacheTtlMs) {
+  if (
+    cached &&
+    Date.now() - cached.observedAtMs < apiConfig.envelopeCacheTtlMs &&
+    cached.value.sourceSlot >= minimumSourceSlot
+  ) {
     return cached.value;
   }
   // Collapse concurrent refreshes; a cold start under load would otherwise
@@ -347,12 +372,30 @@ export async function deploymentEnvelope(): Promise<DuskDeploymentEnvelope> {
         inflight = undefined;
       });
   }
-  return inflight;
+  const envelope = await inflight;
+  if (envelope.sourceSlot >= minimumSourceSlot) return envelope;
+
+  // A lagging RPC node can answer below the floor. One rebuild is enough in
+  // practice; failing loudly beats stamping data with an envelope that did
+  // not observe it.
+  const rebuilt = await buildEnvelope();
+  cached = { value: rebuilt, observedAtMs: Date.now() };
+  if (rebuilt.sourceSlot < minimumSourceSlot) {
+    throw new Error(
+      `deployment envelope observed slot ${rebuilt.sourceSlot} but the response needs at least ${minimumSourceSlot}`,
+    );
+  }
+  return rebuilt;
 }
 
 /** Wrap a payload in the identity envelope every Dusk client validates. */
 export async function withDeployment<T>(
   data: T,
+  minimumSourceSlot = 0,
 ): Promise<{ success: true; data: T; deployment: DuskDeploymentEnvelope }> {
-  return { success: true, data, deployment: await deploymentEnvelope() };
+  return {
+    success: true,
+    data,
+    deployment: await deploymentEnvelope(minimumSourceSlot),
+  };
 }

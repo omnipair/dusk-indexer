@@ -13,6 +13,11 @@ import {
   withDeployment,
 } from '../../services/duskDeploymentService';
 import {
+  discoverMarkets,
+  fetchMarket,
+  marketPayload,
+} from '../../services/duskMarketService';
+import {
   boundedLimit,
   boundedOffset,
   ingestionHealth,
@@ -21,7 +26,110 @@ import {
   marketDetail,
 } from '../../services/duskReadModel';
 
+import { PublicKey } from '@solana/web3.js';
+
 const router = Router();
+
+/**
+ * The deployment's market surface, as the read boundary expects it: the
+ * configuration describes the primary market and lists every market, and the
+ * list endpoint returns all of them in one page.
+ */
+async function deploymentPayload() {
+  const pinned = loadPinnedProtocol();
+  const config = duskApiConfig();
+  const { markets, sourceSlot } = await discoverMarkets();
+  const projected = await Promise.all(
+    markets.map((market) =>
+      marketPayload(market.address, market.account, sourceSlot),
+    ),
+  );
+  const primary = projected[0];
+
+  const observedSlot = projected.reduce((highest, market) => {
+    const state = market.state as Record<string, unknown>;
+    return Math.max(
+      highest,
+      Number(state.sourceSlot ?? 0),
+      Number(state.healthSourceSlot ?? 0),
+    );
+  }, sourceSlot);
+
+  return {
+    projected,
+    sourceSlot: observedSlot,
+    config: {
+      network: config.network,
+      protocolRevision: pinned.revision,
+      rpcUrl: config.rpcUrl,
+      programId: pinned.dusk.programId,
+      leverageDelegateProgramId: pinned.leverageDelegate.programId,
+      payer: (await deploymentEnvelope()).programUpgradeAuthority,
+      fixtureMode: 'mainnet',
+      markets: projected.map((market) => ({
+        label: market.label,
+        market: market.marketAddress,
+        marketKind: market.marketKind,
+        baseMint: market.baseMint,
+        quoteMint: market.quoteMint,
+        paramsHash: market.paramsHash,
+        seededLiquidity: true,
+      })),
+      ...(primary
+        ? {
+            primaryMarket: primary.marketAddress,
+            market: primary.marketAddress,
+            label: primary.label,
+            marketKind: primary.marketKind,
+            baseMint: primary.baseMint,
+            quoteMint: primary.quoteMint,
+            baseDecimals: primary.baseDecimals,
+            quoteDecimals: primary.quoteDecimals,
+            baseTokenProgram: primary.baseTokenProgram,
+            quoteTokenProgram: primary.quoteTokenProgram,
+            ylpMint: primary.ylpMint,
+            baseHlpMint: primary.baseHlpMint,
+            quoteHlpMint: primary.quoteHlpMint,
+            seededLiquidity: true,
+            transferHookValidationAccounts: {
+              ylp: primary.ylpMint,
+              baseHlp: primary.baseHlpMint,
+              quoteHlp: primary.quoteHlpMint,
+            },
+          }
+        : {}),
+      parameterTimelockSeconds: '0',
+      parameterExecutionWindowSeconds: '0',
+    },
+  };
+}
+
+type DeploymentSnapshot = Awaited<ReturnType<typeof deploymentPayload>>;
+let snapshot: { value: DeploymentSnapshot; atMs: number } | undefined;
+let snapshotInflight: Promise<DeploymentSnapshot> | undefined;
+
+function snapshotTtlMs(): number {
+  const raw = process.env.DUSK_MARKET_CACHE_TTL_MS?.trim();
+  const parsed = raw ? Number(raw) : 10_000;
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 10_000;
+}
+
+async function deploymentSnapshot(): Promise<DeploymentSnapshot> {
+  if (snapshot && Date.now() - snapshot.atMs < snapshotTtlMs()) {
+    return snapshot.value;
+  }
+  if (!snapshotInflight) {
+    snapshotInflight = deploymentPayload()
+      .then((value) => {
+        snapshot = { value, atMs: Date.now() };
+        return value;
+      })
+      .finally(() => {
+        snapshotInflight = undefined;
+      });
+  }
+  return snapshotInflight;
+}
 
 function cluster(): string {
   return duskApiConfig().network;
@@ -145,29 +253,58 @@ router.get(
 );
 
 /**
- * Compatibility surface for clients written against the fork lab's
- * `/api/v2/fork/config`. The path names a fork because that is where it came
- * from; the payload is this deployment's identity. New clients should read
+ * The v2 read surface the app's read boundary calls: `/api/v2/fork/config`
+ * for the deployment configuration and `/api/v2/markets` for market state.
+ * The `fork` in that path is a leftover from the lab this contract grew in —
+ * it is served here against a real cluster. New clients should prefer
  * `/api/dusk/v1/deployment`, which is the same envelope under an honest name.
  */
 export const forkCompatRouter = Router();
 
 forkCompatRouter.get(
-  '/config',
+  '/fork/config',
   asyncRoute(async (_req, res) => {
-    const pinned = loadPinnedProtocol();
-    const config = duskApiConfig();
+    const { config, sourceSlot } = await deploymentSnapshot();
+    res.json(await withDeployment(config, sourceSlot));
+  }),
+);
+
+forkCompatRouter.get(
+  '/markets',
+  asyncRoute(async (_req, res) => {
+    const { projected, sourceSlot } = await deploymentSnapshot();
+    // Deliberately unpaginated: the read boundary cross checks this against
+    // the configured market set and treats a partial page as markets missing.
     res.json(
-      await withDeployment({
-        network: config.network,
-        protocolRevision: pinned.revision,
-        rpcUrl: config.rpcUrl,
-        programs: {
-          dusk: pinned.dusk.programId,
-          leverageDelegate: pinned.leverageDelegate.programId,
+      await withDeployment(
+        {
+          markets: projected,
+          pagination: { limit: 100, offset: 0, total: projected.length },
         },
-      }),
+        sourceSlot,
+      ),
     );
+  }),
+);
+
+forkCompatRouter.get(
+  '/markets/:market',
+  asyncRoute(async (req, res) => {
+    let address: PublicKey;
+    try {
+      address = new PublicKey(req.params.market);
+    } catch {
+      res.status(400).json({ success: false, error: 'invalid market address' });
+      return;
+    }
+    const { account, sourceSlot } = await fetchMarket(address);
+    const payload = await marketPayload(address, account, sourceSlot);
+    const state = payload.state as Record<string, unknown>;
+    const observedSlot = Math.max(
+      sourceSlot,
+      Number(state.healthSourceSlot ?? 0),
+    );
+    res.json(await withDeployment(payload, observedSlot));
   }),
 );
 

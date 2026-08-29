@@ -22,7 +22,7 @@ const DUSK_ENABLED = process.env.ENABLE_DUSK_ROUTES !== 'false';
 
 if (DUSK_ENABLED) {
   router.use('/api/dusk/v1', duskRoutes);
-  router.use('/api/v2/fork', forkCompatRouter);
+  router.use('/api/v2', forkCompatRouter);
 }
 
 if (V1_ENABLED) {
