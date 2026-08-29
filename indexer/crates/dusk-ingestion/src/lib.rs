@@ -12,13 +12,13 @@ use {
     thiserror::Error,
 };
 
-pub const PROTOCOL_REVISION: &str = "local-snapshot-0";
-pub const DUSK_PROGRAM_ID: &str = "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv";
+pub const PROTOCOL_REVISION: &str = "devnet-1";
+pub const DUSK_PROGRAM_ID: &str = "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X";
 pub const DUSK_IDL_SHA256: &str =
-    "5e67579b6dbec5620a5578844cd56c44458a3167095d8db2e85fd76643d5473f";
-pub const LEVERAGE_DELEGATE_PROGRAM_ID: &str = "EPGF9iFrbGnhWgC3To9rC9vxinEYuDHaz4RXgLPvuRkp";
+    "7be629ec9f677bbd96324a4463fee336eeb2c9099aa3534138983424a535dfda";
+pub const LEVERAGE_DELEGATE_PROGRAM_ID: &str = "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv";
 pub const LEVERAGE_DELEGATE_IDL_SHA256: &str =
-    "948b9475071daa318cbc9f0e3cc2f8d150191a4ec3dc54e63a661ea489cc5f4a";
+    "d0a5997fba913d78c31f585abb068b7048fe302b35f50e3d5a246680400c7d81";
 
 const DUSK_IDL: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),

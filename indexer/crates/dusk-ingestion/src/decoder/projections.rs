@@ -332,30 +332,33 @@ pub(super) fn build_product_projections(
     }
 }
 
+/// One NAD, the fixed-point unit the program prices amplification in. An
+/// amplification of exactly 1.0 is the constant-product curve — the program
+/// has no separate flag for it — so anything above one NAD is concentrated,
+/// and zero (an uninitialized cache) reads as constant product too.
+const ONE_NAD: u128 = 1_000_000_000;
+
+fn amplification_kind(value: &UnsignedInteger) -> AmmKind {
+    match value.as_str().parse::<u128>() {
+        Ok(amplification) if amplification > ONE_NAD => AmmKind::Concentrated,
+        _ => AmmKind::ConstantProduct,
+    }
+}
+
 fn project_market(account: &str, fields: &Value) -> Result<AccountProjections, String> {
     let base = market_asset(fields, "base_side")?;
     let quote = market_asset(fields, "quote_side")?;
-    let applied_peak = unsigned(
+    // The explicit-curve model replaced peak-depth/fade-scale with a prepared
+    // cache: the applied curve is whatever the cache carries, the configured
+    // curve is the governance target in `config.amm`.
+    let applied_amplification = unsigned(
         fields,
-        &["amm", "applied_curve_parameters", "peak_depth_nad"],
+        &["amm", "concentrated_curve_cache", "peak_amplification_nad"],
     )?;
-    let applied_fade = unsigned(
-        fields,
-        &["amm", "applied_curve_parameters", "fade_scale_nad"],
-    )?;
-    let amm_kind = if applied_peak.as_str() == "0" && applied_fade.as_str() == "0" {
-        AmmKind::ConstantProduct
-    } else {
-        AmmKind::Concentrated
-    };
-    let configured_peak = unsigned(fields, &["config", "amm", "peak_depth_nad"])?;
-    let configured_fade = unsigned(fields, &["config", "amm", "fade_scale_nad"])?;
-    let configured_amm_kind = if configured_peak.as_str() == "0" && configured_fade.as_str() == "0"
-    {
-        AmmKind::ConstantProduct
-    } else {
-        AmmKind::Concentrated
-    };
+    let amm_kind = amplification_kind(&applied_amplification);
+    let configured_amplification =
+        unsigned(fields, &["config", "amm", "peak_amplification_nad"])?;
+    let configured_amm_kind = amplification_kind(&configured_amplification);
     let mut lanes = auction_lanes(account, fields, AssetSide::Base, &base.asset_mint)?;
     lanes.extend(auction_lanes(
         account,
