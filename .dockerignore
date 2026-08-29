@@ -37,11 +37,12 @@ yarn.lock
 bun.lock
 
 # API and database components (separate services)
-# The dusk daemon image carries its own migrations, applied by its entrypoint.
-!database/migrations/018_dusk_ingestion_foundation.sql
-!database/migrations/019_dusk_event_stream.sql
 api/
 database/
+# The dusk daemon image carries its own migrations, applied by its entrypoint.
+# Exceptions must follow the directory rule: the last matching rule wins.
+!database/migrations/018_dusk_ingestion_foundation.sql
+!database/migrations/019_dusk_event_stream.sql
 
 # Other language artifacts
 *.pyc
