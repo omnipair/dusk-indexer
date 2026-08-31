@@ -2,13 +2,16 @@
 
 ## Recognise it
 
-`/status` returns 503 with `degraded: ["indexer-lag"]`. The number that matters
-is `slotLag` — the distance between the chain's slot and the newest indexed
-one. Anything over 15,000 slots trips the flag; a healthy deployment sits under
-a few hundred.
+`/status` returns 503 with `degraded: ["ingestion-stalled"]`. The number that
+matters is `cursorAgeSeconds` — how long since the daemon last reported in.
+The daemon touches its cursor on every poll whether or not it found anything,
+so an age past five minutes means it has stopped polling.
 
-Do not judge this by `latestEventAt`. A quiet market and a stalled indexer
-produce the same old timestamp, and only the slot distance tells them apart.
+**Do not judge this by `slotLag`, and do not judge it by `latestEventAt`.**
+Both measure how recently somebody *traded*, not whether ingestion is working.
+On a quiet devnet the lag grows without bound while the daemon is perfectly
+healthy — which is exactly what it looked like the first time this endpoint
+was written, because it flagged on lag.
 
 ## What it breaks
 
@@ -33,9 +36,11 @@ prices beside stale history.
 
 ## Over when
 
-`slotLag` is falling on consecutive `/status` calls and eventually sits in the
-hundreds. Falling matters more than the absolute number — a catching-up indexer
-is healthy, a stationary one is not.
+`cursorAgeSeconds` is back under the threshold and staying there. If the market
+is busy, `slotLag` should also be falling on consecutive calls — falling
+matters more than the absolute number, since a catching-up indexer is healthy
+and a stationary one is not. If the market is quiet, expect the lag to keep
+growing and ignore it.
 
 ## Do not
 

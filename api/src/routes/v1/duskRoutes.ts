@@ -327,17 +327,28 @@ router.get(
     }
 
     const indexedSlot = health.latestSlot ? Number(health.latestSlot) : null;
-    // Slot lag is the honest measure of staleness: a timestamp says when the
-    // last event happened, not how far behind the indexer is.
     const slotLag =
       chainSlot !== null && indexedSlot !== null
         ? Math.max(0, chainSlot - indexedSlot)
         : null;
 
+    // Slot lag measures how recently something *happened*, not whether the
+    // daemon is working: on a quiet market it grows without bound while
+    // ingestion is perfectly healthy. The daemon touches its cursor on every
+    // poll, so the cursor's age is what separates a quiet market from a dead
+    // ingester — and it is the age, not the lag, that decides degradation.
+    const cursorUpdatedAt = health.cursor?.updatedAt ?? null;
+    const cursorAgeSeconds = cursorUpdatedAt
+      ? Math.max(0, Math.round((Date.now() - Date.parse(cursorUpdatedAt)) / 1000))
+      : null;
+    const staleAfterSeconds = Number(process.env.DUSK_CURSOR_STALE_SECONDS ?? 300);
+
     const degraded: string[] = [];
     if (identityError) degraded.push('deployment-identity');
     if (health.cursor === null) degraded.push('ingestion-cursor');
-    if (slotLag !== null && slotLag > 15_000) degraded.push('indexer-lag');
+    if (cursorAgeSeconds !== null && cursorAgeSeconds > staleAfterSeconds) {
+      degraded.push('ingestion-stalled');
+    }
 
     res.status(degraded.length > 0 ? 503 : 200).json({
       success: degraded.length === 0,
@@ -353,6 +364,8 @@ router.get(
         chainSlot,
         indexedSlot,
         slotLag,
+        cursorUpdatedAt,
+        cursorAgeSeconds,
         indexedEvents: health.eventCount,
         indexedMarkets: health.marketCount,
         latestEventAt: health.latestEventAt,
@@ -466,6 +479,7 @@ const RUNBOOKS = {
   'deployment-identity': 'rpc-provider-outage',
   'ingestion-cursor': 'database-unavailable',
   'indexer-lag': 'indexer-lag',
+  'ingestion-stalled': 'indexer-lag',
 };
 const RUNBOOK_BASE =
   'https://github.com/omnipair/dusk-indexer/blob/main/docs/runbooks/';
@@ -490,6 +504,7 @@ async function refresh() {
       row('Chain slot', data.chainSlot === null ? '—' : data.chainSlot),
       row('Indexed slot', data.indexedSlot === null ? '—' : data.indexedSlot),
       row('Slot lag', data.slotLag === null ? '—' : data.slotLag),
+      row('Cursor age', data.cursorAgeSeconds === null ? '—' : data.cursorAgeSeconds + 's'),
       row('Indexed events', data.indexedEvents),
       row('Indexed markets', data.indexedMarkets),
       row('Latest event', data.latestEventAt || '—')

@@ -42,6 +42,33 @@ pub async fn ensure_protocol_identity(pool: &PgPool, cluster: &str) -> Result<()
     Ok(())
 }
 
+/// Touch the cursor's `updated_at` without moving it.
+///
+/// The cursor otherwise advances only when a poll finds transactions, so on a
+/// quiet market a healthy daemon and a dead one look identical from the
+/// database — both leave an old cursor and a growing slot lag. A heartbeat on
+/// every poll makes the cursor's age a liveness signal rather than a measure
+/// of how recently somebody traded.
+pub async fn touch_cursor(pool: &PgPool, cluster: &str) -> Result<()> {
+    sqlx::query(
+        r#"
+        UPDATE dusk_ingestion.ingestion_cursors
+           SET updated_at = now()
+         WHERE cluster = $1 AND program_id = $2 AND idl_hash = $3
+           AND protocol_revision = $4 AND stream_name = $5
+        "#,
+    )
+    .bind(cluster)
+    .bind(DUSK_PROGRAM_ID)
+    .bind(DUSK_IDL_SHA256)
+    .bind(PROTOCOL_REVISION)
+    .bind(STREAM_NAME)
+    .execute(pool)
+    .await
+    .context("touching ingestion cursor")?;
+    Ok(())
+}
+
 pub async fn load_cursor(pool: &PgPool, cluster: &str) -> Result<Option<String>> {
     let row: Option<(Option<String>,)> = sqlx::query_as(
         r#"

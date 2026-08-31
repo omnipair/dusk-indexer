@@ -109,7 +109,16 @@ async fn main() -> Result<()> {
             }
             result = ingest_once(&rpc, &pool, &decoder, &config, &program) => {
                 match result {
-                    Ok(0) => {}
+                    // A pass that found nothing still proves the daemon is
+                    // polling, which is the difference between a quiet market
+                    // and a dead ingester. Recorded as a cursor heartbeat
+                    // rather than a log line, so the signal is queryable by
+                    // whatever is watching rather than only greppable.
+                    Ok(0) => {
+                        if let Err(error) = persist::touch_cursor(&pool, &config.cluster).await {
+                            log::warn!("cursor heartbeat failed: {error:#}");
+                        }
+                    }
                     Ok(count) => log::info!("ingested {count} new transactions"),
                     // Transient RPC/database trouble must not kill the daemon;
                     // the cursor guarantees the next pass re-covers the gap.
