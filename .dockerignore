@@ -50,6 +50,7 @@ database/
 !database/migrations/019_dusk_event_stream.sql
 !database/migrations/020_dusk_v1_compatibility.sql
 !database/migrations/021_dusk_valuation_and_positions.sql
+!database/migrations/022_dusk_retention.sql
 
 # Other language artifacts
 *.pyc
