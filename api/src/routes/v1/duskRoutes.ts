@@ -298,6 +298,68 @@ router.get(
   }),
 );
 
+/**
+ * Operational status, for a person rather than a client.
+ *
+ * Health answers "is ingestion working"; this answers "what is this
+ * deployment and how far behind is it", which is what someone asks when the
+ * app looks wrong. Degradation is named rather than implied by a status code,
+ * because a reader needs to know which part is behind.
+ */
+router.get(
+  '/status',
+  asyncRoute(async (_req, res) => {
+    const pinned = loadPinnedProtocol();
+    const config = duskApiConfig();
+    const health = await ingestionHealth(cluster());
+
+    let chainSlot: number | null = null;
+    let identity: string | null = null;
+    let identityError: string | null = null;
+    try {
+      const envelope = await deploymentEnvelope();
+      chainSlot = envelope.sourceSlot;
+      identity = envelope.deploymentIdentitySha256;
+    } catch (error) {
+      identityError = error instanceof Error ? error.message : String(error);
+    }
+
+    const indexedSlot = health.latestSlot ? Number(health.latestSlot) : null;
+    // Slot lag is the honest measure of staleness: a timestamp says when the
+    // last event happened, not how far behind the indexer is.
+    const slotLag =
+      chainSlot !== null && indexedSlot !== null
+        ? Math.max(0, chainSlot - indexedSlot)
+        : null;
+
+    const degraded: string[] = [];
+    if (identityError) degraded.push('deployment-identity');
+    if (health.cursor === null) degraded.push('ingestion-cursor');
+    if (slotLag !== null && slotLag > 15_000) degraded.push('indexer-lag');
+
+    res.status(degraded.length > 0 ? 503 : 200).json({
+      success: degraded.length === 0,
+      data: {
+        cluster: config.network,
+        protocolRevision: pinned.revision,
+        programs: {
+          dusk: pinned.dusk.programId,
+          leverageDelegate: pinned.leverageDelegate.programId,
+        },
+        deploymentIdentitySha256: identity,
+        deploymentError: identityError,
+        chainSlot,
+        indexedSlot,
+        slotLag,
+        indexedEvents: health.eventCount,
+        indexedMarkets: health.marketCount,
+        latestEventAt: health.latestEventAt,
+        degraded,
+      },
+    });
+  }),
+);
+
 function parseEventNames(raw: unknown): string[] | undefined {
   if (typeof raw !== 'string' || raw.trim() === '') return undefined;
   const names = raw

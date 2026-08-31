@@ -42,6 +42,7 @@ const DUSK_ENDPOINTS = {
     'GET /api/dusk/v1/markets/{market}/events?events=SwapExecuted&since=ISO&until=ISO&limit=100&offset=0',
   activity: 'GET /api/dusk/v1/events?market=ADDR&events=Name1,Name2&limit=100',
   health: 'GET /api/dusk/v1/health',
+  status: 'GET /api/dusk/v1/status',
   config: 'GET /api/dusk/v1/config',
   'market-state': 'GET /api/dusk/v1/markets/state'
 };
