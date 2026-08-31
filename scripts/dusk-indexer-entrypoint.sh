@@ -37,6 +37,8 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /app/migrations/020_dusk_v1_compatibi
 
 echo "applying 021_dusk_valuation_and_positions.sql"
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /app/migrations/021_dusk_valuation_and_positions.sql
+echo "applying 022_dusk_retention.sql"
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /app/migrations/022_dusk_retention.sql
 
 # USD price anchors. Assets whose dollar value is taken as given — a mock
 # stablecoin on a test cluster, for instance — from which every other asset

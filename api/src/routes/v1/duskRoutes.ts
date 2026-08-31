@@ -360,6 +360,116 @@ router.get(
   }),
 );
 
+/**
+ * Status page.
+ *
+ * The JSON at `/status` is for a client; this is for a person who has been
+ * told the app is broken and needs to know, in one glance, whether it is the
+ * chain, the indexer, or something else. It polls itself so a tab left open
+ * stays true, and it names the runbook for whatever is degraded rather than
+ * leaving the reader to guess which one applies.
+ *
+ * The script is a separate route rather than inline because the API sets a
+ * strict `script-src 'self'` and an inline block is silently dropped — the
+ * page renders, never updates, and looks like a broken endpoint. Serving it
+ * as a file satisfies the policy instead of weakening it for every route.
+ *
+ * Keeper liveness is reported by the keepers' own endpoints rather than
+ * proxied through here: this service cannot vouch for a process it does not
+ * run, and a status page that invents green is worse than none.
+ */
+router.get('/status/page', (_req, res) => {
+  const config = duskApiConfig();
+  res.type('html').send(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dusk ${config.network} status</title>
+<style>
+  :root { color-scheme: light dark; --ok: #1a7f37; --bad: #b3261e; --muted: #6b7280; }
+  body { font: 15px/1.5 ui-sans-serif, system-ui, sans-serif; margin: 0; padding: 2rem 1.25rem; max-width: 46rem; margin-inline: auto; }
+  h1 { font-size: 1.1rem; margin: 0 0 .25rem; }
+  .sub { color: var(--muted); margin: 0 0 1.5rem; font-size: .875rem; }
+  .state { font-size: 1.5rem; font-weight: 600; margin: 0 0 1rem; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: .4rem .5rem .4rem 0; border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent); }
+  th { font-weight: 500; color: var(--muted); width: 12rem; }
+  code { font-family: ui-monospace, monospace; font-size: .85em; word-break: break-all; }
+</style>
+</head>
+<body>
+<h1>Dusk &middot; ${config.network}</h1>
+<p class="sub">Refreshes every 15 seconds. Reported by the API itself; keeper
+liveness is on each keeper's own <code>/readyz</code>.</p>
+<p class="state" id="state">checking&hellip;</p>
+<table id="rows"></table>
+<div id="degraded"></div>
+<script src="page.js"></script>
+</body>
+</html>`);
+});
+
+/** The status page's script. See `/status/page` for why it is not inline. */
+router.get('/status/page.js', (_req, res) => {
+  res.type('application/javascript').send(`
+const RUNBOOKS = {
+  'deployment-identity': 'rpc-provider-outage',
+  'ingestion-cursor': 'database-unavailable',
+  'indexer-lag': 'indexer-lag',
+};
+const RUNBOOK_BASE =
+  'https://github.com/omnipair/dusk-indexer/blob/main/docs/runbooks/';
+
+function row(label, value) {
+  return '<tr><th>' + label + '</th><td>' + value + '</td></tr>';
+}
+
+async function refresh() {
+  const state = document.getElementById('state');
+  try {
+    const response = await fetch('../status', { cache: 'no-store' });
+    const body = await response.json();
+    const data = body.data;
+    const degraded = data.degraded || [];
+    state.textContent = degraded.length === 0 ? 'Operational' : 'Degraded';
+    state.className = 'state ' + (degraded.length === 0 ? 'ok' : 'bad');
+    document.getElementById('rows').innerHTML = [
+      row('Cluster', data.cluster),
+      row('Protocol revision', '<code>' + data.protocolRevision + '</code>'),
+      row('Deployment identity', '<code>' + (data.deploymentIdentitySha256 || 'unavailable') + '</code>'),
+      row('Chain slot', data.chainSlot === null ? '—' : data.chainSlot),
+      row('Indexed slot', data.indexedSlot === null ? '—' : data.indexedSlot),
+      row('Slot lag', data.slotLag === null ? '—' : data.slotLag),
+      row('Indexed events', data.indexedEvents),
+      row('Indexed markets', data.indexedMarkets),
+      row('Latest event', data.latestEventAt || '—')
+    ].join('');
+    document.getElementById('degraded').innerHTML =
+      degraded.length === 0
+        ? ''
+        : '<p>Degraded: ' + degraded.map(function (name) {
+            const book = RUNBOOKS[name];
+            return book
+              ? '<a href="' + RUNBOOK_BASE + book + '.md"><code>' + name + '</code></a>'
+              : '<code>' + name + '</code>';
+          }).join(', ') + '</p>';
+  } catch (error) {
+    // A page that cannot reach its own API is itself the signal, so it says
+    // so rather than leaving the last good reading on screen.
+    state.textContent = 'API unreachable';
+    state.className = 'state bad';
+    document.getElementById('degraded').innerHTML =
+      '<p><code>' + String(error) + '</code></p>';
+  }
+}
+
+refresh();
+setInterval(refresh, 15000);
+`);
+});
+
 function parseEventNames(raw: unknown): string[] | undefined {
   if (typeof raw !== 'string' || raw.trim() === '') return undefined;
   const names = raw
