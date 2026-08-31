@@ -44,6 +44,8 @@ const DUSK_ENDPOINTS = {
   health: 'GET /api/dusk/v1/health',
   status: 'GET /api/dusk/v1/status',
   'status-page': 'GET /api/dusk/v1/status/page',
+  metrics: 'GET /api/dusk/v1/metrics',
+  provenance: 'GET /api/dusk/v1/provenance',
   config: 'GET /api/dusk/v1/config',
   'market-state': 'GET /api/dusk/v1/markets/state'
 };

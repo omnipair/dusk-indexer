@@ -26,6 +26,8 @@ import {
   marketDetail,
 } from '../../services/duskReadModel';
 
+import { provenance, renderMetrics } from '../../utils/metrics';
+
 import { PublicKey } from '@solana/web3.js';
 
 const router = Router();
@@ -356,6 +358,52 @@ router.get(
         latestEventAt: health.latestEventAt,
         degraded,
       },
+    });
+  }),
+);
+
+/**
+ * Metrics, in the text exposition format any scraper understands.
+ *
+ * Carries the protocol revision and deployment identity as labels rather than
+ * as a separate endpoint: a scrape that cannot say which deployment produced
+ * it is impossible to reconcile after a redeploy, which is exactly when the
+ * numbers matter.
+ */
+router.get(
+  '/metrics',
+  asyncRoute(async (_req, res) => {
+    const pinned = loadPinnedProtocol();
+    let identity = 'unavailable';
+    try {
+      identity = (await deploymentEnvelope()).deploymentIdentitySha256;
+    } catch {
+      // Chain observation is allowed to be down without taking metrics with
+      // it — a scrape is most valuable when something is broken.
+    }
+    res.type('text/plain; version=0.0.4').send(
+      renderMetrics({
+        cluster: duskApiConfig().network,
+        deployment: identity,
+        revision: pinned.revision,
+      }),
+    );
+  }),
+);
+
+/** Build and protocol provenance for this process. */
+router.get(
+  '/provenance',
+  asyncRoute(async (_req, res) => {
+    let identity: string | null = null;
+    try {
+      identity = (await deploymentEnvelope()).deploymentIdentitySha256;
+    } catch {
+      identity = null;
+    }
+    res.json({
+      success: true,
+      data: provenance(loadPinnedProtocol().revision, identity),
     });
   }),
 );
