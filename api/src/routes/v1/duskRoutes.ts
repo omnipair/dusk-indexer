@@ -171,6 +171,52 @@ router.get(
 );
 
 router.get(
+  '/config',
+  asyncRoute(async (_req, res) => {
+    const { config, sourceSlot } = await deploymentSnapshot();
+    res.json(await withDeployment(config, sourceSlot));
+  }),
+);
+
+router.get(
+  '/markets/state/:market',
+  asyncRoute(async (req, res) => {
+    let address: PublicKey;
+    try {
+      address = new PublicKey(req.params.market);
+    } catch {
+      res.status(400).json({ success: false, error: 'invalid market address' });
+      return;
+    }
+    const { account, sourceSlot } = await fetchMarket(address);
+    const payload = await marketPayload(address, account, sourceSlot);
+    const state = payload.state as Record<string, unknown>;
+    res.json(
+      await withDeployment(
+        payload,
+        Math.max(sourceSlot, Number(state.healthSourceSlot ?? 0)),
+      ),
+    );
+  }),
+);
+
+router.get(
+  '/markets/state',
+  asyncRoute(async (_req, res) => {
+    const { projected, sourceSlot } = await deploymentSnapshot();
+    res.json(
+      await withDeployment(
+        {
+          markets: projected,
+          pagination: { limit: 100, offset: 0, total: projected.length },
+        },
+        sourceSlot,
+      ),
+    );
+  }),
+);
+
+router.get(
   '/markets',
   asyncRoute(async (req, res) => {
     const limit = boundedLimit(req.query.limit);
@@ -249,62 +295,6 @@ router.get(
         deploymentError,
       },
     });
-  }),
-);
-
-/**
- * The v2 read surface the app's read boundary calls: `/api/v2/fork/config`
- * for the deployment configuration and `/api/v2/markets` for market state.
- * The `fork` in that path is a leftover from the lab this contract grew in —
- * it is served here against a real cluster. New clients should prefer
- * `/api/dusk/v1/deployment`, which is the same envelope under an honest name.
- */
-export const forkCompatRouter = Router();
-
-forkCompatRouter.get(
-  '/fork/config',
-  asyncRoute(async (_req, res) => {
-    const { config, sourceSlot } = await deploymentSnapshot();
-    res.json(await withDeployment(config, sourceSlot));
-  }),
-);
-
-forkCompatRouter.get(
-  '/markets',
-  asyncRoute(async (_req, res) => {
-    const { projected, sourceSlot } = await deploymentSnapshot();
-    // Deliberately unpaginated: the read boundary cross checks this against
-    // the configured market set and treats a partial page as markets missing.
-    res.json(
-      await withDeployment(
-        {
-          markets: projected,
-          pagination: { limit: 100, offset: 0, total: projected.length },
-        },
-        sourceSlot,
-      ),
-    );
-  }),
-);
-
-forkCompatRouter.get(
-  '/markets/:market',
-  asyncRoute(async (req, res) => {
-    let address: PublicKey;
-    try {
-      address = new PublicKey(req.params.market);
-    } catch {
-      res.status(400).json({ success: false, error: 'invalid market address' });
-      return;
-    }
-    const { account, sourceSlot } = await fetchMarket(address);
-    const payload = await marketPayload(address, account, sourceSlot);
-    const state = payload.state as Record<string, unknown>;
-    const observedSlot = Math.max(
-      sourceSlot,
-      Number(state.healthSourceSlot ?? 0),
-    );
-    res.json(await withDeployment(payload, observedSlot));
   }),
 );
 

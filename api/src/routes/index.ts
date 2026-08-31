@@ -6,7 +6,7 @@ import statsRoutes from './v1/statsRoutes';
 import coingeckoRoutes from './v1/coingeckoRoutes';
 import cmcApiRoutes from './v1/cmcApiRoutes';
 import geckoTerminalRoutes from './v1/geckoTerminalRoutes';
-import duskRoutes, { forkCompatRouter } from './v1/duskRoutes';
+import duskRoutes from './v1/duskRoutes';
 
 const router = Router();
 
@@ -22,7 +22,6 @@ const DUSK_ENABLED = process.env.ENABLE_DUSK_ROUTES !== 'false';
 
 if (DUSK_ENABLED) {
   router.use('/api/dusk/v1', duskRoutes);
-  router.use('/api/v2', forkCompatRouter);
 }
 
 if (V1_ENABLED) {
@@ -43,7 +42,8 @@ const DUSK_ENDPOINTS = {
     'GET /api/dusk/v1/markets/{market}/events?events=SwapExecuted&since=ISO&until=ISO&limit=100&offset=0',
   activity: 'GET /api/dusk/v1/events?market=ADDR&events=Name1,Name2&limit=100',
   health: 'GET /api/dusk/v1/health',
-  'fork-config-alias': 'GET /api/v2/fork/config'
+  config: 'GET /api/dusk/v1/config',
+  'market-state': 'GET /api/dusk/v1/markets/state'
 };
 
 router.get('/', (req, res) => {
