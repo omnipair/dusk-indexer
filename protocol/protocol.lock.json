@@ -7,8 +7,9 @@
   "source": {
     "repository": "https://github.com/omnipair/dusk",
     "branch": "feat/optimizations",
-    "note": "Devnet deployment of 2026-08-29; program keypairs and address registry in ~/.config/omnipair/dusk-devnet. Built from a working tree ahead of the recorded commit; binaries attested from chain (upgradeable loader programdata slot 489593996).",
-    "gitCommit": "dd7fb53"
+    "note": "Devnet deployment; program keypairs and address registry in ~/.config/omnipair/dusk-devnet. Binary attested from chain (upgradeable loader programdata). Re-pinned 2026-09-02: the original binary was replaced during hLP drift instrumentation and the only copy of it was a scratch file that did not survive, so it could not be restored. What is deployed now is a clean local anchor build at opt-level z (no debug features), and this hash attests that. source.worktreeFingerprintSha256 covers programs/ and is reproduced by scripts/compute-worktree-fingerprint.mjs.",
+    "gitCommit": "dd7fb53150163ed5b0bf3ae14fea9f2b47aa0d15",
+    "worktreeFingerprintSha256": "17930e6f96af5f4595803fe14e8e716c70750b77f3ca8a8ed5b13d074eb30b2b"
   },
   "cluster": {
     "name": "devnet",
@@ -20,7 +21,7 @@
       "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
       "binary": {
         "path": "on-chain (devnet)",
-        "sha256": "8191b4cf3ed18fa755e1235ed5e9056b046f9e90a01b74a9e29aba235f722833"
+        "sha256": "7183cdb29659e47e54f0a34e3f23ad2b82743941216b606f4480c55304bc2d36"
       },
       "idl": {
         "path": "protocol/idl/dusk.json",
