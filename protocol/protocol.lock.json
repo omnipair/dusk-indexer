@@ -3,13 +3,13 @@
   "schemaVersion": 1,
   "revision": "devnet-1",
   "status": "deployed",
-  "generatedAt": "2026-08-29T03:32:24Z",
+  "generatedAt": "2026-09-04T20:54:56Z",
   "source": {
     "repository": "https://github.com/omnipair/dusk",
     "branch": "feat/optimizations",
-    "note": "Devnet deployment; program keypairs and address registry in ~/.config/omnipair/dusk-devnet. Binary attested from chain (upgradeable loader programdata). Re-pinned 2026-09-02: the original binary was replaced during hLP drift instrumentation and the only copy of it was a scratch file that did not survive, so it could not be restored. What is deployed now is a clean local anchor build at opt-level z (no debug features), and this hash attests that. source.worktreeFingerprintSha256 covers programs/ and is reproduced by scripts/compute-worktree-fingerprint.mjs.",
-    "gitCommit": "dd7fb53150163ed5b0bf3ae14fea9f2b47aa0d15",
-    "worktreeFingerprintSha256": "17930e6f96af5f4595803fe14e8e716c70750b77f3ca8a8ed5b13d074eb30b2b"
+    "note": "Devnet deployment; program keypairs and address registry in ~/.config/omnipair/dusk-devnet. Binary attested from chain (upgradeable loader programdata). Re-pinned 2026-09-05 for the hLP reserve-identity fix (omnipair/dusk#18, merge a5d436fe): the concentrated hLP invariant now compares both sides in the curve-reserve domain, removing public unrealized lending interest from the raw live identity. Built at the Dusk-only opt-level s introduced by that PR (2,473,056 bytes). The previous binary (7183cdb29659e47e...) is preserved at dusk-keepers/artifacts/dusk-devnet-7183cdb2.so for rollback. source.worktreeFingerprintSha256 covers programs/ and is reproduced by scripts/compute-worktree-fingerprint.mjs.",
+    "gitCommit": "a5d436fe47902cdde9cbe716b9ac0d7ba85f5572",
+    "worktreeFingerprintSha256": "1807eaf54a1d9c13afbb8d2bfe2a24d188cf12dfe87869998141a6a870f89e05"
   },
   "cluster": {
     "name": "devnet",
@@ -21,7 +21,7 @@
       "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
       "binary": {
         "path": "on-chain (devnet)",
-        "sha256": "7183cdb29659e47e54f0a34e3f23ad2b82743941216b606f4480c55304bc2d36"
+        "sha256": "91c3ee46c5dda029dbe4b284bd34e38a8a484e26e517b83ac6b36215202b55e1"
       },
       "idl": {
         "path": "protocol/idl/dusk.json",
