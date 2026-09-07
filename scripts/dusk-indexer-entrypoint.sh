@@ -40,6 +40,10 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /app/migrations/021_dusk_valuation_an
 echo "applying 022_dusk_retention.sql"
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /app/migrations/022_dusk_retention.sql
 
+# The swap notify trigger. Publishes on `swap_updates`, the channel the v1 gRPC
+# listener already consumes, so streaming Dusk swaps needs no change in grpc/.
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /app/migrations/023_dusk_swap_notify_trigger.sql
+
 # USD price anchors. Assets whose dollar value is taken as given — a mock
 # stablecoin on a test cluster, for instance — from which every other asset
 # is priced by pool ratio. Format: "mint:price,mint:price". Without it the
