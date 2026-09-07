@@ -12,6 +12,11 @@
 -- an INSERT and the listener's enrichment wait simply never has anything to
 -- wait for.
 
+-- `asset_in_side` / `fee_asset_side` are the MarketAsset enum's numeric code
+-- (0 = Base, 1 = Quote), which is why these compare against '0'/'1' rather
+-- than 'base'/'quote'. The names are accepted as well, so an ingester that
+-- later emits them keeps working.
+
 CREATE OR REPLACE FUNCTION dusk_ingestion.notify_swap_executed()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -29,7 +34,7 @@ BEGIN
             'id', NEW.event_key,
             'pair', NEW.market,
             'user_address', NEW.payload->>'trader',
-            'is_token0_in', (NEW.payload->>'asset_in_side') = 'base',
+            'is_token0_in', (NEW.payload->>'asset_in_side') IN ('0','base'),
             'amount_in', COALESCE(NEW.payload->>'amount_in', '0'),
             'amount_out', COALESCE(NEW.payload->>'amount_out', '0'),
             'reserve0', COALESCE(NEW.payload->>'base_live_reserve', '0'),
@@ -39,9 +44,9 @@ BEGIN
             'slot', NEW.slot::text,
             -- Same fee split the view reports: the program names which side
             -- the fee was taken on rather than emitting both.
-            'fee_paid0', CASE WHEN NEW.payload->>'fee_asset_side' = 'base'
+            'fee_paid0', CASE WHEN NEW.payload->>'fee_asset_side' IN ('0','base')
                               THEN COALESCE(NEW.payload->>'base_fee', '0') ELSE '0' END,
-            'fee_paid1', CASE WHEN NEW.payload->>'fee_asset_side' = 'quote'
+            'fee_paid1', CASE WHEN NEW.payload->>'fee_asset_side' IN ('1','quote')
                               THEN COALESCE(NEW.payload->>'base_fee', '0') ELSE '0' END,
             -- No price source in this pipeline, so these stay empty rather
             -- than carrying a fabricated number. The view makes the same call.

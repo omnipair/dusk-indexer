@@ -211,7 +211,7 @@ BEGIN
         row_number() OVER (ORDER BY e.time)          AS id,
         e.market                                     AS pair,
         e.payload->>'trader'                         AS user_address,
-        (e.payload->>'asset_in_side') = 'base'       AS is_token0_in,
+        (e.payload->>'asset_in_side') IN ('0','base')       AS is_token0_in,
         (e.payload->>'amount_in')::numeric           AS amount_in,
         (e.payload->>'amount_out')::numeric          AS amount_out,
         (e.payload->>'base_live_reserve')::numeric   AS reserve0,
@@ -219,9 +219,9 @@ BEGIN
         e.time                                       AS "timestamp",
         e.transaction_signature                      AS tx_sig,
         e.slot                                       AS slot,
-        CASE WHEN e.payload->>'fee_asset_side' = 'base'
+        CASE WHEN e.payload->>'fee_asset_side' IN ('0','base')
              THEN (e.payload->>'base_fee')::numeric ELSE 0 END AS fee_paid0,
-        CASE WHEN e.payload->>'fee_asset_side' = 'quote'
+        CASE WHEN e.payload->>'fee_asset_side' IN ('1','quote')
              THEN (e.payload->>'base_fee')::numeric ELSE 0 END AS fee_paid1,
         -- Price of the base asset in quote terms, from the resulting pool.
         CASE WHEN (e.payload->>'base_live_reserve')::numeric > 0
@@ -231,7 +231,7 @@ BEGIN
                      / power(10::numeric, COALESCE(bm.decimals, 6)))
              END                                     AS ema_price,
         -- Traded value: the input leg priced in dollars.
-        CASE WHEN (e.payload->>'asset_in_side') = 'base'
+        CASE WHEN (e.payload->>'asset_in_side') IN ('0','base')
              THEN (e.payload->>'amount_in')::numeric
                     / power(10::numeric, COALESCE(bm.decimals, 6)) * bp.price_usd
              ELSE (e.payload->>'amount_in')::numeric
@@ -272,9 +272,9 @@ BEGIN
     WITH fees AS (
         SELECT
             market AS pair,
-            SUM(CASE WHEN payload->>'fee_asset_side' = 'base'
+            SUM(CASE WHEN payload->>'fee_asset_side' IN ('0','base')
                      THEN (payload->>'retained_fee')::numeric ELSE 0 END) AS fees0,
-            SUM(CASE WHEN payload->>'fee_asset_side' = 'quote'
+            SUM(CASE WHEN payload->>'fee_asset_side' IN ('1','quote')
                      THEN (payload->>'retained_fee')::numeric ELSE 0 END) AS fees1
           FROM dusk_ingestion.event_stream
          WHERE event_name = 'SwapExecuted' AND market IS NOT NULL

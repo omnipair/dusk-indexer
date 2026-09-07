@@ -54,12 +54,17 @@ BEGIN
     -- Swaps. The event carries both post-trade reserves, so the reserve
     -- columns are real rather than reconstructed. Fees are attributed to the
     -- side the program charged them on.
+    -- `asset_in_side` and `fee_asset_side` carry the program's MarketAsset
+    -- enum as its numeric code, not a name: 0 = Base, 1 = Quote
+    -- (dusk/programs/dusk/src/transitions/ledger.rs). The name spellings are
+    -- accepted too so a future ingester change cannot silently flip every
+    -- swap's direction back to false.
     CREATE OR REPLACE VIEW swaps AS
     SELECT
         row_number() OVER (ORDER BY time)          AS id,
         market                                     AS pair,
         payload->>'trader'                         AS user_address,
-        (payload->>'asset_in_side') = 'base'       AS is_token0_in,
+        (payload->>'asset_in_side') IN ('0','base')       AS is_token0_in,
         (payload->>'amount_in')::numeric           AS amount_in,
         (payload->>'amount_out')::numeric          AS amount_out,
         (payload->>'base_live_reserve')::numeric   AS reserve0,
@@ -67,9 +72,9 @@ BEGIN
         time                                       AS "timestamp",
         transaction_signature                      AS tx_sig,
         slot                                       AS slot,
-        CASE WHEN payload->>'fee_asset_side' = 'base'
+        CASE WHEN payload->>'fee_asset_side' IN ('0','base')
              THEN (payload->>'base_fee')::numeric ELSE 0 END AS fee_paid0,
-        CASE WHEN payload->>'fee_asset_side' = 'quote'
+        CASE WHEN payload->>'fee_asset_side' IN ('1','quote')
              THEN (payload->>'base_fee')::numeric ELSE 0 END AS fee_paid1,
         -- Price and USD value need a price source this pipeline does not
         -- have; left NULL so the API reports them as unavailable instead of
