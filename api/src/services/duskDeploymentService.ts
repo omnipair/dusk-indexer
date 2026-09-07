@@ -281,9 +281,17 @@ async function buildEnvelope(): Promise<DuskDeploymentEnvelope> {
   const pinned = loadPinnedProtocol();
   const { connection: rpc, config: apiConfig } = runtime();
 
-  const [genesisHash, slot] = await Promise.all([
+  // One round trip, not two. The program observations depend only on pinned
+  // config, never on the genesis or slot read above, so waiting for the first
+  // batch before starting the second doubled the latency of an envelope that
+  // is rebuilt on every request by design. The genesis check still gates the
+  // envelope; it just runs once the reads are back. On a mismatch that costs
+  // two account reads nobody needed, on an error path that should never fire.
+  const [genesisHash, slot, duskProgram, delegateProgram] = await Promise.all([
     cachedGenesisHash(rpc),
     rpc.getSlot(DUSK_DEPLOYMENT_COMMITMENT),
+    observeUpgradeableProgram(pinned.dusk),
+    observeUpgradeableProgram(pinned.leverageDelegate),
   ]);
   if (genesisHash !== pinned.genesisHash) {
     throw new Error(
@@ -300,11 +308,6 @@ async function buildEnvelope(): Promise<DuskDeploymentEnvelope> {
   const forkId = `${apiConfig.network}-${sha256(
     `${apiConfig.forkNamespace}:${genesisHash}:${pinned.dusk.programId}:${markerData}`,
   )}`;
-
-  const [duskProgram, delegateProgram] = await Promise.all([
-    observeUpgradeableProgram(pinned.dusk),
-    observeUpgradeableProgram(pinned.leverageDelegate),
-  ]);
 
   const envelope = {
     schemaVersion: DUSK_DEPLOYMENT_SCHEMA_VERSION,
