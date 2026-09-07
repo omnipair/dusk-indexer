@@ -26,6 +26,7 @@ import {
   marketDetail,
 } from '../../services/duskReadModel';
 
+import { cache } from '../../utils/cache';
 import { provenance, renderMetrics } from '../../utils/metrics';
 
 import { PublicKey } from '@solana/web3.js';
@@ -107,30 +108,34 @@ async function deploymentPayload() {
 }
 
 type DeploymentSnapshot = Awaited<ReturnType<typeof deploymentPayload>>;
-let snapshot: { value: DeploymentSnapshot; atMs: number } | undefined;
-let snapshotInflight: Promise<DeploymentSnapshot> | undefined;
 
+/**
+ * How long the assembled deployment surface is served from memory.
+ *
+ * Sixty seconds, matching the `pools:enriched` layer omnipair arrived at. The
+ * expensive part is not this cache but what it wraps: `marketPayload` runs a
+ * `preview_market` simulation per market, so a rebuild costs seconds no matter
+ * how often it happens. Live figures underneath are cached separately and much
+ * more briefly — `dusk:market_health:<address>` at five seconds — so a lapse
+ * here does not mean a page shows minute-old reserves; it means the assembled
+ * envelope is rebuilt from layers that are themselves mostly warm.
+ */
 function snapshotTtlMs(): number {
   const raw = process.env.DUSK_MARKET_CACHE_TTL_MS?.trim();
-  const parsed = raw ? Number(raw) : 10_000;
-  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 10_000;
+  const parsed = raw ? Number(raw) : 60_000;
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 60_000;
 }
 
+/**
+ * The shared cache rather than a bespoke one: it already coalesces concurrent
+ * callers onto a single in-flight rebuild, evicts, and reports hit rates per
+ * namespace to `/metrics`. The previous hand-rolled snapshot did the first of
+ * those and none of the rest.
+ */
 async function deploymentSnapshot(): Promise<DeploymentSnapshot> {
-  if (snapshot && Date.now() - snapshot.atMs < snapshotTtlMs()) {
-    return snapshot.value;
-  }
-  if (!snapshotInflight) {
-    snapshotInflight = deploymentPayload()
-      .then((value) => {
-        snapshot = { value, atMs: Date.now() };
-        return value;
-      })
-      .finally(() => {
-        snapshotInflight = undefined;
-      });
-  }
-  return snapshotInflight;
+  return cache.getOrSet('dusk:deployment_surface', snapshotTtlMs(), () =>
+    deploymentPayload(),
+  );
 }
 
 function cluster(): string {

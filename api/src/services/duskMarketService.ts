@@ -28,6 +28,7 @@ import {
   duskApiConfig,
 } from '../config/duskProtocol';
 import { deploymentEnvelope } from './duskDeploymentService';
+import { cache } from '../utils/cache';
 
 const NAD = 1_000_000_000n;
 
@@ -126,7 +127,24 @@ async function resolvePreviewPayer(): Promise<PublicKey> {
   return new PublicKey(envelope.programUpgradeAuthority);
 }
 
+/**
+ * Live market health, per market, cached briefly.
+ *
+ * This is the expensive call in the whole API: a `preview_market` simulation
+ * against the cluster, five RPC round trips deep once the blockhash and payer
+ * are counted. Keyed per market and cached for five seconds, mirroring the
+ * `pair_state_<address>` layer omnipair settled on — short enough that a trade
+ * shows up promptly, long enough that a page load costs one simulation rather
+ * than one per market per request. `getOrSet` also coalesces concurrent
+ * callers, so a burst of requests shares a single simulation.
+ */
 async function currentMarketHealth(market: PublicKey) {
+  return cache.getOrSet(`dusk:market_health:${market.toBase58()}`, 5_000, () =>
+    uncachedMarketHealth(market),
+  );
+}
+
+async function uncachedMarketHealth(market: PublicKey) {
   const { connection, program } = initializeRuntime();
   const previewPayer = await resolvePreviewPayer();
   const instruction = await program.methods
@@ -370,9 +388,16 @@ export async function marketPayload(
   const healthObservation = await currentMarketHealth(market);
   const health = healthObservation.health;
 
+  // A slot's block time never changes once it exists, so this is cached for
+  // an hour rather than seconds. Two round trips per market per request
+  // otherwise, for a value that is immutable by construction.
+  const blockTime = (slot: number) =>
+    cache.getOrSet(`dusk:block_time:${slot}`, 60 * 60 * 1000, async () =>
+      connection.getBlockTime(slot).catch(() => null),
+    );
   const [sourceBlockTime, healthBlockTime] = await Promise.all([
-    connection.getBlockTime(sourceSlot).catch(() => null),
-    connection.getBlockTime(healthObservation.sourceSlot).catch(() => null),
+    blockTime(sourceSlot),
+    blockTime(healthObservation.sourceSlot),
   ]);
   const iso = (seconds: number | null) =>
     seconds === null ? null : new Date(seconds * 1_000).toISOString();
