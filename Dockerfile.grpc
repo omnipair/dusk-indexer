@@ -2,7 +2,16 @@
 # Optimized for Railway deployment
 
 # Stage 1: Build stage
+#
+# Pinned to the nightly the workspace is proven on, for the same reason
+# Dockerfile.dusk-indexer is: sqlx 0.6 no longer compiles on current nightlies,
+# and this image's floating tag had moved past it. The tag stays floating
+# because Docker Hub only publishes some dated ones; the toolchain is pinned
+# through rustup instead, and RUSTUP_TOOLCHAIN outranks the repo's
+# rust-toolchain.toml, whose channel is an unpinned "nightly".
 FROM rustlang/rust:nightly-bookworm as builder
+RUN rustup toolchain install nightly-2025-09-28 --profile minimal
+ENV RUSTUP_TOOLCHAIN=nightly-2025-09-28
 
 # Install system dependencies for building Rust crates
 RUN apt-get update && apt-get install -y \
