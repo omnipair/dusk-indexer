@@ -36,9 +36,7 @@ const UPGRADEABLE_PROGRAM_DATA_METADATA_BYTES = 45;
 export interface DuskDeploymentEnvelope {
   readonly schemaVersion: string;
   readonly network: string;
-  readonly forkSourceNetwork: string;
   readonly genesisHash: string;
-  readonly forkId: string;
   readonly programId: string;
   readonly programDataAddress: string;
   readonly programDataSlot: string;
@@ -253,9 +251,7 @@ function deploymentIdentityFingerprint(
     canonicalJson({
       schemaVersion: deployment.schemaVersion,
       network: deployment.network,
-      forkSourceNetwork: deployment.forkSourceNetwork,
       genesisHash: deployment.genesisHash,
-      forkId: deployment.forkId,
       programId: deployment.programId,
       programDataAddress: deployment.programDataAddress,
       programDataSlot: deployment.programDataSlot,
@@ -299,22 +295,10 @@ async function buildEnvelope(): Promise<DuskDeploymentEnvelope> {
     );
   }
 
-  // A real cluster never resets underneath its clients, so the deployment
-  // itself is the generation: a marker derived from genesis and program id is
-  // stable across restarts and changes only when the deployment does.
-  const markerData = sha256(
-    `dusk-static-generation:${genesisHash}:${pinned.dusk.programId}`,
-  );
-  const forkId = `${apiConfig.network}-${sha256(
-    `${apiConfig.forkNamespace}:${genesisHash}:${pinned.dusk.programId}:${markerData}`,
-  )}`;
-
   const envelope = {
     schemaVersion: DUSK_DEPLOYMENT_SCHEMA_VERSION,
     network: apiConfig.network,
-    forkSourceNetwork: apiConfig.forkSourceNetwork,
     genesisHash,
-    forkId,
     programId: pinned.dusk.programId,
     programDataAddress: duskProgram.programDataAddress,
     programDataSlot: duskProgram.programDataSlot,

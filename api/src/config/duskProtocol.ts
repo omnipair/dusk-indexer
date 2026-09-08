@@ -13,7 +13,7 @@ import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
-export const DUSK_DEPLOYMENT_SCHEMA_VERSION = 'dusk-deployment.v1';
+export const DUSK_DEPLOYMENT_SCHEMA_VERSION = 'dusk-deployment.v2';
 
 /** The envelope commitment the web app pins; not the daemon's ingestion one. */
 export const DUSK_DEPLOYMENT_COMMITMENT = 'confirmed';
@@ -158,9 +158,7 @@ export function loadPinnedProtocol(): DuskPinnedProtocol {
 
 export interface DuskApiConfig {
   readonly network: string;
-  readonly forkSourceNetwork: string;
   readonly rpcUrl: string;
-  readonly forkNamespace: string;
   readonly buildRevision: string;
   readonly envelopeCacheTtlMs: number;
 }
@@ -187,9 +185,7 @@ export function duskApiConfig(): DuskApiConfig {
   return {
     network,
     // A real cluster is not a fork of anything; it is its own source.
-    forkSourceNetwork: process.env.DUSK_FORK_SOURCE_NETWORK?.trim() || network,
     rpcUrl,
-    forkNamespace: process.env.DUSK_FORK_NAMESPACE?.trim() || `dusk-${network}`,
     buildRevision:
       process.env.DUSK_BUILD_REVISION?.trim() ||
       process.env.RAILWAY_GIT_COMMIT_SHA?.trim() ||
