@@ -17,7 +17,8 @@ import {
   ComputeBudgetProgram,
   Connection,
   PublicKey,
-  Transaction,
+  TransactionMessage,
+  VersionedTransaction,
 } from '@solana/web3.js';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
@@ -151,17 +152,31 @@ async function uncachedMarketHealth(market: PublicKey) {
     .previewMarket()
     .accounts({ market })
     .instruction();
-  const transaction = new Transaction().add(
-    ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }),
-    ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
-    instruction,
-  );
-  transaction.feePayer = previewPayer;
-  transaction.recentBlockhash = (
-    await connection.getLatestBlockhash(DUSK_DEPLOYMENT_COMMITMENT)
-  ).blockhash;
+  // A blockhash we fetch ourselves can be unknown to whichever node runs the
+  // simulation -- a public endpoint is many machines behind one address --
+  // and the simulation then fails with BlockhashNotFound rather than telling
+  // us anything about the market. Roughly a quarter of calls failed that way,
+  // which reads as an outage on the market page. `replaceRecentBlockhash`
+  // makes the node substitute its own, so the class cannot occur; a
+  // placeholder is supplied only because the message requires one.
+  const message = new TransactionMessage({
+    payerKey: previewPayer,
+    recentBlockhash: PublicKey.default.toBase58(),
+    instructions: [
+      ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }),
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
+      instruction,
+    ],
+  }).compileToV0Message();
 
-  const simulation = await connection.simulateTransaction(transaction);
+  const simulation = await connection.simulateTransaction(
+    new VersionedTransaction(message),
+    {
+      commitment: DUSK_DEPLOYMENT_COMMITMENT,
+      replaceRecentBlockhash: true,
+      sigVerify: false,
+    },
+  );
   if (simulation.value.err) {
     throw new Error(
       `preview_market simulation failed: ${JSON.stringify(simulation.value.err)}`,
