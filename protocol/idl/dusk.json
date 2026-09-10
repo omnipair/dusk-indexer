@@ -3128,7 +3128,16 @@
         },
         {
           "name": "owner",
-          "writable": true,
+          "docs": [
+            "LP holder identity. Its signature is not required, because the",
+            "recipient it designated may harvest on its behalf."
+          ]
+        },
+        {
+          "name": "caller",
+          "docs": [
+            "The LP holder, or the recipient it designated. Checked in validation."
+          ],
           "signer": true
         },
         {
