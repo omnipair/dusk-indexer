@@ -15,7 +15,7 @@ use {
 pub const PROTOCOL_REVISION: &str = "devnet-1";
 pub const DUSK_PROGRAM_ID: &str = "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X";
 pub const DUSK_IDL_SHA256: &str =
-    "7be629ec9f677bbd96324a4463fee336eeb2c9099aa3534138983424a535dfda";
+    "d898477e2d238cb445924e116b5577a9fb00484b3fa5d11ff51ad77a1c36ee2e";
 pub const LEVERAGE_DELEGATE_PROGRAM_ID: &str = "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv";
 pub const LEVERAGE_DELEGATE_IDL_SHA256: &str =
     "d0a5997fba913d78c31f585abb068b7048fe302b35f50e3d5a246680400c7d81";
