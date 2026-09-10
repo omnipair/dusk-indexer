@@ -3,13 +3,13 @@
   "schemaVersion": 1,
   "revision": "devnet-1",
   "status": "deployed",
-  "generatedAt": "2026-09-10T08:33:45Z",
+  "generatedAt": "2026-09-10T09:38:48Z",
   "source": {
     "repository": "https://github.com/omnipair/dusk",
     "branch": "feat/permissionless-yield-harvest",
-    "note": "Devnet deployment; program keypairs and address registry in ~/.config/omnipair/dusk-devnet. Binary attested from chain (upgradeable loader programdata). Re-pinned 2026-09-10 for the independent harvest authority: an LP owner can now set, rotate and revoke a keeper separately from the yield recipient, and harvest accepts the owner, the recipient, or that authority. Payouts stay bound to the recipient's canonical token account. The previous binary (b3f1d85f609feb7f...) is preserved at dusk-keepers/artifacts/dusk-devnet-b3f1d85f.so for rollback. source.worktreeFingerprintSha256 covers programs/ and is reproduced by scripts/compute-worktree-fingerprint.mjs.",
-    "gitCommit": "574bbd32f5a795e7a575af65363c35d228929a38",
-    "worktreeFingerprintSha256": "cc96a8f3331912c004b53e81c1a6af7bd0a18fd023b9d73d39d8008bb89bccae"
+    "note": "Devnet deployment; program keypairs and address registry in ~/.config/omnipair/dusk-devnet. Binary attested from chain (upgradeable loader programdata). Re-pinned 2026-09-10 so a PDA created before a state field was added grows in place instead of being rejected: YieldAccount gained harvest_authority (Option<Pubkey>, 33 bytes), which made every yield account created before that deploy unopenable and broke add-liquidity on the devnet market with InvalidArgument 234 vs 267. The IDL is unchanged by this deploy and keeps digest 54b731d26acbce000b6d6e3dd6dfcc4b9099a9c1b8af9c34504e7f2d71db0f13. The previous binary (9d8bdf0b152fa798...) is preserved at dusk-keepers/artifacts/dusk-devnet-9d8bdf0b.so for rollback. source.worktreeFingerprintSha256 covers programs/ and is reproduced by scripts/compute-worktree-fingerprint.mjs.",
+    "gitCommit": "becb6501e3acdfb7fd5985135a98255ee36cfa19",
+    "worktreeFingerprintSha256": "75a244fe0542493ae79c538b17227eb4f4e5c43f84df75b588aa8ec6c46bdeda"
   },
   "cluster": {
     "name": "devnet",
@@ -21,7 +21,7 @@
       "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
       "binary": {
         "path": "on-chain (devnet)",
-        "sha256": "9d8bdf0b152fa798248e2592f4d2a12a1dcfa79f6bddb06d2352c7f2f8ce816f"
+        "sha256": "1b147326414213137223a627b2995804c8392fd611c4396739b72f3ea3b5d7d5"
       },
       "idl": {
         "path": "protocol/idl/dusk.json",
