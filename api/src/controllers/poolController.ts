@@ -167,6 +167,38 @@ async function loadPoolCategories(pairAddresses: string[]): Promise<Map<string, 
   }
 }
 
+/**
+ * The pool list, with one row per market.
+ *
+ * `pools.pair_address` is declared UNIQUE in `001_create_schema.sql`, so the
+ * DISTINCT ON should be a no-op. It is not on devnet: that database holds
+ * three rows per market, which means the constraint was never applied there,
+ * and the list served nine entries for three markets. The markets page
+ * rendered each market three times, and every consumer that keys by address
+ * silently kept whichever copy arrived last.
+ *
+ * The lowest id wins, so the surviving row is the same on every request
+ * rather than whichever one the planner happens to emit first. This hides
+ * the duplicates from the API; it does not remove them. Collapsing the
+ * table itself is a separate, destructive migration.
+ *
+ * The outer query exists only because DISTINCT ON forces its own leading
+ * ORDER BY: the list still comes back in id order, as it always did.
+ */
+export function buildPoolListQuery(showAll: boolean): string {
+  const visibilityFilter = showAll ? '' : 'WHERE visible = TRUE';
+  return `
+        SELECT * FROM (
+          SELECT DISTINCT ON (pair_address)
+                 id, pair_address, token0, token1, swap_fee_bps, fixed_cf_bps
+          FROM pools
+          ${visibilityFilter}
+          ORDER BY pair_address ASC, id ASC
+        ) AS distinct_pools
+        ORDER BY id ASC
+      `;
+}
+
 export class PoolController {
   static async getPoolInfo(req: Request, res: Response): Promise<void> {
     try {
@@ -371,14 +403,7 @@ export class PoolController {
     const cacheKey = `pools:enriched:${showAll ? 'all' : 'visible'}`;
 
     return cache.getOrSet(cacheKey, 60_000, async () => {
-      const visibilityFilter = showAll ? '' : 'WHERE visible = TRUE';
-
-      const result = await pool.query(`
-        SELECT id, pair_address, token0, token1, swap_fee_bps, fixed_cf_bps
-        FROM pools 
-        ${visibilityFilter}
-        ORDER BY id ASC
-      `);
+      const result = await pool.query(buildPoolListQuery(showAll));
 
       const pairService = await initializePairStateService();
       const categoriesByPair = await loadPoolCategories(result.rows.map((poolData: PoolRow) => poolData.pair_address));
