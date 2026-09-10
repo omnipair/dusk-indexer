@@ -3,13 +3,13 @@
   "schemaVersion": 1,
   "revision": "devnet-1",
   "status": "deployed",
-  "generatedAt": "2026-09-10T06:35:35Z",
+  "generatedAt": "2026-09-10T08:33:45Z",
   "source": {
     "repository": "https://github.com/omnipair/dusk",
     "branch": "feat/permissionless-yield-harvest",
-    "note": "Devnet deployment; program keypairs and address registry in ~/.config/omnipair/dusk-devnet. Binary attested from chain (upgradeable loader programdata). Re-pinned 2026-09-10 for the harvest authority change: harvest takes a `caller` signer distinct from `owner`, and that caller must be the LP owner or the recipient the owner designated through set_yield_recipient. This lets yield be harvested while hLP sits in an order PDA that cannot sign for itself, without opening the instruction to any signer. The previous binary (91c3ee46c5dda029...) is preserved at dusk-keepers/artifacts/dusk-devnet-91c3ee46.so for rollback. source.worktreeFingerprintSha256 covers programs/ and is reproduced by scripts/compute-worktree-fingerprint.mjs.",
-    "gitCommit": "5809899db44fd3d002bd4db9e39271031ac9f0dd",
-    "worktreeFingerprintSha256": "8f0276785e7543bdb2cfe0497c9765e02aecf56ad48a273d454de18c7581a045"
+    "note": "Devnet deployment; program keypairs and address registry in ~/.config/omnipair/dusk-devnet. Binary attested from chain (upgradeable loader programdata). Re-pinned 2026-09-10 for the independent harvest authority: an LP owner can now set, rotate and revoke a keeper separately from the yield recipient, and harvest accepts the owner, the recipient, or that authority. Payouts stay bound to the recipient's canonical token account. The previous binary (b3f1d85f609feb7f...) is preserved at dusk-keepers/artifacts/dusk-devnet-b3f1d85f.so for rollback. source.worktreeFingerprintSha256 covers programs/ and is reproduced by scripts/compute-worktree-fingerprint.mjs.",
+    "gitCommit": "574bbd32f5a795e7a575af65363c35d228929a38",
+    "worktreeFingerprintSha256": "cc96a8f3331912c004b53e81c1a6af7bd0a18fd023b9d73d39d8008bb89bccae"
   },
   "cluster": {
     "name": "devnet",
@@ -21,11 +21,11 @@
       "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
       "binary": {
         "path": "on-chain (devnet)",
-        "sha256": "b3f1d85f609feb7f11b295c90e67a55a7d50dfa6b883972f227a56c40993d435"
+        "sha256": "9d8bdf0b152fa798248e2592f4d2a12a1dcfa79f6bddb06d2352c7f2f8ce816f"
       },
       "idl": {
         "path": "protocol/idl/dusk.json",
-        "sha256": "d898477e2d238cb445924e116b5577a9fb00484b3fa5d11ff51ad77a1c36ee2e"
+        "sha256": "54b731d26acbce000b6d6e3dd6dfcc4b9099a9c1b8af9c34504e7f2d71db0f13"
       }
     },
     {
