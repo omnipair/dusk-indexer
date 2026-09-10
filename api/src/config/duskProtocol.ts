@@ -161,6 +161,8 @@ export interface DuskApiConfig {
   readonly rpcUrl: string;
   readonly buildRevision: string;
   readonly envelopeCacheTtlMs: number;
+  /** Pins which market the deployment presents as primary; see below. */
+  readonly primaryMarket: string | null;
 }
 
 export function duskApiConfig(): DuskApiConfig {
@@ -191,5 +193,10 @@ export function duskApiConfig(): DuskApiConfig {
       process.env.RAILWAY_GIT_COMMIT_SHA?.trim() ||
       `${pinned.revision}-unversioned`,
     envelopeCacheTtlMs: ttl,
+    // Without this the primary market is whichever account
+    // getProgramAccounts happens to return first, so creating a market can
+    // silently repoint the deployment -- its default pair, and every script
+    // that reads config.primaryMarket -- at the new one.
+    primaryMarket: process.env.DUSK_PRIMARY_MARKET?.trim() || null,
   };
 }

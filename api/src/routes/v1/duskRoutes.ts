@@ -47,7 +47,17 @@ async function deploymentPayload() {
       marketPayload(market.address, market.account, sourceSlot),
     ),
   );
-  const primary = projected[0];
+  // Deterministic ordering first: getProgramAccounts has none, so without
+  // this the list reshuffles as markets are created and `primary` moves with
+  // it. DUSK_PRIMARY_MARKET pins the choice; otherwise the lowest address
+  // wins, which at least does not change under an unrelated deployment.
+  projected.sort((left, right) =>
+    String(left.marketAddress).localeCompare(String(right.marketAddress)),
+  );
+  const pinnedPrimary = config.primaryMarket
+    ? projected.find((market) => String(market.marketAddress) === config.primaryMarket)
+    : undefined;
+  const primary = pinnedPrimary ?? projected[0];
 
   const observedSlot = projected.reduce((highest, market) => {
     const state = market.state as Record<string, unknown>;
