@@ -192,6 +192,12 @@ async function uncachedMarketHealth(market: PublicKey) {
   );
   return {
     health: field<Record<string, unknown>>(preview, 'health'),
+    // The per-side preview carries the live borrow APR, utilization and EMA
+    // price. Those exist nowhere on the account -- the program derives them
+    // -- so discarding them here is why the borrow surface had no rate to
+    // show and had to report 0%.
+    base: field<Record<string, unknown>>(preview, 'base'),
+    quote: field<Record<string, unknown>>(preview, 'quote'),
     sourceSlot: simulation.context.slot,
   };
 }
@@ -585,6 +591,24 @@ export async function marketPayload(
       ),
       quoteDebtHealthBps: stringValue(
         field(health, 'quoteDebtHealthBps', 'quote_debt_health_bps'),
+      ),
+      baseBorrowAprNad: stringValue(
+        field(healthObservation.base, 'borrowAprNad', 'borrow_apr_nad'),
+      ),
+      quoteBorrowAprNad: stringValue(
+        field(healthObservation.quote, 'borrowAprNad', 'borrow_apr_nad'),
+      ),
+      baseUtilizationBps: stringValue(
+        field(healthObservation.base, 'utilizationBps', 'utilization_bps'),
+      ),
+      quoteUtilizationBps: stringValue(
+        field(healthObservation.quote, 'utilizationBps', 'utilization_bps'),
+      ),
+      basePriceEmaNad: stringValue(
+        field(healthObservation.base, 'priceEmaNad', 'price_ema_nad'),
+      ),
+      quotePriceEmaNad: stringValue(
+        field(healthObservation.quote, 'priceEmaNad', 'price_ema_nad'),
       ),
       healthSourceSlot: healthObservation.sourceSlot,
       healthObservedAt: iso(healthBlockTime),
