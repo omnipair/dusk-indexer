@@ -38,7 +38,20 @@ bun.lock
 
 # API and database components (separate services)
 api/
+# The dusk API image builds from api/; re-included after the exclusion so
+# the last matching rule wins. Its build outputs stay out of every context.
+!api/
+api/node_modules/
+api/dist/
 database/
+# The dusk daemon image carries its own migrations, applied by its entrypoint.
+# Exceptions must follow the directory rule: the last matching rule wins.
+!database/migrations/018_dusk_ingestion_foundation.sql
+!database/migrations/019_dusk_event_stream.sql
+!database/migrations/020_dusk_v1_compatibility.sql
+!database/migrations/021_dusk_valuation_and_positions.sql
+!database/migrations/022_dusk_retention.sql
+!database/migrations/023_dusk_swap_notify_trigger.sql
 
 # Other language artifacts
 *.pyc

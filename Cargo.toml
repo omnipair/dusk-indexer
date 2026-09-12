@@ -5,6 +5,7 @@ members = [
     "indexer/crates/proc-macros",
     "indexer/crates/test-utils",
     "indexer/crates/dusk-ingestion",
+    "indexer/crates/dusk-daemon",
     "indexer/metrics/*",
     "indexer/datasources/*",
     "indexer/decoders/*",

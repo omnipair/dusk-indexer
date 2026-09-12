@@ -1,0 +1,48 @@
+# Dusk devnet ingestion daemon.
+#
+# Builds only the dusk-indexer-daemon binary and ships it with psql so the
+# entrypoint can apply the dusk_ingestion migrations before starting. The
+# pinned protocol artifacts under protocol/ are compiled into the binary and
+# byte-verified at startup — a build from the wrong revision refuses to run.
+
+# Pinned to the nightly the workspace is proven on: sqlx 0.6 (shared with the
+# legacy indexer) no longer compiles on current nightlies. The image tag stays
+# floating because Docker Hub only publishes some dated tags; the toolchain is
+# pinned through rustup instead, and RUSTUP_TOOLCHAIN outranks the repo's
+# rust-toolchain.toml (whose channel is an unpinned "nightly").
+FROM rustlang/rust:nightly-bookworm AS builder
+RUN rustup toolchain install nightly-2025-09-28 --profile minimal
+ENV RUSTUP_TOOLCHAIN=nightly-2025-09-28
+
+RUN apt-get update && apt-get install -y \
+  build-essential \
+  pkg-config \
+  libssl-dev \
+  perl \
+  ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY . .
+RUN cargo build --release -p dusk-indexer-daemon
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y \
+  ca-certificates \
+  postgresql-client \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=builder /app/target/release/dusk-indexer-daemon /usr/local/bin/dusk-indexer-daemon
+COPY database/migrations/018_dusk_ingestion_foundation.sql /app/migrations/018_dusk_ingestion_foundation.sql
+COPY database/migrations/019_dusk_event_stream.sql /app/migrations/019_dusk_event_stream.sql
+COPY database/migrations/020_dusk_v1_compatibility.sql /app/migrations/020_dusk_v1_compatibility.sql
+COPY database/migrations/021_dusk_valuation_and_positions.sql /app/migrations/021_dusk_valuation_and_positions.sql
+COPY database/migrations/022_dusk_retention.sql /app/migrations/022_dusk_retention.sql
+COPY database/migrations/023_dusk_swap_notify_trigger.sql /app/migrations/023_dusk_swap_notify_trigger.sql
+COPY scripts/dusk-indexer-entrypoint.sh /usr/local/bin/dusk-indexer-entrypoint.sh
+RUN chmod +x /usr/local/bin/dusk-indexer-entrypoint.sh
+
+ENV RUST_LOG=info,sqlx=warn
+ENTRYPOINT ["/usr/local/bin/dusk-indexer-entrypoint.sh"]

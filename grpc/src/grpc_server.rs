@@ -20,6 +20,83 @@ use stream::{
 };
 use tonic_web::GrpcWebLayer;
 
+/// Does `origin` match one of the configured CORS patterns?
+///
+/// A preview deployment gets a fresh hostname on every build, so an exact list
+/// can never cover one. A `*` stands for any run of characters **within the
+/// single hostname label it appears in**: `https://*-omnipair.vercel.app`
+/// admits `https://dusk-webapp-abc123-omnipair.vercel.app` but not a
+/// subdomain below it, and not a host that merely ends with the same text.
+/// Patterns without a `*` compare exactly.
+fn origin_allowed(patterns: &[String], origin: &str) -> bool {
+    patterns.iter().any(|pattern| match pattern.split_once('*') {
+        None => pattern == origin,
+        Some((prefix, suffix)) => {
+            origin.len() >= prefix.len() + suffix.len()
+                && origin.starts_with(prefix)
+                && origin.ends_with(suffix)
+                && !origin[prefix.len()..origin.len() - suffix.len()].contains('.')
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::origin_allowed;
+
+    fn patterns() -> Vec<String> {
+        vec![
+            "http://localhost:3009".into(),
+            "https://dusk-webapp.vercel.app".into(),
+            "https://*-omnipair.vercel.app".into(),
+        ]
+    }
+
+    #[test]
+    fn exact_patterns_match_only_themselves() {
+        assert!(origin_allowed(&patterns(), "http://localhost:3009"));
+        assert!(origin_allowed(&patterns(), "https://dusk-webapp.vercel.app"));
+        assert!(!origin_allowed(&patterns(), "http://localhost:3000"));
+    }
+
+    #[test]
+    fn a_wildcard_admits_every_preview_hostname() {
+        assert!(origin_allowed(
+            &patterns(),
+            "https://dusk-webapp-fyvc70od6-omnipair.vercel.app"
+        ));
+        assert!(origin_allowed(
+            &patterns(),
+            "https://omnipair-webapp-git-surfpool-omnipair.vercel.app"
+        ));
+    }
+
+    /// The reason the wildcard cannot cross a dot: without this, anyone able to
+    /// publish at a hostname ending in the pattern's suffix reads the stream.
+    #[test]
+    fn a_wildcard_does_not_cross_a_dot() {
+        assert!(!origin_allowed(
+            &patterns(),
+            "https://evil.dusk-webapp-x-omnipair.vercel.app"
+        ));
+        assert!(!origin_allowed(
+            &patterns(),
+            "https://attacker-omnipair.vercel.app.evil.com"
+        ));
+        assert!(!origin_allowed(
+            &patterns(),
+            "https://dusk-webapp.vercel.app.evil.com"
+        ));
+    }
+
+    /// A `*` stands for at least nothing, but the separator around it is still
+    /// required — `omnipair.vercel.app` is missing the `-`.
+    #[test]
+    fn the_literal_parts_of_a_pattern_are_still_required() {
+        assert!(!origin_allowed(&patterns(), "https://omnipair.vercel.app"));
+    }
+}
+
 pub struct SwapStreamServer {
     broadcast_tx: broadcast::Sender<SwapsUpdate>,
 }
@@ -150,12 +227,18 @@ pub async fn start_grpc_server(
         let allowed_origins = std::env::var("ALLOWED_ORIGINS")
             .unwrap_or_else(|_| "https://omnipair.fi,https://legacy.omnipair.fi".to_string());
 
-        let origins: Vec<_> = allowed_origins
+        let patterns: Vec<String> = allowed_origins
             .split(',')
-            .filter_map(|s| s.trim().parse::<http::HeaderValue>().ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
             .collect();
+        log::info!("CORS allows: {}", patterns.join(", "));
 
-        AllowOrigin::list(origins)
+        AllowOrigin::predicate(move |origin, _| {
+            origin
+                .to_str()
+                .is_ok_and(|origin| origin_allowed(&patterns, origin))
+        })
     } else {
         log::info!("Running in development mode with permissive CORS");
         AllowOrigin::any()

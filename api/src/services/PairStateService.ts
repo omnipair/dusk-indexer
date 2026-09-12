@@ -1,3 +1,4 @@
+import pool from '../config/database';
 import { PublicKey, Connection } from '@solana/web3.js';
 import { Program, Idl } from '@coral-xyz/anchor';
 import { MintLayout } from '@solana/spl-token';
@@ -330,8 +331,110 @@ export class PairStateService {
         lpTokenDecimals,
       };
     } catch (err) {
+      // A Dusk market is not a v1 pair account, so the decode above cannot
+      // succeed against that deployment. The indexer already recorded the
+      // state these fields describe, so fall back to it rather than failing
+      // the read and reporting a market with no reserves.
+      const indexed = await this.fetchIndexedPairState(pairAddress);
+      if (indexed) return indexed;
       console.error('Error fetching pair state:', err);
       throw err;
+    }
+  }
+
+  /**
+   * Pair state rebuilt from indexed events.
+   *
+   * Only the fields the events actually carry are populated. Interest rates
+   * and oracle prices are left at zero rather than guessed: they are
+   * published by a mechanism this projection does not observe, and a
+   * plausible-looking rate is worse than a visibly absent one.
+   */
+  private async fetchIndexedPairState(
+    pairAddress: string,
+  ): Promise<PairState | null> {
+    try {
+      const result = await pool.query<{
+        token0: string;
+        token1: string;
+        lp_mint: string;
+        reserve0: string | null;
+        reserve1: string | null;
+        ylp_supply: string | null;
+        decimals0: number | null;
+        decimals1: number | null;
+      }>(
+        `SELECT p.token0, p.token1, p.lp_mint,
+                latest.reserve0, latest.reserve1, latest.ylp_supply,
+                t0.decimals AS decimals0, t1.decimals AS decimals1
+           FROM pools p
+           LEFT JOIN dusk_ingestion.token_metadata t0 ON t0.mint = p.token0
+           LEFT JOIN dusk_ingestion.token_metadata t1 ON t1.mint = p.token1
+           LEFT JOIN LATERAL (
+               SELECT (e.payload->>'base_live_reserve')::numeric  AS reserve0,
+                      (e.payload->>'quote_live_reserve')::numeric AS reserve1,
+                      (e.payload->>'ylp_supply')::numeric         AS ylp_supply
+                 FROM dusk_ingestion.event_stream e
+                WHERE e.market = p.pair_address
+                  AND e.payload ? 'base_live_reserve'
+                ORDER BY e.time DESC
+                LIMIT 1
+           ) latest ON TRUE
+          WHERE p.pair_address = $1`,
+        [pairAddress],
+      );
+      const row = result.rows[0];
+      if (!row || row.reserve0 === null) return null;
+
+      const decimals0 = row.decimals0 ?? 6;
+      const decimals1 = row.decimals1 ?? 6;
+      const human = (raw: string | null, decimals: number) =>
+        (Number(raw ?? 0) / Math.pow(10, decimals)).toString();
+      const [token0Metadata, token1Metadata] = await Promise.all([
+        this.fetchTokenMetadata(new PublicKey(row.token0)),
+        this.fetchTokenMetadata(new PublicKey(row.token1)),
+      ]);
+
+      const zeroPair = { token0: '0', token1: '0' };
+      return {
+        token0: {
+          symbol: token0Metadata.symbol,
+          name: token0Metadata.name,
+          decimals: decimals0,
+          address: row.token0,
+          iconUrl: token0Metadata.iconUrl,
+        },
+        token1: {
+          symbol: token1Metadata.symbol,
+          name: token1Metadata.name,
+          decimals: decimals1,
+          address: row.token1,
+          iconUrl: token1Metadata.iconUrl,
+        },
+        reserves: {
+          token0: human(row.reserve0, decimals0),
+          token1: human(row.reserve1, decimals1),
+        },
+        // Dusk keeps borrowable cash in the same reserve the events report.
+        cashReserves: {
+          token0: human(row.reserve0, decimals0),
+          token1: human(row.reserve1, decimals1),
+        },
+        oraclePrices: { ...zeroPair },
+        spotPrices: { ...zeroPair },
+        rates: { token0: 0, token1: 0 },
+        totalDebts: { ...zeroPair },
+        totalCollaterals: { ...zeroPair },
+        utilization: { token0: 0, token1: 0 },
+        totalSupply: row.ylp_supply ?? '0',
+        lpTokenDecimals: decimals0,
+      } as PairState;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/does not exist/i.test(message)) {
+        console.warn(`Indexed pair state lookup failed: ${message}`);
+      }
+      return null;
     }
   }
 

@@ -6,10 +6,12 @@ use {
     std::collections::BTreeSet,
 };
 
-const DUSK_EVENTS: [&str; 35] = [
+const DUSK_EVENTS: [&str; 37] = [
     "BorrowPositionLiquidated",
     "HlpClosed",
     "HlpOpened",
+    "HlpTerminalLiquidated",
+    "InsuranceDonated",
     "LeverageDelegationUpdated",
     "LeveragePositionClosed",
     "LeveragePositionLiquidated",
@@ -44,12 +46,19 @@ const DUSK_EVENTS: [&str; 35] = [
     "YieldRecipientUpdated",
 ];
 
-const DELEGATE_INSTRUCTIONS: [&str; 6] = [
+const DELEGATE_INSTRUCTIONS: [&str; 13] = [
     "after_close_order",
     "before_stop_loss",
     "before_take_profit",
+    "cancel_hlp_order",
+    "cancel_leverage_entry_order",
     "cancel_leverage_order",
+    "create_hlp_order",
+    "create_leverage_entry_order",
     "create_leverage_order",
+    "execute_hlp_order",
+    "execute_leverage_entry_order",
+    "settle_hlp_order_yield",
     "update_leverage_order",
 ];
 
@@ -66,11 +75,17 @@ const DUSK_ACCOUNTS: [&str; 10] = [
     "YieldAccount",
 ];
 
-const DELEGATE_ACCOUNTS: [&str; 4] = [
+const DELEGATE_ACCOUNTS: [&str; 10] = [
+    "FutarchyAuthority",
+    "HlpOrder",
     "LeverageDelegation",
+    "LeverageEntryOrder",
     "LeverageOrder",
     "LeveragePosition",
     "Market",
+    "ReferralAccrual",
+    "ReferralPartner",
+    "YieldAccount",
 ];
 
 fn decoder() -> PinnedIdlDecoder {
@@ -234,7 +249,7 @@ fn registry_classifies_every_pinned_event_and_instruction() {
     assert!(decoder
         .event_names(PinnedProgram::LeverageDelegate)
         .is_empty());
-    assert_eq!(decoder.instruction_names(PinnedProgram::Dusk).len(), 53);
+    assert_eq!(decoder.instruction_names(PinnedProgram::Dusk).len(), 58);
     let actual_delegate: BTreeSet<_> = decoder
         .instruction_names(PinnedProgram::LeverageDelegate)
         .into_iter()
@@ -248,10 +263,10 @@ fn anchor_tags_and_every_idl_discriminator_are_cryptographically_verified() {
     anchor_event_digest.reverse();
     assert_eq!(anchor_event_digest, ANCHOR_EVENT_CPI_TAG);
     let decoder = decoder();
-    assert_eq!(decoder.dusk.events.len(), 35);
-    assert_eq!(decoder.dusk.instructions.len(), 53);
+    assert_eq!(decoder.dusk.events.len(), 37);
+    assert_eq!(decoder.dusk.instructions.len(), 58);
     assert_eq!(decoder.delegate.events.len(), 0);
-    assert_eq!(decoder.delegate.instructions.len(), 6);
+    assert_eq!(decoder.delegate.instructions.len(), 13);
 
     let mut idl: Value = serde_json::from_slice(DUSK_IDL).unwrap();
     idl["events"][0]["discriminator"][0] = json!(0);
@@ -573,7 +588,7 @@ fn registry_classifies_all_10_dusk_and_four_delegate_account_declarations() {
     assert_eq!(dusk, DUSK_ACCOUNTS.into_iter().collect());
     assert_eq!(delegate, DELEGATE_ACCOUNTS.into_iter().collect());
     assert_eq!(decoder.dusk.accounts.len(), 10);
-    assert_eq!(decoder.delegate.accounts.len(), 4);
+    assert_eq!(decoder.delegate.accounts.len(), 10);
 
     let mut idl: Value = serde_json::from_slice(DUSK_IDL).unwrap();
     idl["accounts"][0]["discriminator"][0] = json!(0);
@@ -731,7 +746,8 @@ fn market_and_keeper_projections_cover_curve_and_all_protocol_auction_lanes() {
     assert_eq!(market.params_hash_hex, format!("0x{}", "00".repeat(32)));
 
     let mut fields = decoded.decoded_fields.unwrap();
-    fields["config"]["amm"]["peak_depth_nad"] = json!("1");
+    // Concentrated means amplification above one NAD; 2.0x here.
+    fields["config"]["amm"]["peak_amplification_nad"] = json!("2000000000");
     let concentrated = projections::build_product_projections(
         "Market",
         &account_context().account_pubkey,
@@ -742,7 +758,8 @@ fn market_and_keeper_projections_cover_curve_and_all_protocol_auction_lanes() {
     assert_eq!(market.amm_kind, AmmKind::ConstantProduct);
     assert_eq!(market.configured_amm_kind, AmmKind::Concentrated);
 
-    fields["amm"]["applied_curve_parameters"]["peak_depth_nad"] = json!("1");
+    fields["amm"]["concentrated_curve_cache"]["peak_amplification_nad"] =
+        json!("2000000000");
     let concentrated = projections::build_product_projections(
         "Market",
         &account_context().account_pubkey,

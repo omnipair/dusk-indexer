@@ -344,3 +344,36 @@ RUST_LOG=info
 ---
 
 **Note**: This indexer is currently in active development. Database integration, instruction processing, and advanced features are planned for future releases.
+## Dusk devnet daemon
+
+`dusk-indexer-daemon` (crates/dusk-daemon) ingests the pinned Dusk deployment
+from a live cluster: it polls `getSignaturesForAddress` at finalized
+commitment, decodes every event through the IDL-pinned decoder (event-CPI and
+`Program data:` transports), and persists observation + canonical + stream
+rows idempotently. Unknown or malformed events are persisted with their raw
+bytes rather than dropped.
+
+Environment:
+
+| Variable | Meaning |
+| --- | --- |
+| `DUSK_CLUSTER` | Chain namespace in every event key (e.g. `devnet`) |
+| `DUSK_RPC_URL` | RPC endpoint the poller reads |
+| `DATABASE_URL` | Postgres; Timescale turns `event_stream` into a hypertable |
+| `DUSK_POLL_INTERVAL_MS` | Poll cadence (default 15000) |
+| `DUSK_SIGNATURE_PAGE_LIMIT` | Signatures per page (default 200) |
+
+Local run:
+
+```bash
+createdb dusk_indexer_devnet
+psql -d dusk_indexer_devnet -f database/migrations/018_dusk_ingestion_foundation.sql
+psql -d dusk_indexer_devnet -f database/migrations/019_dusk_event_stream.sql
+DUSK_CLUSTER=devnet \
+DUSK_RPC_URL=https://api.devnet.solana.com \
+DATABASE_URL=postgres://localhost/dusk_indexer_devnet \
+cargo run -p dusk-indexer-daemon
+```
+
+The Railway image (`Dockerfile.dusk-indexer`) applies both migrations from
+its entrypoint before starting, so a fresh database needs no manual step.

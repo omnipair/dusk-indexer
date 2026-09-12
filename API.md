@@ -436,3 +436,32 @@ curl "http://localhost:3000/pairs?limit=5"
 
 **Note**: This API documentation is for the current version. Check the repository for the latest updates and changes.
 
+
+## Dusk API (`/api/dusk/v1`)
+
+Serves the `dusk_ingestion` tables filled by `dusk-indexer-daemon`. Every
+payload is wrapped in `{ success, data, deployment }`, where `deployment` is
+the full deployment-identity envelope (`dusk-deployment.v1`) — clients pin it
+and refuse data from a program they were not built against.
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /api/dusk/v1/deployment` | Deployment identity plus the pinned revision and program ids |
+| `GET /api/dusk/v1/markets` | Indexed markets with activity window, event count, creation provenance |
+| `GET /api/dusk/v1/markets/:market` | Per-event-name counts and activity window for one market |
+| `GET /api/dusk/v1/markets/:market/events` | That market's event history |
+| `GET /api/dusk/v1/events` | Global activity feed |
+| `GET /api/dusk/v1/health` | Ingestion counters, cursor lag, envelope status (no envelope wrapper) |
+
+Feed queries accept `events=Name1,Name2`, `since`/`until` (ISO 8601),
+`limit` (≤500) and `offset`.
+
+`GET /api/v2/fork/config` is a compatibility alias for `/deployment`, so
+clients written against the fork lab only change their base URL.
+
+Not served: TVL, APY, and live position health. Those need account-state
+projection, which the daemon does not do yet — the tables hold events.
+
+Environment: `DATABASE_URL`, `DUSK_RPC_URL`, `DUSK_CLUSTER`, optional
+`DUSK_PROTOCOL_DIR` (defaults to the repo's `protocol/`),
+`DUSK_ENVELOPE_CACHE_TTL_MS` (default 15000), `CORS_ORIGIN`, `PORT`.
