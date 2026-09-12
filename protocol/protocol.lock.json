@@ -3,13 +3,13 @@
   "schemaVersion": 1,
   "revision": "devnet-1",
   "status": "deployed",
-  "generatedAt": "2026-09-10T09:38:48Z",
+  "generatedAt": "2026-09-12T03:44:38Z",
   "source": {
     "repository": "https://github.com/omnipair/dusk",
     "branch": "feat/permissionless-yield-harvest",
-    "note": "Devnet deployment; program keypairs and address registry in ~/.config/omnipair/dusk-devnet. Binary attested from chain (upgradeable loader programdata). Re-pinned 2026-09-10 so a PDA created before a state field was added grows in place instead of being rejected: YieldAccount gained harvest_authority (Option<Pubkey>, 33 bytes), which made every yield account created before that deploy unopenable and broke add-liquidity on the devnet market with InvalidArgument 234 vs 267. The IDL is unchanged by this deploy and keeps digest 54b731d26acbce000b6d6e3dd6dfcc4b9099a9c1b8af9c34504e7f2d71db0f13. The previous binary (9d8bdf0b152fa798...) is preserved at dusk-keepers/artifacts/dusk-devnet-9d8bdf0b.so for rollback. source.worktreeFingerprintSha256 covers programs/ and is reproduced by scripts/compute-worktree-fingerprint.mjs.",
-    "gitCommit": "becb6501e3acdfb7fd5985135a98255ee36cfa19",
-    "worktreeFingerprintSha256": "75a244fe0542493ae79c538b17227eb4f4e5c43f84df75b588aa8ec6c46bdeda"
+    "note": "Devnet deployment; program keypairs and address registry in ~/.config/omnipair/dusk-devnet. Binary attested from chain (upgradeable loader programdata). Re-pinned 2026-09-12 for grow_yield_account, which repairs a yield account created before YieldAccount gained harvest_authority (Option<Pubkey>, 33 bytes). All eight accounts on devnet are the old 234-byte layout, so Anchor cannot deserialize them and harvest, set_harvest_authority, single-sided hLP deposits and governance support all fail before their handler runs. The instruction is permissionless: it appends zeroed bytes to reach the size the program already expects and the caller pays the rent. This deploy adds an instruction, so the IDL digest moves too. The previous binary (1b147326414213...) is preserved at dusk-keepers/artifacts/dusk-devnet-1b147326.so for rollback. source.worktreeFingerprintSha256 covers programs/ and is reproduced by scripts/compute-worktree-fingerprint.mjs.",
+    "gitCommit": "51b88ccfca1bdde1f6592f2d0c8e64e210c26671",
+    "worktreeFingerprintSha256": "f6cb7bcccda785c56ae26eb68098f6fd187c059a025d5c73ec4e208e58d90d4f"
   },
   "cluster": {
     "name": "devnet",
@@ -21,11 +21,11 @@
       "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
       "binary": {
         "path": "on-chain (devnet)",
-        "sha256": "1b147326414213137223a627b2995804c8392fd611c4396739b72f3ea3b5d7d5"
+        "sha256": "72aa2ddf58366a002c7b26c23020b5bbd36598143caae7eb06fc6243428af8a9"
       },
       "idl": {
         "path": "protocol/idl/dusk.json",
-        "sha256": "54b731d26acbce000b6d6e3dd6dfcc4b9099a9c1b8af9c34504e7f2d71db0f13"
+        "sha256": "6a8b96e2c230d1efa0f9ecb87d2ab49cb756f69c27331c08f683ae8cf1387b98"
       }
     },
     {
