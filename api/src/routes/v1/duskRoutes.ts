@@ -82,7 +82,6 @@ async function deploymentPayload(identity: string) {
     config: {
       network: config.network,
       protocolRevision: pinned.revision,
-      rpcUrl: config.rpcUrl,
       programId: pinned.dusk.programId,
       leverageDelegateProgramId: pinned.leverageDelegate.programId,
       payer: (await deploymentEnvelope()).programUpgradeAuthority,
@@ -167,7 +166,6 @@ router.get(
       await withDeployment({
         network: config.network,
         protocolRevision: pinned.revision,
-        rpcUrl: config.rpcUrl,
         programs: {
           dusk: pinned.dusk.programId,
           leverageDelegate: pinned.leverageDelegate.programId,

@@ -96,19 +96,22 @@ function deploymentIdentityFingerprint(
   );
 }
 
-async function buildEnvelope(): Promise<DuskDeploymentEnvelope> {
+async function buildEnvelope(minimumSourceSlot: number): Promise<DuskDeploymentEnvelope> {
   const pinned = loadPinnedProtocol();
   const { connection: rpc, config: apiConfig } = runtime();
+  const floor = Math.max(minimumSourceSlot, cached?.value.sourceSlot ?? 0);
 
   // The pinned loader addresses can be read together while genesis and tip
   // checks run. No envelope is accepted until all three observations agree.
   observePrograms ??= createDuskProgramObserver(rpc);
   const [genesisHash, slot, programs] = await Promise.all([
     rpc.getGenesisHash(),
-    rpc.getSlot(DUSK_DEPLOYMENT_COMMITMENT),
-    observePrograms([pinned.dusk,pinned.leverageDelegate]),
+    rpc.getSlot({ commitment: DUSK_DEPLOYMENT_COMMITMENT, minContextSlot: floor }),
+    observePrograms([pinned.dusk,pinned.leverageDelegate], floor),
   ]);
   const [duskProgram,delegateProgram] = programs;
+  if (!Number.isSafeInteger(slot) || slot < floor)
+    throw new Error(`RPC tip did not satisfy the deployment source-slot floor ${floor}`);
   if (genesisHash !== pinned.genesisHash) {
     throw new Error(
       `RPC genesis ${genesisHash} does not match the pinned cluster ${pinned.genesisHash}`,
@@ -160,6 +163,8 @@ export async function deploymentEnvelope(
   minimumSourceSlot = 0,
   options: { fresh?: boolean } = {},
 ): Promise<DuskDeploymentEnvelope> {
+  if (!Number.isSafeInteger(minimumSourceSlot) || minimumSourceSlot < 0)
+    throw new Error('Invalid deployment source-slot floor');
   const { config: apiConfig } = runtime();
   if (
     !options.fresh && cached &&
@@ -171,7 +176,7 @@ export async function deploymentEnvelope(
   // Collapse concurrent refreshes; a cold start under load would otherwise
   // issue one full observation per in-flight request.
   if (!inflight) {
-    inflight = buildEnvelope()
+    inflight = buildEnvelope(minimumSourceSlot)
       .then((value) => {
         cached = { value, observedAtMs: Date.now() };
         return value;
@@ -183,10 +188,9 @@ export async function deploymentEnvelope(
   const envelope = await inflight;
   if (envelope.sourceSlot >= minimumSourceSlot) return envelope;
 
-  // A lagging RPC node can answer below the floor. One rebuild is enough in
-  // practice; failing loudly beats stamping data with an envelope that did
-  // not observe it.
-  const rebuilt = await buildEnvelope();
+  // A coalesced request may have started with a lower floor. Rebuild once
+  // with this caller's requirement; a node that ignores it is still rejected.
+  const rebuilt = await buildEnvelope(minimumSourceSlot);
   cached = { value: rebuilt, observedAtMs: Date.now() };
   if (rebuilt.sourceSlot < minimumSourceSlot) {
     throw new Error(

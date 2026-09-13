@@ -35,8 +35,11 @@ export function createDuskProgramObserver(rpc: Rpc) {
   let minimumSlot = 0;
   return async (
     pins: readonly DuskPinnedProgram[],
+    minimumSourceSlot = 0,
   ): Promise<ObservedProgram[]> => {
     if (
+      !Number.isSafeInteger(minimumSourceSlot) ||
+      minimumSourceSlot < 0 ||
       !pins.length ||
       pins.length > 2 ||
       new Set(pins.map((pin) => pin.programId)).size !== pins.length
@@ -44,6 +47,7 @@ export function createDuskProgramObserver(rpc: Rpc) {
       throw new Error('Invalid bounded program observation');
     const floor = Math.max(
       minimumSlot,
+      minimumSourceSlot,
       ...pins.map((pin) => pin.deployment.deploySlot + 1),
     );
     const observed = await rpc.getMultipleAccountsInfoAndContext(

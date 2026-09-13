@@ -8,6 +8,20 @@ import { createDuskProgramObserver } from '../services/duskProgramObservation';
 type Read = Connection['getMultipleAccountsInfoAndContext'];
 type Result = Awaited<ReturnType<Read>>;
 type Options = Parameters<Read>[1];
+test('program observations enforce the caller source-slot floor, including cached binaries', async () => {
+  const sample = fixture();
+  await sample.observe(sample.pins);
+  sample.setSlot(59);
+  await assert.rejects(sample.observe(sample.pins, 60), /regressed/);
+  assert.equal((sample.calls.at(-1)!.options as { minContextSlot: number }).minContextSlot, 60);
+  sample.setSlot(60);
+  const result = await sample.observe(sample.pins, 60);
+  assert.ok(result.every(program => program.sourceSlot === 60));
+  const count = sample.calls.length;
+  for (const floor of [-1, NaN, 1.5, Infinity])
+    await assert.rejects(sample.observe(sample.pins, floor), /Invalid bounded/);
+  assert.equal(sample.calls.length, count);
+});
 function fixture() {
   const loader = new PublicKey('BPFLoaderUpgradeab1e11111111111111111111111');
   const protocol = loadPinnedProtocol();
