@@ -82,5 +82,5 @@ jobs:
       - run: docker build --file Dockerfile.dusk-api --tag dusk-api:test .
       - name: Verify pinned artifacts and migrations in the actual images
         run: |
-          docker run --rm --network none --entrypoint sh dusk-indexer:test -c 'while read name; do test -f "/app/migrations/$name" || exit 1; done < /app/dusk-migrations.txt'
+          docker run --rm --network none --entrypoint sh dusk-indexer:test -c 'while read name; do if ! test -f "/app/migrations/$name"; then echo "Missing packaged migration: $name" >&2; exit 1; fi; done < /app/dusk-migrations.txt'
           docker run --rm --network none --entrypoint node dusk-api:test -e 'const pin=require("./dist/config/duskProtocol").loadPinnedProtocol(); if(pin.cluster!=="devnet")process.exit(1); console.log(pin.revision)'
