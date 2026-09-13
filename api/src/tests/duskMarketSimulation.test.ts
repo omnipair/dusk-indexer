@@ -90,6 +90,27 @@ test('a deployment change during capture invalidates the complete response',asyn
   const sample = fixture({ identityChanged: true });
   await assert.rejects(captureMarketSimulation(sample.source.market,sample.source.slot,[],sample.dependencies),/Deployment changed/);
 });
+test('block-time lookup overlaps final attestation, and the snapshot waits for both',async () => {
+  const sample=fixture(),originalEnvelope=sample.dependencies.envelope,originalBlock=sample.dependencies.readBlock;
+  let release!:()=>void,entered!:()=>void,blockStarted=false,settled=false;
+  const gate=new Promise<void>(resolve=>{release=resolve;}),afterStarted=new Promise<void>(resolve=>{entered=resolve;});
+  sample.dependencies.envelope=async(slot=0)=>{
+    const result=await originalEnvelope(slot);
+    if(sample.requestedSlots.length===2) { entered(); await gate; }
+    return result;
+  };
+  sample.dependencies.readBlock=async(rpc,slot)=>{blockStarted=true;return originalBlock(rpc,slot);};
+  const pending=captureMarketSimulation(sample.source.market,sample.source.slot,[],sample.dependencies);
+  void pending.then(()=>{settled=true;});
+  await afterStarted;
+  try {assert.equal(blockStarted,true);assert.equal(settled,false);}
+  finally {release();await pending;}
+});
+test('missing block time still prevents a snapshot when the final identity is valid',async()=>{
+  const sample=fixture();
+  sample.dependencies.readBlock=async()=>{throw new Error('Captured block unavailable');};
+  await assert.rejects(captureMarketSimulation(sample.source.market,sample.source.slot,[],sample.dependencies),/Captured block unavailable/);
+});
 test('duplicate market or related accounts are rejected before any network work',async () => {
   const sample = fixture();
   for (const addresses of [[sample.source.market],[sample.extra,sample.extra]])

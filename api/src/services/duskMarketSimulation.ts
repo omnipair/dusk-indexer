@@ -91,9 +91,10 @@ async function captureAtCommitment<C extends 'finalized' | 'confirmed'>(market: 
   priceMarketBindings(pin.dusk.programId,market,decoder.accounts.decode('Market',Buffer.from(marketAccount.data,'base64')));
   if (preview && String((decoder.types.decode('MarketPreview',Buffer.from(preview,'base64')) as { slot: unknown }).slot) !== String(slot))
     throw new Error('Market preview and account snapshot slots differ');
-  const after = await envelope(slot,{ fresh: true });
+  // The timestamp belongs to this already-captured bank. Fetching it does not
+  // depend on the final deployment check, but both must pass before returning.
+  const [after,block] = await Promise.all([envelope(slot,{ fresh: true }),readBlock(rpc,slot)]);
   if (before.deploymentIdentitySha256 !== after.deploymentIdentitySha256) throw new Error('Deployment changed during market snapshot');
-  const block = await readBlock(rpc,slot);
   return { commitment,market,slot,blockhash: block.blockhash,blockTime: new Date(block.blockTime*1000).toISOString(),observedAt: new Date().toISOString(),
     deploymentIdentitySha256: after.deploymentIdentitySha256,marketAccount,preview,basis,previewUnavailable: preview === null,
     accounts: extraAddresses.map((address,index) => ({ address,account: accounts[index+1] })) };
