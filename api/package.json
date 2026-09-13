@@ -14,6 +14,11 @@
     "start:volume-enricher": "node dist/scripts/volumeEnricher.js",
     "start:portfolio-snapshotter": "node dist/scripts/portfolioSnapshotter.js",
     "start:lp-earnings-worker": "node dist/scripts/lpEarningsWorker.js",
+    "start:lp-ownership-worker": "node dist/scripts/duskLpOwnershipWorker.js",
+    "start:yield-claims-worker": "node dist/scripts/duskYieldClaimsWorker.js",
+    "start:yield-checkpoints-worker": "node dist/scripts/duskYieldCheckpointsWorker.js",
+    "start:prices-worker": "node dist/scripts/duskPricesWorker.js",
+    "start:native-portfolio-worker": "node dist/scripts/duskPortfolioSnapshotsWorker.js",
     "start:lp-valuation-reconciler": "node dist/scripts/lpValuationReconciler.js",
     "backfill-volume": "npm run build && node dist/scripts/backfillVolume.js",
     "backfill-token-prices": "npm run build && node dist/scripts/backfillTokenPrices.js",
@@ -23,7 +28,12 @@
     "benchmark:activity": "npm run build && node dist/scripts/benchmarkActivityHistory.js",
     "check:portfolio-snapshots": "npm run build && node dist/scripts/checkPortfolioSnapshots.js",
     "generate:cmc-ucids": "node scripts/generate-cmc-unified-cryptoasset-map.mjs",
-    "test:unit": "npm run build && node --test dist/tests/*.test.js"
+    "test:unit": "npm run build && node --test dist/tests/*.test.js",
+    "test:native-integration": "npm run build && node --test dist/tests/duskNative.integration.js",
+    "test:yield-history-integration": "npm run build && node --test dist/tests/duskYieldClaims.integration.js dist/tests/duskYieldCheckpoints.integration.js",
+    "test:prices-integration": "npm run build && node --test dist/tests/duskPrices.integration.js",
+    "test:portfolio-integration": "npm run build && node --test dist/tests/duskPortfolioSnapshots.integration.js",
+    "test:deployment-integration": "npm run build && node --test dist/tests/duskDeploymentInterval.integration.js"
   },
   "keywords": [
     "typescript",

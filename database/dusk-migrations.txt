@@ -1,0 +1,16 @@
+018_dusk_ingestion_foundation.sql
+019_dusk_event_stream.sql
+020_dusk_v1_compatibility.sql
+021_dusk_valuation_and_positions.sql
+023_dusk_swap_notify_trigger.sql
+024_dusk_canonical_integrity.sql
+025_dusk_native_accounts.sql
+026_dusk_native_integrity_and_notifications.sql
+027_dusk_lp_ownership.sql
+028_dusk_history_checkpoints.sql
+029_dusk_yield_checkpoint_sources.sql
+030_dusk_price_capture_sources.sql
+031_dusk_price_notifications.sql
+032_dusk_price_market_basis.sql
+033_dusk_portfolio_sources.sql
+034_dusk_deployment_intervals.sql

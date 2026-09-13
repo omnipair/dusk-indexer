@@ -1,3 +1,5 @@
+> Dusk deployment: use the [runtime entrypoints and migration contract](docs/dusk-runtime.md). The inherited Omnipair setup below is reference architecture, not the active Dusk bootstrap.
+
 # Omnipair Indexer
 
 A comprehensive blockchain indexer for the Omnipair protocol on Solana, built with a modern hybrid architecture combining Rust performance with TypeScript flexibility.

@@ -4,12 +4,12 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/omnipair_db',
+  connectionString: process.env.DATABASE_URL,
   max: 50,
   min: 5,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
-  application_name: 'omnipair_api',
+  application_name: 'dusk_api',
   statement_timeout: 30000,
 });
 

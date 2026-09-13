@@ -356,8 +356,7 @@ fn project_market(account: &str, fields: &Value) -> Result<AccountProjections, S
         &["amm", "concentrated_curve_cache", "peak_amplification_nad"],
     )?;
     let amm_kind = amplification_kind(&applied_amplification);
-    let configured_amplification =
-        unsigned(fields, &["config", "amm", "peak_amplification_nad"])?;
+    let configured_amplification = unsigned(fields, &["config", "amm", "peak_amplification_nad"])?;
     let configured_amm_kind = amplification_kind(&configured_amplification);
     let mut lanes = auction_lanes(account, fields, AssetSide::Base, &base.asset_mint)?;
     lanes.extend(auction_lanes(

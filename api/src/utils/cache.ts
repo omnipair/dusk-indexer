@@ -13,7 +13,7 @@ interface CacheStats {
   coalesced: number;
 }
 
-class SimpleCache {
+export class SimpleCache {
   private cache: Map<string, CacheEntry> = new Map();
   private inflight: Map<string, Promise<any>> = new Map();
   private stats: Map<string, CacheStats> = new Map();
@@ -36,7 +36,7 @@ class SimpleCache {
       return null;
     }
 
-    if (Date.now() - entry.timestamp > entry.ttl) {
+    if (Date.now() - entry.timestamp >= entry.ttl) {
       this.cache.delete(key);
       return null;
     }
@@ -95,15 +95,19 @@ class SimpleCache {
     }
 
     this.trackLookup(key, 'miss');
+    const startedAt = Date.now();
     const promise = fetcher()
       .then((data) => {
-        if (data != null) {
-          this.set(key, data, ttlMs);
+        // Invalidation also detaches pending reads. An older response must
+        // never repopulate the cache after a committed database notification.
+        const remainingTtl = ttlMs - (Date.now() - startedAt);
+        if (data != null && remainingTtl > 0 && this.inflight.get(key) === promise) {
+          this.set(key, data, remainingTtl);
         }
         return data;
       })
       .finally(() => {
-        this.inflight.delete(key);
+        if (this.inflight.get(key) === promise) this.inflight.delete(key);
       });
 
     this.inflight.set(key, promise);
@@ -113,17 +117,19 @@ class SimpleCache {
 
   delete(key: string): void {
     this.cache.delete(key);
+    this.inflight.delete(key);
   }
 
   clear(): void {
     this.cache.clear();
+    this.inflight.clear();
   }
 
   deleteByPrefix(prefix: string): number {
     let removed = 0;
-    for (const key of this.cache.keys()) {
+    for (const key of new Set([...this.cache.keys(), ...this.inflight.keys()])) {
       if (key.startsWith(prefix)) {
-        this.cache.delete(key);
+        this.delete(key);
         removed += 1;
       }
     }

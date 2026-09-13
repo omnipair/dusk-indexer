@@ -11,6 +11,7 @@ import { duskApiConfig, loadPinnedProtocol } from '../../config/duskProtocol';
 import {
   deploymentEnvelope,
   withDeployment,
+  withDeploymentRead,
 } from '../../services/duskDeploymentService';
 import {
   discoverMarkets,
@@ -27,6 +28,12 @@ import {
 } from '../../services/duskReadModel';
 
 import { cache } from '../../utils/cache';
+import { listNativeAccounts, NativeAccountKind } from '../../services/duskNativeAccounts';
+import { listDuskLpOwnership } from '../../services/duskLpOwnership';
+import { listYieldClaims } from '../../services/duskYieldClaims';
+import { listYieldCheckpoints } from '../../services/duskYieldCheckpoints';
+import { listDuskPriceHistory } from '../../services/duskPrices';
+import { listPortfolioHistory, portfolioSampleSeconds } from '../../services/duskPortfolioSnapshots';
 import { provenance, renderMetrics } from '../../utils/metrics';
 
 import { PublicKey } from '@solana/web3.js';
@@ -38,13 +45,13 @@ const router = Router();
  * configuration describes the primary market and lists every market, and the
  * list endpoint returns all of them in one page.
  */
-async function deploymentPayload() {
+async function deploymentPayload(identity: string) {
   const pinned = loadPinnedProtocol();
   const config = duskApiConfig();
   const { markets, sourceSlot } = await discoverMarkets();
   const projected = await Promise.all(
     markets.map((market) =>
-      marketPayload(market.address, market.account, sourceSlot),
+      marketPayload(market.address, market.account, sourceSlot, identity),
     ),
   );
   // Deterministic ordering first: getProgramAccounts has none, so without
@@ -78,13 +85,17 @@ async function deploymentPayload() {
       programId: pinned.dusk.programId,
       leverageDelegateProgramId: pinned.leverageDelegate.programId,
       payer: (await deploymentEnvelope()).programUpgradeAuthority,
-      fixtureMode: 'mainnet',
       markets: projected.map((market) => ({
         label: market.label,
         market: market.marketAddress,
         marketKind: market.marketKind,
         baseMint: market.baseMint,
         quoteMint: market.quoteMint,
+        baseDecimals: market.baseDecimals,
+        quoteDecimals: market.quoteDecimals,
+        ylpMint: market.ylpMint,
+        baseHlpMint: market.baseHlpMint,
+        quoteHlpMint: market.quoteHlpMint,
         paramsHash: market.paramsHash,
         seededLiquidity: true,
       })),
@@ -119,32 +130,10 @@ async function deploymentPayload() {
 
 type DeploymentSnapshot = Awaited<ReturnType<typeof deploymentPayload>>;
 
-/**
- * How long the assembled deployment surface is served from memory.
- *
- * Sixty seconds, matching the `pools:enriched` layer omnipair arrived at. The
- * expensive part is not this cache but what it wraps: `marketPayload` runs a
- * `preview_market` simulation per market, so a rebuild costs seconds no matter
- * how often it happens. Live figures underneath are cached separately and much
- * more briefly — `dusk:market_health:<address>` at five seconds — so a lapse
- * here does not mean a page shows minute-old reserves; it means the assembled
- * envelope is rebuilt from layers that are themselves mostly warm.
- */
-function snapshotTtlMs(): number {
-  const raw = process.env.DUSK_MARKET_CACHE_TTL_MS?.trim();
-  const parsed = raw ? Number(raw) : 60_000;
-  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 60_000;
-}
-
-/**
- * The shared cache rather than a bespoke one: it already coalesces concurrent
- * callers onto a single in-flight rebuild, evicts, and reports hit rates per
- * namespace to `/metrics`. The previous hand-rolled snapshot did the first of
- * those and none of the rest.
- */
-async function deploymentSnapshot(): Promise<DeploymentSnapshot> {
-  return cache.getOrSet('dusk:deployment_surface', snapshotTtlMs(), () =>
-    deploymentPayload(),
+/** Coalesce concurrent requests; never keep a fully assembled live surface. */
+async function deploymentSnapshot(identity: string): Promise<DeploymentSnapshot> {
+  return cache.getOrSet(`dusk:deployment_surface:${identity}`, 0, () =>
+    deploymentPayload(identity),
   );
 }
 
@@ -190,8 +179,10 @@ router.get(
 router.get(
   '/config',
   asyncRoute(async (_req, res) => {
-    const { config, sourceSlot } = await deploymentSnapshot();
-    res.json(await withDeployment(config, sourceSlot));
+    res.json(await withDeploymentRead(async (deployment) => {
+      const { config, sourceSlot } = await deploymentSnapshot(deployment.deploymentIdentitySha256);
+      return { data: config, sourceSlot };
+    }));
   }),
 );
 
@@ -205,33 +196,42 @@ router.get(
       res.status(400).json({ success: false, error: 'invalid market address' });
       return;
     }
-    const { account, sourceSlot } = await fetchMarket(address);
-    const payload = await marketPayload(address, account, sourceSlot);
-    const state = payload.state as Record<string, unknown>;
-    res.json(
-      await withDeployment(
-        payload,
-        Math.max(sourceSlot, Number(state.healthSourceSlot ?? 0)),
-      ),
-    );
+    res.json(await withDeploymentRead(async (deployment) => {
+      const { account, sourceSlot } = await fetchMarket(address);
+      const payload = await marketPayload(address, account, sourceSlot, deployment.deploymentIdentitySha256);
+      const state = payload.state as Record<string, unknown>;
+      return { data: payload, sourceSlot: Math.max(sourceSlot, Number(state.healthSourceSlot ?? 0)) };
+    }));
   }),
 );
 
 router.get(
   '/markets/state',
   asyncRoute(async (_req, res) => {
-    const { projected, sourceSlot } = await deploymentSnapshot();
-    res.json(
-      await withDeployment(
-        {
-          markets: projected,
-          pagination: { limit: 100, offset: 0, total: projected.length },
-        },
-        sourceSlot,
-      ),
-    );
+    res.json(await withDeploymentRead(async (deployment) => {
+      const { projected, sourceSlot } = await deploymentSnapshot(deployment.deploymentIdentitySha256);
+      return { data: { markets: projected, pagination: { limit: Math.max(100, projected.length), offset: 0, total: projected.length } }, sourceSlot };
+    }));
   }),
 );
+
+router.get('/prices/:mint',asyncRoute(async (req,res) => {
+  let mint: string,market: string | undefined;
+  try {
+    mint = new PublicKey(req.params.mint).toBase58();
+    market = req.query.market === undefined ? undefined : new PublicKey(String(req.query.market)).toBase58();
+  } catch { res.status(400).json({ success: false,error: 'invalid mint or market address' }); return; }
+  const at = req.query.at === undefined ? new Date().toISOString() : String(req.query.at);
+  const maxAgeSeconds = req.query.maxAgeSeconds === undefined ? 3600 : Number(req.query.maxAgeSeconds);
+  if (!Number.isFinite(Date.parse(at)) || Date.parse(at)>Date.now() || !Number.isSafeInteger(maxAgeSeconds) || maxAgeSeconds<1 || maxAgeSeconds>86400) {
+    res.status(400).json({ success: false,error: 'invalid historical price time range' }); return;
+  }
+  res.json(await withDeploymentRead(async () => {
+    const data = await listDuskPriceHistory({ mint,market,at,maxAgeSeconds,limit: boundedLimit(req.query.limit),offset: boundedOffset(req.query.offset) });
+    const sourceSlot = data.observations.reduce((highest,row) => Math.max(highest,Number(row.evidence.sourceSlot)),0);
+    return { data,sourceSlot };
+  }));
+}));
 
 router.get(
   '/markets',
@@ -271,6 +271,98 @@ router.get(
     res.json(await withDeployment(events));
   }),
 );
+
+/** Native account discovery with independent identity and scan provenance. */
+router.get('/accounts/:kind', asyncRoute(async (req, res) => {
+  const kind = req.params.kind as NativeAccountKind;
+  if (!['markets','borrow','leverage','yield','orders'].includes(kind)) {
+    res.status(400).json({ success: false, error: 'Unsupported native account kind' }); return;
+  }
+  const address = (value: unknown) => {
+    if (value === undefined) return undefined;
+    try { if (typeof value === 'string') return new PublicKey(value).toBase58(); } catch { /* handled below */ }
+    throw Object.assign(new Error('Invalid native account filter address'), { status: 400 });
+  };
+  const owner = address(req.query.owner), market = address(req.query.market);
+  res.json(await withDeploymentRead(async () => {
+    const result = await listNativeAccounts({ cluster: cluster(), kind, owner, market, limit: boundedLimit(req.query.limit), offset: boundedOffset(req.query.offset) });
+    return { data: result, sourceSlot: Number(result.coverage.sourceSlot) };
+  }));
+}));
+
+router.get('/lp-ownership', asyncRoute(async (req, res) => {
+  const address = (value: unknown) => {
+    if (value === undefined) return undefined;
+    try { if (typeof value === 'string') return new PublicKey(value).toBase58(); } catch { /* handled below */ }
+    throw Object.assign(new Error('Invalid LP ownership filter address'), { status: 400 });
+  };
+  const owner = address(req.query.owner), market = address(req.query.market);
+  res.json(await withDeploymentRead(async () => {
+    const result = await listDuskLpOwnership({ owner, market, limit: boundedLimit(req.query.limit), offset: boundedOffset(req.query.offset) });
+    const { envelopeSourceSlot, ...data } = result;
+    return { data, sourceSlot: envelopeSourceSlot };
+  }));
+}));
+
+/** Saved native position values, with catalog and per-bank coverage. */
+router.get('/owners/:owner/portfolio-snapshots',asyncRoute(async (req,res) => {
+  let owner: string;
+  try { owner = new PublicKey(req.params.owner).toBase58(); }
+  catch { res.status(400).json({ success: false,error: 'invalid portfolio owner address' }); return; }
+  const timestamp = (value: unknown): string | undefined => {
+    if (value === undefined) return undefined;
+    if (typeof value !== 'string' || !value.trim() || !Number.isFinite(Date.parse(value)) || Date.parse(value)>Date.now())
+      throw Object.assign(new Error('Invalid portfolio history time'),{ status: 400 });
+    return new Date(value).toISOString();
+  };
+  const since = timestamp(req.query.since),until = timestamp(req.query.until);
+  const sampleSeconds = portfolioSampleSeconds(req.query.sampleSeconds);
+  if (since && until && since>until) throw Object.assign(new Error('Portfolio history start is after its end'),{ status: 400 });
+  res.json(await withDeploymentRead(async () => {
+    const data = await listPortfolioHistory({ owner,since,until,sampleSeconds,limit: boundedLimit(req.query.limit),offset: boundedOffset(req.query.offset) });
+    const sourceSlot = Number(data.coverage.lastSourceSlot ?? 0);
+    if (!Number.isSafeInteger(sourceSlot) || sourceSlot<0) throw new Error('Invalid portfolio history slot');
+    return { data,sourceSlot };
+  }));
+}));
+
+/** Coherent observations of recorded yield; these are not harvest previews. */
+router.get('/owners/:owner/yield-checkpoints', asyncRoute(async (req, res) => {
+  const address = (value: unknown): string => {
+    try { if (typeof value === 'string' && new PublicKey(value).toBase58() === value) return value; } catch { /* invalid below */ }
+    throw Object.assign(new Error('Invalid yield checkpoint address'),{ status: 400 });
+  };
+  const owner = address(req.params.owner),market = req.query.market === undefined ? undefined : address(req.query.market);
+  res.json(await withDeploymentRead(async () => {
+    const data = await listYieldCheckpoints({ owner,market,limit: boundedLimit(req.query.limit),offset: boundedOffset(req.query.offset) });
+    const sourceSlot = Number(data.coverage.lastSourceSlot ?? 0);
+    if (!Number.isSafeInteger(sourceSlot) || sourceSlot<0) throw new Error('Invalid yield checkpoint slot');
+    return { data,sourceSlot };
+  }));
+}));
+
+/** Finalized payments attributed to the earning owner, with the recipient retained. */
+router.get('/owners/:owner/yield-claims', asyncRoute(async (req, res) => {
+  const address = (value: unknown): string => {
+    try { if (typeof value === 'string' && new PublicKey(value).toBase58() === value) return value; } catch { /* invalid below */ }
+    throw Object.assign(new Error('Invalid yield history address'), { status: 400 });
+  };
+  const timestamp = (value: unknown): string | undefined => {
+    if (value === undefined) return undefined;
+    if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Date.parse(value))) return new Date(value).toISOString();
+    throw Object.assign(new Error('Invalid yield history timestamp'), { status: 400 });
+  };
+  const owner = address(req.params.owner), market = req.query.market === undefined ? undefined : address(req.query.market);
+  const since = timestamp(req.query.since), until = timestamp(req.query.until);
+  if (since && until && Date.parse(since) > Date.parse(until))
+    throw Object.assign(new Error('Yield history start is after its end'), { status: 400 });
+  res.json(await withDeploymentRead(async () => {
+    const data = await listYieldClaims({ owner, market, since, until, limit: boundedLimit(req.query.limit), offset: boundedOffset(req.query.offset) });
+    const sourceSlot = Number(data.coverage.lastIndexedSlot ?? 0);
+    if (!Number.isSafeInteger(sourceSlot) || sourceSlot < 0) throw new Error('Invalid yield history source slot');
+    return { data, sourceSlot };
+  }));
+}));
 
 /** Global activity feed across every indexed market. */
 router.get(

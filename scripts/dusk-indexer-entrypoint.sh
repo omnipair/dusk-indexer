@@ -1,71 +1,81 @@
 #!/usr/bin/env bash
-# Apply the dusk_ingestion migrations idempotently, then run the daemon.
-#
-# 018 is transactional but not IF NOT EXISTS, so it only runs when the schema
-# is absent; 019 is fully idempotent and reruns safely (it upgrades the
-# event_stream table to a hypertable the first time Timescale is present).
+# Explicit Dusk migrations only. Maintenance/reset SQL is never discovered.
 set -euo pipefail
-
-if [ -z "${DATABASE_URL:-}" ]; then
-  echo "DATABASE_URL is required" >&2
-  exit 1
+: "${DATABASE_URL:?DATABASE_URL is required}"
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+if [[ -d /app/migrations ]]; then
+  migration_dir=/app/migrations
+  manifest=/app/dusk-migrations.txt
+else
+  migration_dir="$script_dir/../database/migrations"
+  manifest="$script_dir/../database/dusk-migrations.txt"
 fi
-
-# The database container may still be starting on a fresh deploy.
+ready=false
 for attempt in $(seq 1 30); do
-  if psql "$DATABASE_URL" -c "SELECT 1" >/dev/null 2>&1; then
-    break
-  fi
+  if psql "$DATABASE_URL" -XAtqc 'SELECT 1' >/dev/null 2>&1; then ready=true; break; fi
   echo "waiting for postgres (${attempt}/30)"
   sleep 2
 done
+if [[ "$ready" != true ]]; then echo 'Postgres did not become ready' >&2; exit 1; fi
+migration_script=$(mktemp)
+trap 'rm -f "$migration_script"' EXIT
+cat > "$migration_script" <<'SQL'
+\set ON_ERROR_STOP on
+SELECT pg_advisory_lock(482193015);
+CREATE SCHEMA IF NOT EXISTS dusk_ingestion;
+CREATE TABLE IF NOT EXISTS dusk_ingestion.applied_migrations (
+  name text PRIMARY KEY, sha256 text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now()
+);
+SQL
+while IFS= read -r name; do
+  [[ -z "$name" || "$name" == \#* ]] && continue
+  if [[ ! "$name" =~ ^[0-9]{3}_[a-zA-Z0-9_]+\.sql$ || ! -f "$migration_dir/$name" ]]; then
+    echo 'Invalid migration manifest entry' >&2; exit 1
+  fi
+  if command -v sha256sum >/dev/null; then
+    checksum=$(sha256sum "$migration_dir/$name" | cut -d ' ' -f 1)
+  else
+    checksum=$(shasum -a 256 "$migration_dir/$name" | cut -d ' ' -f 1)
+  fi
+  cat >> "$migration_script" <<SQL
+DO \$\$ BEGIN
+  IF EXISTS (SELECT 1 FROM dusk_ingestion.applied_migrations WHERE name='$name' AND sha256<>'$checksum') THEN
+    RAISE EXCEPTION 'Applied migration checksum differs: $name';
+  END IF;
+END \$\$;
+SELECT EXISTS (SELECT 1 FROM dusk_ingestion.applied_migrations WHERE name='$name') AS migration_applied \gset
+\if :migration_applied
+\else
+SQL
+  if [[ "$name" == 018_dusk_ingestion_foundation.sql ]]; then
+    # Adopt the pre-ledger bootstrap only when the foundation table exists.
+    cat >> "$migration_script" <<'SQL'
+SELECT to_regclass('dusk_ingestion.protocol_identities') IS NOT NULL AS foundation_exists \gset
+\if :foundation_exists
+\else
+SQL
+  fi
+  printf '\\i %s\n' "$migration_dir/$name" >> "$migration_script"
+  if [[ "$name" == 018_dusk_ingestion_foundation.sql ]]; then printf '\\endif\n' >> "$migration_script"; fi
+  printf "INSERT INTO dusk_ingestion.applied_migrations(name,sha256) VALUES ('%s','%s');\n" "$name" "$checksum" >> "$migration_script"
+  printf '%s\n' '\endif' >> "$migration_script"
+done < "$manifest"
+printf 'SELECT pg_advisory_unlock(482193015);\n' >> "$migration_script"
+psql "$DATABASE_URL" -X -f "$migration_script"
 
-schema_exists=$(psql "$DATABASE_URL" -tAc \
-  "SELECT 1 FROM information_schema.schemata WHERE schema_name = 'dusk_ingestion'" || echo "")
-if [ "$schema_exists" != "1" ]; then
-  echo "applying 018_dusk_ingestion_foundation.sql"
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /app/migrations/018_dusk_ingestion_foundation.sql
-fi
-
-echo "applying 019_dusk_event_stream.sql"
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /app/migrations/019_dusk_event_stream.sql
-
-# The v1 compatibility views. Re-runnable, and a no-op where the real
-# Omnipair v1 tables exist.
-echo "applying 020_dusk_v1_compatibility.sql"
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /app/migrations/020_dusk_v1_compatibility.sql
-
-echo "applying 021_dusk_valuation_and_positions.sql"
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /app/migrations/021_dusk_valuation_and_positions.sql
-echo "applying 022_dusk_retention.sql"
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /app/migrations/022_dusk_retention.sql
-
-# The swap notify trigger. Publishes on `swap_updates`, the channel the v1 gRPC
-# listener already consumes, so streaming Dusk swaps needs no change in grpc/.
-echo "applying 023_dusk_swap_notify_trigger.sql"
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /app/migrations/023_dusk_swap_notify_trigger.sql
-
-# USD price anchors. Assets whose dollar value is taken as given — a mock
-# stablecoin on a test cluster, for instance — from which every other asset
-# is priced by pool ratio. Format: "mint:price,mint:price". Without it the
-# valuation views produce nothing, which is the honest result: no anchor
-# means no basis for a dollar figure.
-if [ -n "${DUSK_USD_ANCHORS:-}" ]; then
-  echo "seeding USD price anchors"
-  IFS=',' read -ra ANCHORS <<< "$DUSK_USD_ANCHORS"
-  for anchor in "${ANCHORS[@]}"; do
-    mint="${anchor%%:*}"
-    price="${anchor##*:}"
-    if [ -z "$mint" ] || [ -z "$price" ] || [ "$mint" = "$price" ]; then
-      echo "skipping malformed anchor '$anchor' (expected mint:price)" >&2
-      continue
+if [[ -n "${DUSK_USD_ANCHORS:-}" ]]; then
+  IFS=',' read -ra anchors <<< "$DUSK_USD_ANCHORS"
+  for anchor in "${anchors[@]}"; do
+    mint="${anchor%%:*}"; price="${anchor#*:}"
+    if [[ ! "$mint" =~ ^[1-9A-HJ-NP-Za-km-z]{32,44}$ || ! "$price" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+      echo 'Invalid DUSK_USD_ANCHORS entry; expected base58-mint:nonnegative-price' >&2; exit 1
     fi
-    psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
-      "INSERT INTO dusk_ingestion.usd_price_anchors (mint, price_usd, note)
-       VALUES ('$mint', $price, 'seeded from DUSK_USD_ANCHORS')
-       ON CONFLICT (mint) DO UPDATE
-         SET price_usd = EXCLUDED.price_usd, updated_at = now()" >/dev/null
+    psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -v mint="$mint" -v price="$price" <<'SQL'
+INSERT INTO dusk_ingestion.usd_price_anchors (mint,price_usd,note)
+VALUES (:'mint',:'price'::numeric,'seeded from DUSK_USD_ANCHORS')
+ON CONFLICT (mint) DO UPDATE SET price_usd=EXCLUDED.price_usd,updated_at=now();
+SQL
   done
 fi
-
+if [[ "${DUSK_MIGRATE_ONLY:-false}" == true ]]; then exit 0; fi
 exec dusk-indexer-daemon

@@ -7,7 +7,7 @@
  * `protocol/` pin (program ids, IDL digests, attested binary hashes) and a
  * live observation of the upgradeable-loader accounts on chain.
  *
- * Chain observation is cached with a short TTL. The fork lab recomputed this
+ * Chain observation is cached with a short TTL. Earlier services recomputed this
  * per request, which cost about a dozen RPC calls each and got the public
  * devnet endpoint to rate-limit us; a hosted API answers from cache and
  * refreshes on a timer instead.
@@ -60,18 +60,6 @@ export interface DuskDeploymentEnvelope {
 }
 
 const API_STARTED_AT = new Date().toISOString();
-
-/** A cluster's genesis hash never changes; read it once per process. */
-let genesisHashPromise: Promise<string> | undefined;
-function cachedGenesisHash(rpc: Connection): Promise<string> {
-  if (!genesisHashPromise) {
-    genesisHashPromise = rpc.getGenesisHash().catch((error) => {
-      genesisHashPromise = undefined;
-      throw error;
-    });
-  }
-  return genesisHashPromise;
-}
 
 let connection: Connection | undefined;
 let config: DuskApiConfig | undefined;
@@ -129,9 +117,10 @@ async function observeUpgradeableProgram(
   const programObservation = await rpc.getAccountInfoAndContext(programId, {
     commitment: DUSK_DEPLOYMENT_COMMITMENT,
     dataSlice: { offset: 0, length: 36 },
+    minContextSlot:pinned.deployment.deploySlot+1,
   });
   const programAccount = programObservation.value;
-  if (!programAccount?.executable) {
+  if (!programAccount?.executable || programAccount.lamports<=0 || programObservation.context.slot<=pinned.deployment.deploySlot) {
     throw new Error(`Program ${pinned.programId} is missing or not executable`);
   }
   if (!programAccount.owner.equals(BPF_LOADER_UPGRADEABLE_ID)) {
@@ -149,17 +138,20 @@ async function observeUpgradeableProgram(
   }
 
   const programDataAddress = new PublicKey(programAccount.data.subarray(4, 36));
+  if (programDataAddress.toBase58()!==pinned.deployment.programData) throw new Error('ProgramData address differs from deployment pin');
   const programDataObservation = await rpc.getAccountInfoAndContext(
     programDataAddress,
     {
       commitment: DUSK_DEPLOYMENT_COMMITMENT,
       dataSlice: { offset: 0, length: UPGRADEABLE_PROGRAM_DATA_METADATA_BYTES },
+      minContextSlot:programObservation.context.slot,
     },
   );
   const programDataAccount = programDataObservation.value;
   if (
     !programDataAccount ||
-    !programDataAccount.owner.equals(BPF_LOADER_UPGRADEABLE_ID)
+    !programDataAccount.owner.equals(BPF_LOADER_UPGRADEABLE_ID) || programDataAccount.executable || programDataAccount.lamports<=0
+    || programDataAccount.data.length!==UPGRADEABLE_PROGRAM_DATA_METADATA_BYTES || programDataObservation.context.slot<programObservation.context.slot
   ) {
     throw new Error(
       `Program data ${programDataAddress.toBase58()} for ${pinned.programId} is missing or has the wrong loader`,
@@ -167,6 +159,8 @@ async function observeUpgradeableProgram(
   }
 
   const header = parseProgramDataHeader(programDataAccount.data);
+  if (header.programDataSlot!==String(pinned.deployment.deploySlot) || header.upgradeAuthority!==pinned.deployment.upgradeAuthority)
+    throw new Error('ProgramData deployment slot or upgrade authority differs from pin');
   const cacheKey = canonicalJson({
     programId: pinned.programId,
     programDataAddress: programDataAddress.toBase58(),
@@ -207,15 +201,17 @@ async function hashProgramBinary(
   expectedAuthority: string | null,
 ): Promise<string> {
   const observation = await rpc.getAccountInfoAndContext(programDataAddress, {
-    commitment: DUSK_DEPLOYMENT_COMMITMENT,
+    commitment:'finalized',
+    minContextSlot:pinned.deployment.deploySlot+1,
   });
   const account = observation.value;
-  if (!account || !account.owner.equals(BPF_LOADER_UPGRADEABLE_ID)) {
+  if (!account || !account.owner.equals(BPF_LOADER_UPGRADEABLE_ID) || account.executable || account.lamports<=0
+      || observation.context.slot<=pinned.deployment.deploySlot) {
     throw new Error(
       `Program data ${programDataAddress.toBase58()} changed while hashing ${pinned.programId}`,
     );
   }
-  if (account.data.length <= UPGRADEABLE_PROGRAM_DATA_METADATA_BYTES) {
+  if (account.data.length !== UPGRADEABLE_PROGRAM_DATA_METADATA_BYTES+pinned.deployment.allocatedBinaryBytes) {
     throw new Error(
       `Program data ${programDataAddress.toBase58()} for ${pinned.programId} has no binary payload`,
     );
@@ -284,7 +280,7 @@ async function buildEnvelope(): Promise<DuskDeploymentEnvelope> {
   // envelope; it just runs once the reads are back. On a mismatch that costs
   // two account reads nobody needed, on an error path that should never fire.
   const [genesisHash, slot, duskProgram, delegateProgram] = await Promise.all([
-    cachedGenesisHash(rpc),
+    rpc.getGenesisHash(),
     rpc.getSlot(DUSK_DEPLOYMENT_COMMITMENT),
     observeUpgradeableProgram(pinned.dusk),
     observeUpgradeableProgram(pinned.leverageDelegate),
@@ -338,10 +334,11 @@ let inflight: Promise<DuskDeploymentEnvelope> | undefined;
  */
 export async function deploymentEnvelope(
   minimumSourceSlot = 0,
+  options: { fresh?: boolean } = {},
 ): Promise<DuskDeploymentEnvelope> {
   const { config: apiConfig } = runtime();
   if (
-    cached &&
+    !options.fresh && cached &&
     Date.now() - cached.observedAtMs < apiConfig.envelopeCacheTtlMs &&
     cached.value.sourceSlot >= minimumSourceSlot
   ) {
@@ -385,4 +382,17 @@ export async function withDeployment<T>(
     data,
     deployment: await deploymentEnvelope(minimumSourceSlot),
   };
+}
+
+/** Bind the complete read, including cache lookup, to one fresh identity. */
+export async function withDeploymentRead<T>(
+  read: (deployment: DuskDeploymentEnvelope) => Promise<{ data: T; sourceSlot: number }>,
+): Promise<{ success: true; data: T; deployment: DuskDeploymentEnvelope }> {
+  const before = await deploymentEnvelope(0, { fresh: true });
+  const { data, sourceSlot } = await read(before);
+  const after = await deploymentEnvelope(Math.max(sourceSlot, before.sourceSlot), { fresh: true });
+  if (before.deploymentIdentitySha256 !== after.deploymentIdentitySha256) {
+    throw new Error('Deployment changed during the read');
+  }
+  return { success: true, data, deployment: after };
 }

@@ -17,12 +17,47 @@ use {
 
 const STREAM_NAME: &str = "rpc-signature-poll";
 
+pub async fn record_deployment(
+    pool: &PgPool,
+    cluster: &str,
+    window: crate::identity::DeploymentWindow,
+) -> Result<()> {
+    let pin = dusk_indexer_foundation::deployment::pinned_deployment()?;
+    if pin.cluster.name != cluster || pin.first_slot() != window.first_slot {
+        anyhow::bail!(
+            "FINALIZED_INVARIANT: deployment registration differs from compiled identity"
+        );
+    }
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT dusk_ingestion.record_deployment_interval($1,$2,$3,$4,$5,$6)")
+        .bind(cluster)
+        .bind(PROTOCOL_REVISION)
+        .bind(i64::try_from(window.first_slot)?)
+        .bind(i64::try_from(window.through_slot)?)
+        .bind(pin.sha256())
+        .bind(pin.payload())
+        .execute(&mut tx)
+        .await?;
+    sqlx::query("INSERT INTO dusk_ingestion.ingestion_cursors (cluster,program_id,idl_hash,protocol_revision,stream_name,commitment,next_slot) VALUES ($1,$2,$3,$4,$5,'finalized',$6) ON CONFLICT DO NOTHING")
+        .bind(cluster).bind(DUSK_PROGRAM_ID).bind(DUSK_IDL_SHA256).bind(PROTOCOL_REVISION).bind(STREAM_NAME)
+        .bind(i64::try_from(window.first_slot)?).execute(&mut tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 /// The identity rows every observation references. One per pinned program.
 pub async fn ensure_protocol_identity(pool: &PgPool, cluster: &str) -> Result<()> {
     for (program_id, idl_hash) in [
         (DUSK_PROGRAM_ID, DUSK_IDL_SHA256),
         (LEVERAGE_DELEGATE_PROGRAM_ID, LEVERAGE_DELEGATE_IDL_SHA256),
     ] {
+        let reused: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM dusk_ingestion.protocol_identities WHERE cluster=$1 AND program_id=$2 AND protocol_revision=$3 AND idl_hash<>$4)")
+            .bind(cluster).bind(program_id).bind(PROTOCOL_REVISION).bind(idl_hash).fetch_one(pool).await?;
+        if reused {
+            anyhow::bail!(
+                "FINALIZED_INVARIANT: protocol revision reused with a different IDL hash"
+            );
+        }
         sqlx::query(
             r#"
             INSERT INTO dusk_ingestion.protocol_identities
@@ -69,10 +104,14 @@ pub async fn touch_cursor(pool: &PgPool, cluster: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn load_cursor(pool: &PgPool, cluster: &str) -> Result<Option<String>> {
-    let row: Option<(Option<String>,)> = sqlx::query_as(
+pub async fn load_cursor(
+    pool: &PgPool,
+    cluster: &str,
+    window: crate::identity::DeploymentWindow,
+) -> Result<Option<String>> {
+    let row: Option<(Option<String>, Option<i64>)> = sqlx::query_as(
         r#"
-        SELECT last_signature FROM dusk_ingestion.ingestion_cursors
+        SELECT last_signature,last_observed_slot FROM dusk_ingestion.ingestion_cursors
         WHERE cluster = $1 AND program_id = $2 AND idl_hash = $3
           AND protocol_revision = $4 AND stream_name = $5
         "#,
@@ -85,7 +124,16 @@ pub async fn load_cursor(pool: &PgPool, cluster: &str) -> Result<Option<String>>
     .fetch_optional(pool)
     .await
     .context("loading ingestion cursor")?;
-    Ok(row.and_then(|(signature,)| signature))
+    let Some((signature, slot)) = row else {
+        return Ok(None);
+    };
+    if signature.is_some() != slot.is_some() {
+        anyhow::bail!("FINALIZED_INVARIANT: cursor signature/slot mismatch");
+    }
+    if let Some(slot) = slot {
+        window.require_slot(slot.try_into()?)?;
+    }
+    Ok(signature)
 }
 
 pub async fn advance_cursor(
@@ -93,7 +141,9 @@ pub async fn advance_cursor(
     cluster: &str,
     signature: &str,
     slot: u64,
+    window: crate::identity::DeploymentWindow,
 ) -> Result<()> {
+    window.require_slot(slot)?;
     sqlx::query(
         r#"
         INSERT INTO dusk_ingestion.ingestion_cursors
@@ -121,7 +171,7 @@ pub async fn advance_cursor(
     .bind(DUSK_IDL_SHA256)
     .bind(PROTOCOL_REVISION)
     .bind(STREAM_NAME)
-    .bind(slot as i64)
+    .bind(i64::try_from(slot)?)
     .bind(signature)
     .execute(pool)
     .await
@@ -134,8 +184,16 @@ pub async fn persist_event(
     pool: &PgPool,
     event: &DecodedEventEnvelope,
     block_time: Option<i64>,
+    window: crate::identity::DeploymentWindow,
 ) -> Result<()> {
+    window.require_slot(event.observation.slot)?;
     let record = event.canonical_record();
+    if record.commitment != dusk_indexer_foundation::Commitment::Finalized {
+        anyhow::bail!("finalized persistence requires finalized input");
+    }
+    let stream_time = block_time
+        .and_then(|seconds| Utc.timestamp_opt(seconds, 0).single())
+        .context("canonical block time is unavailable")?;
     let decoded_payload = record
         .decoded_payload
         .as_ref()
@@ -195,6 +253,9 @@ pub async fn persist_event(
             SELECT observation_id FROM dusk_ingestion.event_observations
             WHERE cluster = $1 AND program_id = $2 AND idl_hash = $3
               AND protocol_revision = $4 AND event_key = $5 AND blockhash = $6
+              AND payload_hash = $7 AND slot = $8 AND parent_slot IS NOT DISTINCT FROM $9
+              AND decoded_payload IS NOT DISTINCT FROM $10::jsonb AND raw_event IS NOT DISTINCT FROM $11
+              AND commitment = 'finalized' AND instruction_path = $12 AND event_ordinal = $13
             "#,
         )
         .bind(&record.cluster)
@@ -203,11 +264,16 @@ pub async fn persist_event(
         .bind(&record.protocol_revision)
         .bind(&record.event_key)
         .bind(&record.blockhash)
-        .fetch_one(&mut transaction)
-        .await
-        .context("fetching existing observation")?,
+        .bind(&record.payload_hash).bind(record.slot as i64).bind(record.parent_slot.map(|slot| slot as i64))
+        .bind(&decoded_payload).bind(&record.raw_event).bind(&instruction_path).bind(i32::from(record.event_ordinal))
+        .fetch_optional(&mut transaction).await?
+        .context("FINALIZED_INVARIANT: repeated observation has contradictory chain facts")?,
     };
 
+    // Commit the observation before canonical projection: a contradictory
+    // finalized candidate must remain available for diagnosis after the halt.
+    transaction.commit().await?;
+    let mut transaction = pool.begin().await?;
     sqlx::query(
         r#"
         INSERT INTO dusk_ingestion.canonical_events
@@ -232,11 +298,7 @@ pub async fn persist_event(
     .await
     .context("upserting canonical event")?;
 
-    // Time-series row. Block time is the honest series axis; a missing block
-    // time (possible on very recent slots) falls back to observation time.
-    let stream_time: DateTime<Utc> = block_time
-        .and_then(|seconds| Utc.timestamp_opt(seconds, 0).single())
-        .unwrap_or(observed_at);
+    // Event time is the containing block time; observation time is diagnostic.
     let market = record
         .decoded_payload
         .as_ref()
@@ -247,8 +309,8 @@ pub async fn persist_event(
         r#"
         INSERT INTO dusk_ingestion.event_stream
             (time, cluster, program_id, event_name, market,
-             transaction_signature, event_key, slot, payload)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+             transaction_signature, event_key, slot, payload, idl_hash, protocol_revision)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)
         ON CONFLICT (event_key, time) DO NOTHING
         "#,
     )
@@ -261,6 +323,8 @@ pub async fn persist_event(
     .bind(&record.event_key)
     .bind(record.slot as i64)
     .bind(&decoded_payload)
+    .bind(&record.idl_hash)
+    .bind(&record.protocol_revision)
     .execute(&mut transaction)
     .await
     .context("inserting event stream row")?;

@@ -15,6 +15,9 @@ target/
 .env.local
 .env.development
 .env.test
+.env*
+**/.env*
+**/*.env
 
 # Git and IDE files
 .git/
@@ -50,8 +53,19 @@ database/
 !database/migrations/019_dusk_event_stream.sql
 !database/migrations/020_dusk_v1_compatibility.sql
 !database/migrations/021_dusk_valuation_and_positions.sql
-!database/migrations/022_dusk_retention.sql
 !database/migrations/023_dusk_swap_notify_trigger.sql
+!database/migrations/024_dusk_canonical_integrity.sql
+!database/migrations/025_dusk_native_accounts.sql
+!database/migrations/026_dusk_native_integrity_and_notifications.sql
+!database/migrations/027_dusk_lp_ownership.sql
+!database/migrations/028_dusk_history_checkpoints.sql
+!database/migrations/029_dusk_yield_checkpoint_sources.sql
+!database/migrations/030_dusk_price_capture_sources.sql
+!database/migrations/031_dusk_price_notifications.sql
+!database/migrations/032_dusk_price_market_basis.sql
+!database/migrations/033_dusk_portfolio_sources.sql
+!database/migrations/034_dusk_deployment_intervals.sql
+!database/dusk-migrations.txt
 
 # Other language artifacts
 *.pyc

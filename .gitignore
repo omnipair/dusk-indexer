@@ -15,7 +15,7 @@ lerna-debug.log*
 
 # Rust artifacts
 target/
-Cargo.lock
+# Binary services deploy from the tested, committed workspace dependency lock.
 
 # Database artifacts
 packages/database/drizzle/

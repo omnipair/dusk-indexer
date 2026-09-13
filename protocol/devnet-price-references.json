@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "dusk-price-references.v1",
+  "cluster": "devnet",
+  "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
+  "idlSha256": "ecac9a2649c80312abae58c36f88304ca517badfd01fc3774e45ffd990e03e96",
+  "protocolRevision": "devnet-2026-09-13-9973dea",
+  "effectiveFrom": "2026-09-13T17:53:36.038668+00:00",
+  "references": [
+    {
+      "mint": "So11111111111111111111111111111111111111112",
+      "priceUsd": "180",
+      "note": "Existing webapp devnet display reference; a configured demo value, not an external SOL market quote."
+    },
+    {
+      "mint": "2G78R5YwVopkAxnDMmvNany3RdL98eAM2jcr3UafvL7W",
+      "priceUsd": "1",
+      "note": "Existing webapp devnet display reference for this specific mint; not a blanket assumption about quote assets."
+    },
+    {
+      "mint": "G8XEiNtP7TZ2cZRbUdtcPoc3C19T2GgYxTJqBpWz5ZDV",
+      "priceUsd": "1",
+      "note": "Existing webapp devnet display reference for this specific mint; not a blanket assumption about quote assets."
+    }
+  ]
+}
