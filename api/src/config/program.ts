@@ -68,7 +68,7 @@ export function findPairPDA(
  * Create a connection to the Solana cluster
  */
 export function createConnection(rpcUrl?: string): Connection {
-  const endpoint = rpcUrl || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+  const endpoint = rpcUrl || process.env.SOLANA_RPC_URL || process.env.DUSK_RPC_URL || 'https://api.mainnet-beta.solana.com';
   return new Connection(endpoint, {
     commitment: 'confirmed',
     confirmTransactionInitialTimeout: 60000,
