@@ -353,6 +353,15 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
   const quoteBucket = field(quoteSide, 'dailyBorrowBucket', 'daily_borrow_bucket');
   const debt = field(marketAccount, 'debt');
   const insurance = field(marketAccount, 'insurance');
+  const insuranceWindow = (side: 'base' | 'quote') => {
+    const window = field(insurance, `${side}DrawWindow`, `${side}_draw_window`);
+    return {
+      startSlot: stringValue(field(window, 'startSlot', 'start_slot')),
+      openingAvailable: stringValue(field(window, 'openingAvailable', 'opening_available')),
+      credited: stringValue(field(window, 'credited')),
+      drawn: stringValue(field(window, 'drawn')),
+    };
+  };
 
   const fixedBaseShares = toBigInt(field(debt, 'fixedBaseShares', 'fixed_base_shares'));
   const fixedQuoteShares = toBigInt(field(debt, 'fixedQuoteShares', 'fixed_quote_shares'));
@@ -371,6 +380,12 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
     targetHlpLeverageBps: config.targetHlpLeverageBps,
     swapFeeBps: config.swapFeeBps,
     config,
+    insurance: {
+      perEventDrawBps: numberValue(field(insurance, 'perEventDrawBps', 'per_event_draw_bps')),
+      perDayDrawBps: numberValue(field(insurance, 'perDayDrawBps', 'per_day_draw_bps')),
+      baseWindow: insuranceWindow('base'),
+      quoteWindow: insuranceWindow('quote'),
+    },
     governanceLockedYlp: stringValue(
       field(marketAccount, 'governanceLockedYlp', 'governance_locked_ylp'),
     ),
