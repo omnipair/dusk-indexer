@@ -33,7 +33,7 @@
       "programId": "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv",
       "binary": {
         "path": "on-chain (devnet)",
-        "sha256": "afe03f80ee2289f4c74195539b6d30489fb5eef93d0927760506438d3050e2b2"
+        "sha256": "d6ef54c6983e1a569625be9707ee9c88d6bd9ca2d8d438f06fae7b0ea8d1c5c0"
       },
       "idl": {
         "path": "protocol/idl/leverage_delegate.json",
