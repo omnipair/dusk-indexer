@@ -3,13 +3,13 @@
   "schemaVersion": 1,
   "revision": "devnet-1",
   "status": "deployed",
-  "generatedAt": "2026-09-12T03:44:38Z",
+  "generatedAt": "2026-09-13T11:39:12Z",
   "source": {
     "repository": "https://github.com/omnipair/dusk",
-    "branch": "feat/permissionless-yield-harvest",
-    "note": "Devnet deployment; program keypairs and address registry in ~/.config/omnipair/dusk-devnet. Binary attested from chain (upgradeable loader programdata). Re-pinned 2026-09-12 for grow_yield_account, which repairs a yield account created before YieldAccount gained harvest_authority (Option<Pubkey>, 33 bytes). All eight accounts on devnet are the old 234-byte layout, so Anchor cannot deserialize them and harvest, set_harvest_authority, single-sided hLP deposits and governance support all fail before their handler runs. The instruction is permissionless: it appends zeroed bytes to reach the size the program already expects and the caller pays the rent. This deploy adds an instruction, so the IDL digest moves too. The previous binary (1b147326414213...) is preserved at dusk-keepers/artifacts/dusk-devnet-1b147326.so for rollback. source.worktreeFingerprintSha256 covers programs/ and is reproduced by scripts/compute-worktree-fingerprint.mjs.",
-    "gitCommit": "51b88ccfca1bdde1f6592f2d0c8e64e210c26671",
-    "worktreeFingerprintSha256": "f6cb7bcccda785c56ae26eb68098f6fd187c059a025d5c73ec4e208e58d90d4f"
+    "branch": "merge/main-into-yield-harvest",
+    "note": "Devnet deployment; program keypairs and address registry in ~/.config/omnipair/dusk-devnet. Binary attested from chain (upgradeable loader programdata). Re-pinned 2026-09-13 for the merge of main into feat/permissionless-yield-harvest (dusk#27): devnet now runs main's program changes -- high-decimal token markets, Token-2022 group/UI-amount extensions, the hLP adjacent-debt-shares fix -- together with grow_yield_account and the PDA growth path. The IDL moves with it. Previous binary (72aa2ddf\u2026) preserved at dusk-keepers/artifacts/dusk-devnet-72aa2ddf.so for rollback. source.worktreeFingerprintSha256 covers programs/ and is reproduced by scripts/compute-worktree-fingerprint.mjs.",
+    "gitCommit": "4a8973a664196ebb4983dc08f946de08bd1250f0",
+    "worktreeFingerprintSha256": "3701a69c90e2198e343a460bb179b1e88bbe67ab05b1398f7dbc41bce9c60ee2"
   },
   "cluster": {
     "name": "devnet",
@@ -21,11 +21,11 @@
       "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
       "binary": {
         "path": "on-chain (devnet)",
-        "sha256": "72aa2ddf58366a002c7b26c23020b5bbd36598143caae7eb06fc6243428af8a9"
+        "sha256": "094edb56f96d9e5ab9b8a73f4fd6a19563d21105aab90a465f86365aa19ca2e6"
       },
       "idl": {
         "path": "protocol/idl/dusk.json",
-        "sha256": "6a8b96e2c230d1efa0f9ecb87d2ab49cb756f69c27331c08f683ae8cf1387b98"
+        "sha256": "df6ae43c56d73a1a4bc51fef69a0a398aa0adadd06018a84b632f71d7df8c9be"
       }
     },
     {
@@ -37,7 +37,7 @@
       },
       "idl": {
         "path": "protocol/idl/leverage_delegate.json",
-        "sha256": "d0a5997fba913d78c31f585abb068b7048fe302b35f50e3d5a246680400c7d81"
+        "sha256": "b2d39d3575f72ad334a0f853784bdb5909ddead5e0ebf3dc84ccd5253eccdce3"
       }
     }
   ],
