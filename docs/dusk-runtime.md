@@ -160,6 +160,52 @@ proof, not every interest accrual is an emitted payment, and these receipts do
 not reconstruct the full LP/protocol fee allocation. Consumers must not show
 observed subtotals as complete all-time/24-hour totals or infer APR from them.
 
+## Finalized market event history
+
+`GET /api/dusk/v1/history/events` accepts `market`, `since`, `until`, `limit`
+(1–500, default 100) and `cursor`. The optional market must be a canonical
+Solana public key. `until` defaults to the request time and cannot be in the
+future. Follow the returned `nextCursor` with the same market and normalized
+time window; it is bound to the full protocol and deployment identity.
+
+The route reads finalized canonical observations in descending slot/event-key
+order. It preserves separate CPI events within one transaction, exact decimal
+amounts, instruction paths, event ordinals and containing-block provenance.
+It covers swaps, liquidity additions/removals, market collateral/debt changes,
+borrow liquidations and leverage open/update/close/liquidation events. Other
+program events are outside this feed's declared coverage.
+
+Each page uses a repeatable-read transaction and an observation-ID watermark.
+Later inserted observations do not shift an existing pagination chain. The
+watermark is not a sealed database snapshot across concurrent commits or
+finalization. Exhausting a page chain does not prove a complete historical
+range: `historyRangeComplete` remains false. The cursor is a read-selection
+token, not an authorization credential. Fresh queries can include late backfill.
+
+The source event must have one matching immutable event-time record. A missing
+or contradictory selected record fails the read; contradictory finalized
+observations halt the active identity's history. Both sides of the database
+read are bracketed by direct RPC deployment attestation, and the returned
+envelope must cover the highest selected event slot. No legacy activity view
+or current-price valuation supplies this route.
+
+After building the API, run the rollback-only history integration tests with
+the disposable database opt-in described below:
+
+```sh
+node --test api/dist/tests/duskEventHistory.integration.js
+```
+
+The three cases cover same-slot CPI pagination, exact large amounts, confirmed
+and other-revision exclusion, late backfill, cursor scope, and missing or
+contradictory timestamps. A local read-only devnet check at slot `497953403`
+verified the deployed identity and rejected a malformed cursor with HTTP 400.
+The selected market had no captured events, so populated event values and
+pagination are established by fixtures, not this live check. No transaction
+was signed or submitted. This additive endpoint needs no new migration beyond
+the existing checked manifest; deployment and full historical coverage remain
+separate release work.
+
 ## Verification
 
 Rust unit tests:

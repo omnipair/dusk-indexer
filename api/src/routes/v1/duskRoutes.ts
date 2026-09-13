@@ -34,12 +34,31 @@ import { listYieldClaims } from '../../services/duskYieldClaims';
 import { listYieldCheckpoints } from '../../services/duskYieldCheckpoints';
 import { listDuskPriceHistory } from '../../services/duskPrices';
 import { listMarketActivity } from '../../services/duskMarketActivity';
+import { listEventHistory } from '../../services/duskEventHistory';
 import { listPortfolioHistory, portfolioSampleSeconds } from '../../services/duskPortfolioSnapshots';
 import { provenance, renderMetrics } from '../../utils/metrics';
 
 import { PublicKey } from '@solana/web3.js';
 
 const router = Router();
+
+router.get('/history/events', asyncRoute(async (req, res) => {
+  const stringParameter = (name: string) => {
+    const value = req.query[name];
+    if (value !== undefined && typeof value !== 'string')
+      throw Object.assign(new Error(`Invalid ${name}`), { status: 400 });
+    return value as string | undefined;
+  };
+  const until = stringParameter('until') ?? new Date().toISOString();
+  const limit = req.query.limit === undefined ? 100 : Number(stringParameter('limit'));
+  res.json(await withDeploymentRead(async deployment => {
+    const data = await listEventHistory({ market: stringParameter('market'), since: stringParameter('since'), until,
+      cursor: stringParameter('cursor'), limit, deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
+    const sourceSlot = data.events.reduce((highest, row) => Math.max(highest, Number(row.slot)), 0);
+    if (!Number.isSafeInteger(sourceSlot)) throw new Error('Invalid event-history source slot');
+    return { data, sourceSlot };
+  }));
+}));
 
 /**
  * The deployment's market surface, as the read boundary expects it: the
