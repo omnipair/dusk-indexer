@@ -33,6 +33,7 @@ import { listDuskLpOwnership } from '../../services/duskLpOwnership';
 import { listYieldClaims } from '../../services/duskYieldClaims';
 import { listYieldCheckpoints } from '../../services/duskYieldCheckpoints';
 import { listDuskPriceHistory } from '../../services/duskPrices';
+import { listMarketActivity } from '../../services/duskMarketActivity';
 import { listPortfolioHistory, portfolioSampleSeconds } from '../../services/duskPortfolioSnapshots';
 import { provenance, renderMetrics } from '../../utils/metrics';
 
@@ -214,6 +215,36 @@ router.get(
     }));
   }),
 );
+
+router.get('/analytics/activity',asyncRoute(async (req,res) => {
+  const timestamp = (value: unknown): string | undefined => {
+    if (value === undefined) return undefined;
+    if (typeof value !== 'string' || !value.trim() || !Number.isFinite(Date.parse(value)) || Date.parse(value)>Date.now())
+      throw Object.assign(new Error('Invalid activity timestamp'),{ status: 400 });
+    return new Date(value).toISOString();
+  };
+  const since = timestamp(req.query.since),until = timestamp(req.query.until) ?? new Date().toISOString();
+  let market: string | undefined;
+  if (req.query.market !== undefined) {
+    try {
+      if (typeof req.query.market !== 'string') throw new Error('Invalid market');
+      market = new PublicKey(req.query.market).toBase58();
+      if (market !== req.query.market) throw new Error('Invalid market');
+    }
+    catch { throw Object.assign(new Error('Invalid activity market'),{ status: 400 }); }
+  }
+  const maxPriceAgeSeconds = req.query.maxPriceAgeSeconds === undefined ? 3600 : Number(req.query.maxPriceAgeSeconds);
+  if (since && since>until || req.query.maxPriceAgeSeconds !== undefined &&
+    (typeof req.query.maxPriceAgeSeconds !== 'string' || !/^[1-9]\d*$/.test(req.query.maxPriceAgeSeconds))
+    || !Number.isSafeInteger(maxPriceAgeSeconds) || maxPriceAgeSeconds<1 || maxPriceAgeSeconds>86400)
+    throw Object.assign(new Error('Invalid activity time range'),{ status: 400 });
+  res.json(await withDeploymentRead(async (deployment) => {
+    const data = await listMarketActivity({ since,until,market,maxPriceAgeSeconds,deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
+    const sourceSlot = Number(data.coverage.lastSourceSlot ?? 0);
+    if (!Number.isSafeInteger(sourceSlot) || sourceSlot<0) throw new Error('Invalid activity source slot');
+    return { data,sourceSlot };
+  }));
+}));
 
 router.get('/prices/:mint',asyncRoute(async (req,res) => {
   let mint: string,market: string | undefined;

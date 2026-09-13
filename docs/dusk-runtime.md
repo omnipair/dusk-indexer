@@ -22,6 +22,15 @@ target/debug/dusk-indexer-daemon --ingest-once
 
 `npm run test:deployment-integration --prefix api` checks registration, immutable identity, boundary slots, contaminated history, cursor guards and concurrent writes in a disposable PostgreSQL database. All fixtures roll back. Native adapter tests also require fresh `--scan-accounts-once` and LP ownership captures under the current pin. CI provisions PostgreSQL, applies the checksummed manifest, captures read-only devnet discovery, runs the native tests and builds both service images. The container checks verify that every manifest migration and both pinned IDLs are actually present in the images.
 
+The native CI job runs unit tests and rollback-only database fixtures before
+its live discovery step, so those checks do not depend on RPC availability.
+Live discovery requires the repository secret `DUSK_DEVNET_RPC_URL`. Its devnet
+provider must support filtered `getProgramAccounts` for Token-2022 as well as
+finalized block history. The public Solana devnet endpoint excludes the token
+program from its account indexes and cannot supply complete LP ownership.
+Missing configuration or unsupported queries still fail the required native
+gate; CI never substitutes partial ownership or a different network.
+
 ## Migrations
 
 `database/dusk-migrations.txt` is the only automatic migration manifest. It excludes the destructive reset SQL and the old retention policy. Both generic database scripts delegate to this manifest. The runner holds a PostgreSQL advisory lock, records checksums, stops on SQL errors and refuses altered applied migrations. It can adopt an existing foundation schema from the pre-ledger bootstrap.
@@ -101,6 +110,56 @@ Missing references produce a completed capture with zero prices, not zero-valued
 
 `GET /api/dusk/v1/prices/:mint` accepts `market`, `at`, `maxAgeSeconds` (1–86400, default 3600), `limit` and `offset`. It returns observations at or before `at` within the age limit, preserving configured/derived quality, exact prices, reference evidence and finalized source slots under a fresh deployment envelope. Results do not imply one globally authoritative USD price across markets. Missing or stale prices return an empty observation list and `available: false`; an unknown price must remain unknown in portfolio totals. Coverage is from capture onward. The worker cannot reconstruct historical curve previews for uncaptured devnet slots, so `historyComplete` and `historicalBackfillAvailable` remain false. The old mutable anchor table and compatibility price views are not inputs to this pipeline.
 
+## Recorded market activity
+
+Migration 035 binds immutable economic activity records to their exact finalized
+canonical event and containing block timestamp. Apply the migration manifest,
+build the API, and run:
+
+```sh
+npm run start:market-activity-worker --prefix api -- --once
+```
+
+Omit `--once` to poll every 10 seconds. `DUSK_MARKET_ACTIVITY_INTERVAL_MS` sets
+the interval (minimum 1000). `railway.market-activity.toml` defines the worker.
+It reads saved events and writes projections; it does not contact RPC, hold a
+signing key or submit transactions. Each transaction projects at most 500 events
+under a protocol-scoped PostgreSQL lock. Late older-slot events remain eligible,
+and repeated passes do not double count them.
+
+`GET /api/dusk/v1/analytics/activity` accepts `since`, `until`, `market` and
+`maxPriceAgeSeconds` (1–86400, default 3600). It returns protocol-wide and
+per-market observed volume, swap fees, retained fees, compounded fees and
+explicitly reported interest payments under a freshly attested deployment
+envelope. All amounts are decimal strings. Spot swaps and embedded leverage
+swap receipts contribute input volume once. Margin-only leverage updates do not
+contribute a swap. Fees use their declared input/output asset; retained and
+compounded fees are components of swap fees, not additional fees. Claimed yield,
+referral allocations and fee auctions do not count as newly earned fees.
+
+Valuation reconstructs the latest eligible immutable price capture from its
+saved bytes and policy, including captures whose price worker has not yet run.
+It requires the same full protocol identity, market and deployment digest, a
+strictly earlier slot, and a non-future block timestamp within the age limit.
+Same-slot captures are excluded because bank evidence does not identify the
+trade's position within that slot. A newer empty reference policy leaves prices
+unknown; it cannot revive an older quote. Contradictory finalized source or
+price evidence stops the read. Arithmetic rounds down to 36 decimal places.
+
+Each metric distinguishes `observedUsd` from `valuedUsd`. Any unpriced nonzero
+amount makes `observedUsd` null; `valuedUsd` is the explicitly partial known
+subtotal. Zero amounts need no price. These values use configured/derived devnet
+reference prices, not verified external USD market prices.
+
+Coverage includes indexed/projected/pending counts, selected source slots and
+a hash binding the selected events, valuations and query. `projectionComplete`
+only means currently indexed finalized economic events have been projected.
+`historyRangeComplete`, `totalInterestAccrualAvailable` and
+`feeAllocationAvailable` remain false: there is no complete historical range
+proof, not every interest accrual is an emitted payment, and these receipts do
+not reconstruct the full LP/protocol fee allocation. Consumers must not show
+observed subtotals as complete all-time/24-hour totals or infer APR from them.
+
 ## Verification
 
 Rust unit tests:
@@ -108,6 +167,14 @@ Rust unit tests:
 ```sh
 cargo test -p dusk-indexer-foundation -p dusk-indexer-daemon
 ```
+
+`npm run test:market-activity-integration --prefix api` requires the disposable
+database opt-in below. Its rollback-only fixtures exercise finalized identity
+filtering, late backfill, all economic event types, missing/contradictory event
+timestamps, database immutability, partial valuations, prior-slot pricing,
+deployment separation, saved policy changes and same-slot events spanning
+multiple 500-row pages. The API unit suite covers exact quantities, fee asset
+selection, transfer taxes, hLP interest side and rejected price boundaries.
 
 After applying the manifest to a disposable PostgreSQL database, run `database/tests/native-account-projections.sql` with `psql -v ON_ERROR_STOP=1`. It checks idempotence, account closure, out-of-order replay, and finalized conflict rejection. The API's existing checks run through `npm run test:unit --prefix api`.
 

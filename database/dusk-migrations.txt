@@ -14,3 +14,4 @@
 032_dusk_price_market_basis.sql
 033_dusk_portfolio_sources.sql
 034_dusk_deployment_intervals.sql
+035_dusk_market_activity.sql

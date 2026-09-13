@@ -62,26 +62,44 @@ async function assertNoPriceConflict(client: PoolClient) {
   if (conflicts.rowCount) throw Object.assign(new Error('FINALIZED_INVARIANT: contradictory finalized market price previews'),{ status: 503 });
 }
 
+export interface StoredPriceCapture {
+  cluster: string; program_id: string; idl_hash: string; protocol_revision: string;
+  capture_id: string; market: string; slot: string; market_slot: string; blockhash: string;
+  block_time: Date; observed_at: Date; deployment_identity_sha256: string;
+  raw_market: Buffer; raw_preview: Buffer; reference_config: unknown; market_state_basis: string;
+  content_hash: string; preview_hash: string;
+}
+
+/** Rebuild historical price evidence from its immutable saved bytes/policy. */
+export function verifyStoredPriceCapture(row: StoredPriceCapture) {
+  if (JSON.stringify([row.cluster,row.program_id,row.idl_hash,row.protocol_revision]) !== JSON.stringify(identity())
+    || !['rpc-account','simulation-post-state'].includes(row.market_state_basis)) throw new Error('Price capture differs from the active protocol identity');
+  const source: PriceCaptureSource = { market: row.market,slot: Number(row.slot),marketSlot: Number(row.market_slot),blockhash: row.blockhash,
+    blockTime: row.block_time.toISOString(),observedAt: row.observed_at.toISOString(),deploymentIdentitySha256: row.deployment_identity_sha256,
+    rawMarket: row.raw_market.toString('base64'),rawPreview: row.raw_preview.toString('base64'),references: row.reference_config,
+    ...(row.market_state_basis === 'simulation-post-state' ? { marketStateBasis: 'simulation-post-state' as const } : {}) };
+  if (!Number.isSafeInteger(source.slot) || !Number.isSafeInteger(source.marketSlot) || source.marketSlot<0 || source.slot<source.marketSlot
+    || source.marketStateBasis === 'simulation-post-state' && source.slot !== source.marketSlot
+    || Date.parse(source.observedAt)<Date.parse(source.blockTime) || hashSource(source) !== row.content_hash
+    || sha256(row.raw_preview) !== row.preview_hash) throw new Error('FINALIZED_INVARIANT: saved price source hash mismatch');
+  const decoder = new BorshCoder(idl());
+  const projected = projectMarketPrices({ pin: loadPinnedProtocol(),marketAddress: source.market,market: decoder.accounts.decode('Market',row.raw_market),
+    preview: decoder.types.decode('MarketPreview',row.raw_preview),slot: source.slot,blockTime: source.blockTime,references: source.references });
+  return { source,projected };
+}
+
 /** Caller owns a transaction. Projection uses only the saved policy and bytes. */
 export async function projectPriceCapture(client: PoolClient, captureId: string): Promise<number> {
   const active = identity();
   await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`dusk:prices:${JSON.stringify(active)}`]);
   await assertNoPriceConflict(client);
-  const result = await client.query(`SELECT *,slot::text,market_slot::text,capture_id::text FROM dusk_ingestion.price_capture_observations
+  const result = await client.query<StoredPriceCapture>(`SELECT *,slot::text,market_slot::text,capture_id::text FROM dusk_ingestion.price_capture_observations
     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND capture_id=$5`,[...active,captureId]);
   const row = result.rows[0];
   if (!row) throw new Error('Price capture is not in the active protocol identity');
-  const source: PriceCaptureSource = { market: row.market,slot: Number(row.slot),marketSlot: Number(row.market_slot),blockhash: row.blockhash,
-    blockTime: row.block_time.toISOString(),observedAt: row.observed_at.toISOString(),deploymentIdentitySha256: row.deployment_identity_sha256,
-    rawMarket: row.raw_market.toString('base64'),rawPreview: row.raw_preview.toString('base64'),references: row.reference_config,
-    ...(row.market_state_basis === 'simulation-post-state' ? { marketStateBasis: 'simulation-post-state' as const } : {}) };
-  if (!Number.isSafeInteger(source.slot) || !Number.isSafeInteger(source.marketSlot) || hashSource(source) !== row.content_hash
-    || sha256(row.raw_preview) !== row.preview_hash) throw new Error('FINALIZED_INVARIANT: saved price source hash mismatch');
+  const { source,projected } = verifyStoredPriceCapture(row);
   const previous = await client.query<{ price_count: number }>('SELECT price_count FROM dusk_ingestion.price_capture_projections WHERE capture_id=$1',[captureId]);
   if (previous.rows[0]) return previous.rows[0].price_count;
-  const decoder = new BorshCoder(idl());
-  const projected = projectMarketPrices({ pin: loadPinnedProtocol(),marketAddress: source.market,market: decoder.accounts.decode('Market',row.raw_market),
-    preview: decoder.types.decode('MarketPreview',row.raw_preview),slot: source.slot,blockTime: source.blockTime,references: source.references });
   // Multiple finalized slots can share a second. Keep both observations even
   // when the containing block times are equal.
   const sourceName = `dusk-preview.v1:${source.market}:${projected.referenceHash}:${source.slot}`;
