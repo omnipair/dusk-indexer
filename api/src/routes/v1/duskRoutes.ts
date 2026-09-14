@@ -9,6 +9,7 @@ import { Router } from 'express';
 
 import { duskApiConfig, loadPinnedProtocol } from '../../config/duskProtocol';
 import {
+  DuskDeploymentEnvelope,
   deploymentEnvelope,
   withDeployment,
   withDeploymentRead,
@@ -87,7 +88,8 @@ router.get('/history/events', asyncRoute(async (req, res) => {
  * configuration describes the primary market and lists every market, and the
  * list endpoint returns all of them in one page.
  */
-async function deploymentPayload(identity: string) {
+async function deploymentPayload(deployment: DuskDeploymentEnvelope) {
+  const identity = deployment.deploymentIdentitySha256;
   const pinned = loadPinnedProtocol();
   const config = duskApiConfig();
   const { markets, sourceSlot } = await discoverMarkets();
@@ -125,7 +127,8 @@ async function deploymentPayload(identity: string) {
       protocolRevision: pinned.revision,
       programId: pinned.dusk.programId,
       leverageDelegateProgramId: pinned.leverageDelegate.programId,
-      payer: (await deploymentEnvelope()).programUpgradeAuthority,
+      // The surrounding read brackets this authority with fresh observations.
+      payer: deployment.programUpgradeAuthority,
       markets: projected.map((market) => ({
         label: market.label,
         market: market.marketAddress,
@@ -172,9 +175,9 @@ async function deploymentPayload(identity: string) {
 type DeploymentSnapshot = Awaited<ReturnType<typeof deploymentPayload>>;
 
 /** Coalesce concurrent requests; never keep a fully assembled live surface. */
-async function deploymentSnapshot(identity: string): Promise<DeploymentSnapshot> {
-  return cache.getOrSet(`dusk:deployment_surface:${identity}`, 0, () =>
-    deploymentPayload(identity),
+async function deploymentSnapshot(deployment: DuskDeploymentEnvelope): Promise<DeploymentSnapshot> {
+  return cache.getOrSet(`dusk:deployment_surface:${deployment.deploymentIdentitySha256}`, 0, () =>
+    deploymentPayload(deployment),
   );
 }
 
@@ -220,7 +223,7 @@ router.get(
   '/config',
   asyncRoute(async (_req, res) => {
     res.json(await withDeploymentRead(async (deployment) => {
-      const { config, sourceSlot } = await deploymentSnapshot(deployment.deploymentIdentitySha256);
+      const { config, sourceSlot } = await deploymentSnapshot(deployment);
       return { data: config, sourceSlot };
     }));
   }),
@@ -249,8 +252,10 @@ router.get(
   '/markets/state',
   asyncRoute(async (_req, res) => {
     res.json(await withDeploymentRead(async (deployment) => {
-      const { projected, sourceSlot } = await deploymentSnapshot(deployment.deploymentIdentitySha256);
-      return { data: { markets: projected, pagination: { limit: Math.max(100, projected.length), offset: 0, total: projected.length } }, sourceSlot };
+      const { config, projected, sourceSlot } = await deploymentSnapshot(deployment);
+      // Inventory and its configuration come from this exact snapshot. Clients
+      // need one data request and validate both under the same final envelope.
+      return { data: { configuration: config, markets: projected, pagination: { limit: Math.max(100, projected.length), offset: 0, total: projected.length } }, sourceSlot };
     }));
   }),
 );
