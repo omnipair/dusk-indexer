@@ -35,12 +35,31 @@ import { listYieldCheckpoints } from '../../services/duskYieldCheckpoints';
 import { listDuskPriceHistory } from '../../services/duskPrices';
 import { listMarketActivity } from '../../services/duskMarketActivity';
 import { listEventHistory } from '../../services/duskEventHistory';
+import { listQuoteHistory } from '../../services/duskQuoteHistory';
 import { listPortfolioHistory, portfolioSampleSeconds } from '../../services/duskPortfolioSnapshots';
 import { provenance, renderMetrics } from '../../utils/metrics';
 
 import { PublicKey } from '@solana/web3.js';
 
 const router = Router();
+
+router.get('/history/quotes/:market', asyncRoute(async (req,res) => {
+  const parameter = (name: string, fallback?: string) => {
+    const value = req.query[name] ?? fallback;
+    if (typeof value !== 'string') throw Object.assign(new Error(`Invalid ${name}`),{ status: 400 });
+    return value;
+  };
+  const side = parameter('side','base');
+  if (side !== 'base' && side !== 'quote') throw Object.assign(new Error('Invalid quote side'),{ status: 400 });
+  const selection = { market: req.params.market,side,since: parameter('since'),until: parameter('until',new Date().toISOString()),
+    resolutionSeconds: Number(parameter('resolutionSeconds','60')) };
+  res.json(await withDeploymentRead(async deployment => {
+    const data = await listQuoteHistory({ ...selection,side,deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
+    const sourceSlot = Number(data.coverage.lastSourceSlot ?? 0);
+    if (!Number.isSafeInteger(sourceSlot)) throw new Error('Invalid quote-history source slot');
+    return { data,sourceSlot };
+  }));
+}));
 
 router.get('/history/events', asyncRoute(async (req, res) => {
   const stringParameter = (name: string) => {

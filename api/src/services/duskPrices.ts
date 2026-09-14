@@ -55,10 +55,10 @@ export async function storePriceCapture(client: PoolClient, input: PriceCaptureS
   return existing.rows[0].capture_id;
 }
 
-async function assertNoPriceConflict(client: PoolClient) {
+export async function assertNoPriceConflict(client: PoolClient) {
   const conflicts = await client.query(`SELECT 1 FROM dusk_ingestion.price_capture_observations
     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
-    GROUP BY market,slot HAVING count(DISTINCT (blockhash,preview_hash))>1 LIMIT 1`,identity());
+    GROUP BY market,slot HAVING count(DISTINCT (blockhash,preview_hash,block_time))>1 LIMIT 1`,identity());
   if (conflicts.rowCount) throw Object.assign(new Error('FINALIZED_INVARIANT: contradictory finalized market price previews'),{ status: 503 });
 }
 
@@ -98,6 +98,15 @@ export async function projectPriceCapture(client: PoolClient, captureId: string)
   const row = result.rows[0];
   if (!row) throw new Error('Price capture is not in the active protocol identity');
   const { source,projected } = verifyStoredPriceCapture(row);
+  const quote = [captureId,projected.bound.baseMint,projected.bound.quoteMint,projected.bound.baseDecimals,
+    projected.bound.quoteDecimals,projected.spotPrices.base,projected.spotPrices.quote];
+  await client.query(`INSERT INTO dusk_ingestion.market_quote_projections
+    (capture_id,base_mint,quote_mint,base_decimals,quote_decimals,base_spot_price_nad,quote_spot_price_nad)
+    VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(capture_id) DO NOTHING`,quote);
+  const sameQuote = await client.query(`SELECT 1 FROM dusk_ingestion.market_quote_projections
+    WHERE capture_id=$1 AND base_mint=$2 AND quote_mint=$3 AND base_decimals=$4 AND quote_decimals=$5
+      AND base_spot_price_nad=$6 AND quote_spot_price_nad=$7`,quote);
+  if (!sameQuote.rowCount) throw new Error('FINALIZED_INVARIANT: market quote differs from its saved preview');
   const previous = await client.query<{ price_count: number }>('SELECT price_count FROM dusk_ingestion.price_capture_projections WHERE capture_id=$1',[captureId]);
   if (previous.rows[0]) return previous.rows[0].price_count;
   // Multiple finalized slots can share a second. Keep both observations even
@@ -129,7 +138,8 @@ export async function projectPriceCaptureBatch(client: PoolClient, limit = 100):
   await assertNoPriceConflict(client);
   const sources = await client.query<{ capture_id: string }>(`SELECT o.capture_id::text FROM dusk_ingestion.price_capture_observations o
     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
-      AND NOT EXISTS(SELECT 1 FROM dusk_ingestion.price_capture_projections p WHERE p.capture_id=o.capture_id)
+      AND (NOT EXISTS(SELECT 1 FROM dusk_ingestion.price_capture_projections p WHERE p.capture_id=o.capture_id)
+        OR NOT EXISTS(SELECT 1 FROM dusk_ingestion.market_quote_projections q WHERE q.capture_id=o.capture_id))
     ORDER BY o.slot,o.capture_id LIMIT $5`,[...identity(),limit]);
   for (const row of sources.rows) await projectPriceCapture(client,row.capture_id);
   return sources.rows.length;

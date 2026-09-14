@@ -15,3 +15,4 @@
 033_dusk_portfolio_sources.sql
 034_dusk_deployment_intervals.sql
 035_dusk_market_activity.sql
+036_dusk_quote_history.sql

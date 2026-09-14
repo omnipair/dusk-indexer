@@ -71,6 +71,12 @@ export function projectMarketPrices(input: {
   const time = Date.parse(input.blockTime);
   if (!Number.isFinite(time)) throw new Error('Invalid price source block time');
   const referenceHash = sha256(canonicalJson(references));
+  // Both sides are decimal-normalized program quotes, including markets for
+  // which no USD reference exists. A zero quote is unavailable, not $0.
+  const spotPrices = {
+    base: unsigned(fields(preview.base).spot_price_nad,(1n<<64n)-1n).toString(),
+    quote: unsigned(fields(preview.quote).spot_price_nad,(1n<<64n)-1n).toString(),
+  };
   const available = time >= Date.parse(references.effectiveFrom) ? references.references : [];
   const byMint = new Map(available.map((reference) => [reference.mint,reference]));
   const prices = [];
@@ -80,12 +86,12 @@ export function projectMarketPrices(input: {
     const own = byMint.get(mint),other = byMint.get(otherMint);
     if (!own && !other) continue;
     // The program's curve-aware quote already normalizes token decimals.
-    const spotPriceNad = unsigned(fields(preview[side]).spot_price_nad,(1n<<64n)-1n);
+    const spotPriceNad = BigInt(spotPrices[side]);
     const reference = own ?? other!;
     prices.push({ mint,decimals: side === 'base' ? bound.baseDecimals : bound.quoteDecimals,
       priceUsd: own ? own.priceUsd : multiplyPriceRatio(reference.priceUsd,spotPriceNad,1_000_000_000n),
       quality: own ? 'configured-reference' as const : 'derived-reference' as const,
       reference,spotPriceNad: own ? null : spotPriceNad.toString() });
   }
-  return { prices,referenceHash,bound };
+  return { prices,referenceHash,bound,spotPrices };
 }

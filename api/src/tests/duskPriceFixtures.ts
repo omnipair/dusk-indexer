@@ -3,7 +3,7 @@ import { loadPinnedProtocol } from '../config/duskProtocol';
 import { PriceCaptureSource } from '../services/duskPrices';
 import { checkpointFixture, encodeFixtureType, fixtureKey } from './duskYieldCheckpointFixtures';
 
-export function priceFixture(options: { price?: string; quoteNad?: bigint; references?: boolean; effectiveFrom?: string } = {}) {
+export function priceFixture(options: { price?: string; quoteNad?: bigint; inverseNad?: bigint; references?: boolean; effectiveFrom?: string } = {}) {
   const pin = loadPinnedProtocol(),fixture = checkpointFixture(),yieldSource = fixture.source();
   const references = { schemaVersion: 'dusk-price-references.v1',cluster: pin.cluster,programId: pin.dusk.programId,
     idlSha256: pin.dusk.idlCanonicalSha256,protocolRevision: pin.revision,effectiveFrom: options.effectiveFrom ?? '2026-09-01T00:00:00Z',
@@ -14,7 +14,8 @@ export function priceFixture(options: { price?: string; quoteNad?: bigint; refer
         ylp_supply: new BN(0),ylp_exchange_rate_nad: new BN(0),spot_price_nad: new BN((options.quoteNad ?? 2_500_000_000n).toString()),
         price_ema_nad: new BN(0),directional_price_ema_nad: new BN(0),conservative_depth_nad: new BN(0),borrow_index_nad: new BN(0),
         rate_at_target_nad: new BN(0),borrow_apr_nad: new BN(0),utilization_bps: new BN(0),fixed_debt: new BN(0),isolated_debt: new BN(0),
-        hlp_funding_debt: new BN(0),total_debt: new BN(0),daily_borrow_limit: new BN(0),daily_borrow_remaining: new BN(0) } });
+        hlp_funding_debt: new BN(0),total_debt: new BN(0),daily_borrow_limit: new BN(0),daily_borrow_remaining: new BN(0) },
+      quote: { spot_price_nad: new BN((options.inverseNad ?? 0n).toString()) } });
     return { market: yieldSource.market,slot,marketSlot: slot,blockhash: fixtureKey(130).toBase58(),blockTime: '2026-09-02T00:00:00.000Z',
       observedAt: '2026-09-02T00:00:05.000Z',deploymentIdentitySha256: 'b'.repeat(64),rawMarket: yieldSource.accounts.market!.data,
       rawPreview: rawPreview.toString('base64'),references };
