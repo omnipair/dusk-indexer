@@ -20,6 +20,11 @@ replay phase, including `--replay-only`, also projects older saved captures that
 already have a completed USD projection. No historical RPC query or transaction
 submission is needed for that replay.
 
+Migration 037 publishes a native read-change notification when a relative quote
+projection commits, including captures without USD valuation. Consumers can use
+the [native read-change stream](dusk-read-change-stream.md) to request a fresh
+history read; stream hints never supply chart prices directly.
+
 Reads use a repeatable-read database transaction and the full configured
 cluster/program/IDL/revision/deployed-binary identity. Captures before the pinned
 release interval and captures of other deployment identities are excluded.
@@ -56,4 +61,7 @@ Validation on 2026-09-14: 124 API unit tests and 58 rollback-only database check
 passed. The live devnet worker captured all four discovered markets. Both quote
 directions for the dedicated unpriced market returned HTTP 200 at source slot
 497984848, and four invalid selections returned HTTP 400. The browser chart is
-not yet connected to this endpoint; no new signed transaction was needed.
+not yet connected at that backend-validation point; no new signed transaction
+was needed. The companion app subsequently connected native chart/headline
+adapters and passed its range/direction and outage/recovery checks locally.
+Publication and hosted acceptance of those app changes remain pending.

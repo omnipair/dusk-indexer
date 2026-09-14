@@ -85,7 +85,7 @@ test('notifications invalidate only the active identity and leave immutable bloc
   const pin = loadPinnedProtocol();
   cache.set('dusk:market_health:test', 'old', 10_000);
   cache.set('dusk:block_time:test', 123, 10_000);
-  const notice = { cluster: pin.cluster, programId: pin.dusk.programId, idlHash: pin.dusk.idlCanonicalSha256, protocolRevision: pin.revision };
+  const notice = { cluster: pin.cluster, programId: pin.dusk.programId, idlHash: pin.dusk.idlCanonicalSha256, protocolRevision: pin.revision, slot: pin.historyFirstSlot };
   invalidateDuskReadCaches(JSON.stringify({ ...notice, protocolRevision: 'wrong' }));
   assert.equal(cache.get('dusk:market_health:test'), 'old');
   invalidateDuskReadCaches(JSON.stringify(notice));

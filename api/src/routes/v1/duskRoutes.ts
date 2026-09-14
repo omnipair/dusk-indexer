@@ -36,12 +36,15 @@ import { listDuskPriceHistory } from '../../services/duskPrices';
 import { listMarketActivity } from '../../services/duskMarketActivity';
 import { listEventHistory } from '../../services/duskEventHistory';
 import { listQuoteHistory } from '../../services/duskQuoteHistory';
+import { openDuskChangeStream } from '../../services/duskChangeStream';
 import { listPortfolioHistory, portfolioSampleSeconds } from '../../services/duskPortfolioSnapshots';
 import { provenance, renderMetrics } from '../../utils/metrics';
 
 import { PublicKey } from '@solana/web3.js';
 
 const router = Router();
+
+router.get('/changes', asyncRoute(openDuskChangeStream));
 
 router.get('/history/quotes/:market', asyncRoute(async (req,res) => {
   const parameter = (name: string, fallback?: string) => {

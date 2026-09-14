@@ -1,7 +1,7 @@
 import type { PoolClient } from 'pg';
 import pool from '../config/database';
 import { cache } from '../utils/cache';
-import { loadPinnedProtocol } from '../config/duskProtocol';
+import { parseDuskReadChange, publishDuskReadChange } from './duskChangeBus';
 
 /** Domain prefixes used by the preserved controllers and native readers. */
 export const DUSK_INVALIDATION_PREFIXES = [
@@ -12,19 +12,18 @@ export const DUSK_INVALIDATION_PREFIXES = [
 ] as const;
 
 export function invalidateDuskReadCaches(payload: string | undefined): void {
-  if (!payload) return;
-  const notice = JSON.parse(payload) as Record<string, unknown>;
-  const pin = loadPinnedProtocol();
-  const program = notice.programId === pin.dusk.programId ? pin.dusk
-    : notice.programId === pin.leverageDelegate.programId ? pin.leverageDelegate : undefined;
-  if (!program || notice.cluster !== pin.cluster || notice.idlHash !== program.idlCanonicalSha256 || notice.protocolRevision !== pin.revision) return;
+  const notice = parseDuskReadChange(payload);
+  if (!notice) return;
   for (const prefix of DUSK_INVALIDATION_PREFIXES) cache.deleteByPrefix(prefix);
+  publishDuskReadChange(notice);
 }
 
 let connection: PoolClient | undefined;
 let reconnect: ReturnType<typeof setTimeout> | undefined;
 let starting: Promise<void> | undefined;
 let stopped = true;
+
+export function duskInvalidationListenerReady(): boolean { return connection !== undefined && !stopped; }
 
 async function connect(): Promise<void> {
   const client = await pool.connect();
@@ -35,6 +34,7 @@ async function connect(): Promise<void> {
     released = true;
     if (connection === client) connection = undefined;
     client.release(true);
+    publishDuskReadChange({ kind: 'unavailable', sourceSlot: 0 });
     scheduleReconnect();
   };
   client.on('error', disconnect);
@@ -50,6 +50,7 @@ async function connect(): Promise<void> {
     connection = client;
     // Notifications missed during downtime cannot be replayed.
     for (const prefix of DUSK_INVALIDATION_PREFIXES) cache.deleteByPrefix(prefix);
+    publishDuskReadChange({ kind: 'resync', sourceSlot: 0 });
   } catch (error) { disconnect(); throw error; }
 }
 
@@ -71,6 +72,7 @@ export async function startDuskInvalidationListener(): Promise<void> {
 
 export async function stopDuskInvalidationListener(): Promise<void> {
   stopped = true;
+  publishDuskReadChange({ kind: 'unavailable', sourceSlot: 0 });
   if (reconnect) clearTimeout(reconnect);
   reconnect = undefined;
   await starting?.catch(() => undefined);
