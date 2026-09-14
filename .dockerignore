@@ -66,6 +66,7 @@ database/
 !database/migrations/033_dusk_portfolio_sources.sql
 !database/migrations/034_dusk_deployment_intervals.sql
 !database/migrations/035_dusk_market_activity.sql
+!database/migrations/036_dusk_quote_history.sql
 !database/dusk-migrations.txt
 
 # Other language artifacts

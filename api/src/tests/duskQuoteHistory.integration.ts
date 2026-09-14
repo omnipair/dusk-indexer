@@ -44,6 +44,8 @@ test('unpriced markets have exact curve candles with slot-ordered same-second sa
   assert.equal(result.candles[0].open.captureId,open);
   assert.equal(result.candles[0].close.captureId,close);
   assert.equal(result.candles[0].high.captureId,high);
+  assert.equal(result.candles[0].open.time,'2026-09-02T00:00:10.000Z');
+  assert.equal(result.candles[0].close.sourceSlot,String(pin.historyFirstSlot+103));
   assert.equal(result.candles[0].low.price,'2.5');
   assert.equal(result.candles[1].close.price,'0.000000001');
   assert.deepEqual([result.binding?.baseDecimals,result.binding?.quoteDecimals],[9,6]);

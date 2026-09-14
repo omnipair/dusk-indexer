@@ -84,7 +84,7 @@ export async function readQuoteHistory(client: PoolClient, query: QuoteHistoryQu
       q.base_mint,q.quote_mint,q.base_decimals,q.quote_decimals,q.base_spot_price_nad::text,q.quote_spot_price_nad::text
     FROM dusk_ingestion.price_capture_observations o JOIN dusk_ingestion.market_quote_projections q USING(capture_id)
     WHERE o.capture_id=ANY($1::bigint[])`,[ids]) : { rows: [] };
-  const verified = new Map<string,{ nad: string; sourceHash: string }>();
+  const verified = new Map<string,{ nad: string; sourceHash: string; time: string; sourceSlot: string }>();
   let binding: { baseMint: string; quoteMint: string; baseDecimals: number; quoteDecimals: number } | null = null;
   for (const row of witnesses.rows) {
     const { source,projected } = verifyStoredPriceCapture(row),bound = projected.bound;
@@ -96,12 +96,13 @@ export async function readQuoteHistory(client: PoolClient, query: QuoteHistoryQu
       || binding && canonicalJson(binding) !== canonicalJson(bound))
       throw new Error('FINALIZED_INVARIANT: quote-history projection differs from its source');
     binding = bound;
-    verified.set(row.capture_id,{ nad: projected.spotPrices[query.side],sourceHash: row.content_hash });
+    verified.set(row.capture_id,{ nad: projected.spotPrices[query.side],sourceHash: row.content_hash,
+      time: source.blockTime,sourceSlot: String(source.slot) });
   }
   const witness = (id: string) => {
     const value = verified.get(id);
     if (!value) throw new Error('FINALIZED_INVARIANT: quote-history source disappeared');
-    return { captureId: id,sourceHash: value.sourceHash,price: nadPrice(value.nad) };
+    return { captureId: id,sourceHash: value.sourceHash,price: nadPrice(value.nad),time: value.time,sourceSlot: value.sourceSlot };
   };
   const candles = buckets.rows.map(row => ({ time: Number(row.time),samples: row.samples,
     firstSourceSlot: row.first_slot,lastSourceSlot: row.last_slot,

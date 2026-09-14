@@ -28,9 +28,11 @@ read. Duplicate captures of the same bank under different USD reference policies
 count as one sample. The open and close use timestamp then slot ordering, so
 arrival order cannot change candles when multiple banks share a second.
 
-Each open/high/low/close includes an exact decimal price, capture ID, and saved
-source hash. The API rebuilds each selected candle witness from its immutable,
-hashed Borsh bytes and checks the materialized quote and mint bindings before
+Each open/high/low/close includes an exact decimal price, capture ID, source
+slot, actual observation timestamp, and saved source hash. Line charts can use
+these timestamps when several samples share one candle bucket. The API rebuilds
+each selected candle witness from its immutable, hashed Borsh bytes and checks
+the materialized quote and mint bindings before
 returning it. NAD quotes are already normalized for mint decimals. Dividing by
 1e9 is the only scale conversion; clients must not multiply by a token-decimal
 difference. Prices remain decimal strings, preserving the full u64 range.
