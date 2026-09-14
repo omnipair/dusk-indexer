@@ -6,6 +6,7 @@ import { loadPinnedProtocol } from '../config/duskProtocol';
 import { ACTIVITY_EVENTS, ACTIVITY_METRICS, ActivityMetric, ActivityPriceBasis, parseActivityEvent, valueActivityAmounts } from './duskActivityMath';
 import { formatUsd, usdUnits } from './duskPortfolioMath';
 import { StoredPriceCapture, verifyStoredPriceCapture } from './duskPrices';
+import { HistoryDeploymentQuery, historyDeploymentIdentities } from './duskHistoryDeployment';
 
 const identity = () => {
   const pin = loadPinnedProtocol();
@@ -59,7 +60,7 @@ export async function projectFinalizedMarketActivity(limit = 500) {
   finally { client.release(); }
 }
 
-export interface MarketActivityQuery { since?: string; until: string; market?: string; maxPriceAgeSeconds?: number; deploymentIdentitySha256: string }
+export interface MarketActivityQuery extends HistoryDeploymentQuery { since?: string; until: string; market?: string; maxPriceAgeSeconds?: number }
 type MetricAccumulator = { valued: bigint; unpriced: number; observations: number };
 function emptyMetrics() {
   return Object.fromEntries(ACTIVITY_METRICS.map((metric) => [metric,{ valued: 0n,unpriced: 0,observations: 0 }])) as Record<ActivityMetric,MetricAccumulator>;
@@ -80,6 +81,7 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
     throw new Error('Invalid native activity time range');
   if (options.market !== undefined && new PublicKey(options.market).toBase58() !== options.market)
     throw new Error('Invalid native activity market');
+  const deployments = await historyDeploymentIdentities(client,options);
   const conflicts = await client.query(`SELECT 1 FROM dusk_ingestion.price_capture_observations
     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
     GROUP BY market,slot HAVING count(DISTINCT (blockhash,preview_hash,reference_config))>1 LIMIT 1`,active);
@@ -116,13 +118,13 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
       FROM dusk_ingestion.market_activity_events a
       LEFT JOIN LATERAL (SELECT p.capture_id FROM dusk_ingestion.price_capture_observations p
         WHERE (p.cluster,p.program_id,p.idl_hash,p.protocol_revision,p.market)=(a.cluster,a.program_id,a.idl_hash,a.protocol_revision,a.market)
-          AND p.deployment_identity_sha256=$11
+          AND p.deployment_identity_sha256=ANY($11::text[])
           AND p.slot<a.slot AND p.block_time<=a.block_time AND p.block_time>=a.block_time-($8::int*interval '1 second')
         ORDER BY p.slot DESC,p.capture_id DESC LIMIT 1) p ON true
       WHERE a.cluster=$1 AND a.program_id=$2 AND a.idl_hash=$3 AND a.protocol_revision=$4
         AND ($5::timestamptz IS NULL OR a.block_time>=$5) AND a.block_time<=$6
         AND ($7::text IS NULL OR a.market=$7) AND (a.slot,a.event_key)>($9::bigint,$10::text)
-      ORDER BY a.slot,a.event_key LIMIT 500`,[...active,options.since ?? null,options.until,options.market ?? null,maxPriceAgeSeconds,afterSlot,afterKey,options.deploymentIdentitySha256]);
+      ORDER BY a.slot,a.event_key LIMIT 500`,[...active,options.since ?? null,options.until,options.market ?? null,maxPriceAgeSeconds,afterSlot,afterKey,deployments]);
     if (!page.rows.length) break;
     for (const row of page.rows) {
       let basis: ActivityPriceBasis | null = null;
@@ -132,7 +134,7 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
           const captured = await client.query<StoredPriceCapture>(`SELECT *,slot::text,market_slot::text,capture_id::text
             FROM dusk_ingestion.price_capture_observations WHERE capture_id=$1`,[row.capture_id]);
           const capture = captured.rows[0];
-          if (!capture || capture.market !== row.market || capture.deployment_identity_sha256 !== options.deploymentIdentitySha256)
+          if (!capture || capture.market !== row.market || !deployments.includes(capture.deployment_identity_sha256))
             throw new Error('FINALIZED_INVARIANT: activity price capture disappeared or changed deployment');
           const { source,projected } = verifyStoredPriceCapture(capture);
           basis = { captureId: row.capture_id,slot: source.slot,blockTime: source.blockTime,bound: projected.bound,prices: projected.prices };

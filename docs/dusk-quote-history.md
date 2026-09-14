@@ -28,6 +28,25 @@ history read; stream hints never supply chart prices directly.
 Reads use a repeatable-read database transaction and the full configured
 cluster/program/IDL/revision/deployed-binary identity. Captures before the pinned
 release interval and captures of other deployment identities are excluded.
+Migration 038 stores immutable capture deployment envelopes. Historical reads
+can include registered captures from another API/worker build only when the
+saved hash recomputes correctly and every program identity field matches the
+active pin: network, genesis, both program/ProgramData addresses, deploy slots,
+upgrade authorities, binary hashes, IDL hashes, schema and commitment. Unknown
+hashes remain excluded. Live response envelopes and transaction checks still
+use the full identity, including the API build revision.
+
+The price worker registers its freshly observed envelope before saving a
+capture. For captures predating migration 038, run
+`node dist/scripts/registerDuskPriceDeployment.js <original-worker-build-revision>`
+in the API service after migration. It observes the currently pinned program
+accounts, reconstructs the original hash by replacing only the build revision,
+and requires matching saved captures before registering the envelope. An
+incorrect build or different program release cannot match. No capture, price
+or projection is rewritten. Apply migration 038 before deploying this API or
+price worker version. The same attestation matching applies to historical USD
+prices used by market activity.
+
 Contradictory finalized preview bytes, blockhashes, or block timestamps halt the
 read. Duplicate captures of the same bank under different USD reference policies
 count as one sample. The open and close use timestamp then slot ordering, so

@@ -17,3 +17,4 @@
 035_dusk_market_activity.sql
 036_dusk_quote_history.sql
 037_dusk_quote_notifications.sql
+038_dusk_capture_deployments.sql

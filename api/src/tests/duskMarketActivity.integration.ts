@@ -10,6 +10,8 @@ import { projectPriceCapture, storePriceCapture } from '../services/duskPrices';
 import { activityMarket, activityPayload, activitySlot, activityTime } from './duskActivityFixtures';
 import { priceFixture } from './duskPriceFixtures';
 import { fixtureKey } from './duskYieldCheckpointFixtures';
+import { storeCaptureDeployment } from '../services/duskHistoryDeployment';
+import { historyDeploymentFixture } from './duskHistoryDeploymentFixtures';
 
 if (process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS !== 'true' || !process.env.DATABASE_URL)
   throw new Error('Set DUSK_ALLOW_DISPOSABLE_DB_TESTS=true and a disposable DATABASE_URL');
@@ -62,6 +64,19 @@ async function priced(client: PoolClient) {
   await projectPriceCapture(client,id);
   return id;
 }
+test('API-only releases preserve verified historical USD pricing for activity',() => transaction(async client => {
+  const original = historyDeploymentFixture('fixture-old-price-worker'),deployment = historyDeploymentFixture();
+  const capture = priceFixture().source();
+  capture.deploymentIdentitySha256 = original.deploymentIdentitySha256;
+  const id = await storePriceCapture(client,capture);
+  await projectPriceCapture(client,id);
+  await source(client);
+  await projectMarketActivityBatch(client);
+  const selection = { ...query,deployment,deploymentIdentitySha256: deployment.deploymentIdentitySha256 };
+  assert.equal((await readMarketActivity(client,selection)).metrics.volume.observedUsd,null);
+  await storeCaptureDeployment(client,original);
+  assert.equal((await readMarketActivity(client,selection)).metrics.volume.observedUsd,'5');
+}));
 
 test('finalized native trades project once, exclude other revisions and commitments, and retain late backfills',() => transaction(async (client) => {
   await priced(client);

@@ -58,7 +58,7 @@ router.get('/history/quotes/:market', asyncRoute(async (req,res) => {
   const selection = { market: req.params.market,side,since: parameter('since'),until: parameter('until',new Date().toISOString()),
     resolutionSeconds: Number(parameter('resolutionSeconds','60')) };
   res.json(await withDeploymentRead(async deployment => {
-    const data = await listQuoteHistory({ ...selection,side,deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
+    const data = await listQuoteHistory({ ...selection,side,deployment,deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
     const sourceSlot = Number(data.coverage.lastSourceSlot ?? 0);
     if (!Number.isSafeInteger(sourceSlot)) throw new Error('Invalid quote-history source slot');
     return { data,sourceSlot };
@@ -283,7 +283,7 @@ router.get('/analytics/activity',asyncRoute(async (req,res) => {
     || !Number.isSafeInteger(maxPriceAgeSeconds) || maxPriceAgeSeconds<1 || maxPriceAgeSeconds>86400)
     throw Object.assign(new Error('Invalid activity time range'),{ status: 400 });
   res.json(await withDeploymentRead(async (deployment) => {
-    const data = await listMarketActivity({ since,until,market,maxPriceAgeSeconds,deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
+    const data = await listMarketActivity({ since,until,market,maxPriceAgeSeconds,deployment,deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
     const sourceSlot = Number(data.coverage.lastSourceSlot ?? 0);
     if (!Number.isSafeInteger(sourceSlot) || sourceSlot<0) throw new Error('Invalid activity source slot');
     return { data,sourceSlot };

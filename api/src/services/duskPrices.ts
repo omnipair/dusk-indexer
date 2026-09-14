@@ -8,6 +8,7 @@ import { canonicalJson, duskApiConfig, loadPinnedProtocol, sha256 } from '../con
 import { deploymentEnvelope } from './duskDeploymentService';
 import { parsePriceReferences, priceMarketBindings, projectMarketPrices } from './duskPriceMath';
 import { captureMarketSimulation } from './duskMarketSimulation';
+import { storeCaptureDeployment } from './duskHistoryDeployment';
 
 const identity = () => {
   const pin = loadPinnedProtocol();
@@ -180,6 +181,7 @@ export async function captureDuskPrices() {
       marketStateBasis: 'simulation-post-state',references };
     const client = await pool.connect();
     try {
+      await storeCaptureDeployment(client,discoveredIdentity);
       const captureId = await storePriceCapture(client,source);
       await client.query('BEGIN'); priced += await projectPriceCapture(client,captureId); await client.query('COMMIT'); captured++;
     } catch (error) { await client.query('ROLLBACK'); throw error; }

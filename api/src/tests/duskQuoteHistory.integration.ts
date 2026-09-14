@@ -6,6 +6,8 @@ import { loadPinnedProtocol } from '../config/duskProtocol';
 import { projectPriceCapture, projectPriceCaptureBatch, storePriceCapture } from '../services/duskPrices';
 import { readQuoteHistory } from '../services/duskQuoteHistory';
 import { priceFixture } from './duskPriceFixtures';
+import { storeCaptureDeployment } from '../services/duskHistoryDeployment';
+import { historyDeploymentFixture } from './duskHistoryDeploymentFixtures';
 
 if (process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS !== 'true' || !process.env.DATABASE_URL)
   throw new Error('A disposable DATABASE_URL is required');
@@ -84,6 +86,27 @@ test('deployment changes isolate saved quotes and pending projections cannot cla
   assert.equal(after.candles.length,1); assert.equal(after.coverage.projectionComplete,true);
   assert.notEqual(after.selectionHash,before.selectionHash);
   assert.equal((await readQuoteHistory(client,{ ...query,deploymentIdentitySha256:'d'.repeat(64) })).coverage.captures,'0');
+}));
+test('verified API-only releases retain old candles without relabeling captures or accepting unknown deployments',() => transaction(async client => {
+  const original = historyDeploymentFixture('fixture-old-api'),deployment = historyDeploymentFixture('fixture-new-api');
+  const id = await source(client,1,10,2_500_000_000n,{ identity: original.deploymentIdentitySha256 });
+  await source(client,2,70,3_000_000_000n,{ identity: 'c'.repeat(64) });
+  const selection = { ...query,deployment,deploymentIdentitySha256: deployment.deploymentIdentitySha256 };
+  assert.equal((await readQuoteHistory(client,selection)).coverage.captures,'0');
+  const before = await client.query('SELECT content_hash FROM dusk_ingestion.price_capture_observations WHERE capture_id=$1',[id]);
+  await storeCaptureDeployment(client,original);
+  await storeCaptureDeployment(client,{ ...original,observedAt: '2026-09-14T01:00:00Z' });
+  const result = await readQuoteHistory(client,selection);
+  assert.equal(result.coverage.captures,'1');
+  assert.equal(result.candles[0].close.captureId,id);
+  assert.equal(result.candles[0].close.price,'2.5');
+  assert.equal(result.candles[0].close.sourceHash,before.rows[0].content_hash);
+  assert.equal(result.coverage.deploymentIdentitySha256,deployment.deploymentIdentitySha256);
+  assert.equal((await readQuoteHistory(client,{ ...selection,deployment: undefined })).coverage.captures,'0');
+  await assert.rejects(readQuoteHistory(client,{ ...selection,deploymentIdentitySha256: original.deploymentIdentitySha256 }),/verified deployment/);
+  await client.query('SAVEPOINT immutable_deployment');
+  await assert.rejects(client.query("UPDATE dusk_ingestion.capture_deployments SET envelope=envelope || '{\"buildRevision\":\"forged\"}'::jsonb"),/FINALIZED_INVARIANT/);
+  await client.query('ROLLBACK TO SAVEPOINT immutable_deployment');
 }));
 test('existing completed USD captures acquire quote projections through the normal replay worker',() => transaction(async client => {
   const id = await source(client,1,10,2_500_000_000n,{ project: false });

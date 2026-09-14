@@ -67,7 +67,7 @@ function runtime(): { connection: Connection; config: DuskApiConfig } {
 
 let observePrograms: ReturnType<typeof createDuskProgramObserver> | undefined;
 
-function deploymentIdentityFingerprint(
+export function deploymentIdentityFingerprint(
   deployment: Omit<DuskDeploymentEnvelope, 'deploymentIdentitySha256'>,
 ): string {
   return sha256(

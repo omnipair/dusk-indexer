@@ -3,14 +3,14 @@ import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { canonicalJson, loadPinnedProtocol, sha256 } from '../config/duskProtocol';
 import { assertNoPriceConflict, StoredPriceCapture, verifyStoredPriceCapture } from './duskPrices';
+import { HistoryDeploymentQuery, historyDeploymentIdentities } from './duskHistoryDeployment';
 
-export interface QuoteHistoryQuery {
+export interface QuoteHistoryQuery extends HistoryDeploymentQuery {
   market: string;
   side: 'base' | 'quote';
   since: string;
   until: string;
   resolutionSeconds: number;
-  deploymentIdentitySha256: string;
 }
 const RESOLUTIONS = [60,300,900,3600,14400,86400];
 const invalid = (): never => { throw Object.assign(new Error('Invalid native quote-history selection'),{ status: 400 }); };
@@ -44,11 +44,12 @@ export async function readQuoteHistory(client: PoolClient, query: QuoteHistoryQu
   const window = quoteHistorySelection(query),pin = loadPinnedProtocol();
   const identity = [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
   await assertNoPriceConflict(client);
-  const values = [...identity,query.deploymentIdentitySha256,query.market,window.since,window.until,pin.historyFirstSlot];
+  const deployments = await historyDeploymentIdentities(client,query);
+  const values = [...identity,deployments,query.market,window.since,window.until,pin.historyFirstSlot];
   const selected = `FROM dusk_ingestion.price_capture_observations o
     LEFT JOIN dusk_ingestion.market_quote_projections q USING(capture_id)
     WHERE o.cluster=$1 AND o.program_id=$2 AND o.idl_hash=$3 AND o.protocol_revision=$4
-      AND o.deployment_identity_sha256=$5 AND o.market=$6 AND o.block_time>=$7::timestamptz AND o.block_time<$8::timestamptz
+      AND o.deployment_identity_sha256=ANY($5::text[]) AND o.market=$6 AND o.block_time>=$7::timestamptz AND o.block_time<$8::timestamptz
       AND o.slot>=$9`;
   // The selection and its coverage share the caller's repeatable-read snapshot.
   const coverageRead = await client.query(`SELECT count(*)::text AS captures,count(q.capture_id)::text AS projected,
@@ -88,7 +89,7 @@ export async function readQuoteHistory(client: PoolClient, query: QuoteHistoryQu
   let binding: { baseMint: string; quoteMint: string; baseDecimals: number; quoteDecimals: number } | null = null;
   for (const row of witnesses.rows) {
     const { source,projected } = verifyStoredPriceCapture(row),bound = projected.bound;
-    if (source.market !== query.market || source.deploymentIdentitySha256 !== query.deploymentIdentitySha256
+    if (source.market !== query.market || !deployments.includes(source.deploymentIdentitySha256)
       || source.slot<pin.historyFirstSlot || source.blockTime<window.since || source.blockTime>=window.until
       || row.base_mint !== bound.baseMint || row.quote_mint !== bound.quoteMint
       || row.base_decimals !== bound.baseDecimals || row.quote_decimals !== bound.quoteDecimals
