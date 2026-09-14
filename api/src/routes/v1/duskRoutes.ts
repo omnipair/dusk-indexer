@@ -284,7 +284,7 @@ router.get('/analytics/activity',asyncRoute(async (req,res) => {
     throw Object.assign(new Error('Invalid activity time range'),{ status: 400 });
   res.json(await withDeploymentRead(async (deployment) => {
     const data = await listMarketActivity({ since,until,market,maxPriceAgeSeconds,deployment,deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
-    const sourceSlot = Number(data.coverage.lastSourceSlot ?? 0);
+    const sourceSlot = Math.max(Number(data.coverage.lastSourceSlot ?? 0),Number(data.coverage.historyScan?.throughSlot ?? 0));
     if (!Number.isSafeInteger(sourceSlot) || sourceSlot<0) throw new Error('Invalid activity source slot');
     return { data,sourceSlot };
   }));

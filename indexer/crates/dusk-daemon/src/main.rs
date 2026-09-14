@@ -17,6 +17,7 @@ mod extract;
 mod history;
 mod identity;
 mod persist;
+mod scans;
 
 use {
     anyhow::{Context as _, Result},
@@ -25,14 +26,13 @@ use {
     },
     solana_client::{
         nonblocking::rpc_client::RpcClient,
-        rpc_client::GetConfirmedSignaturesForAddress2Config,
         rpc_config::{RpcBlockConfig, RpcTransactionConfig},
     },
     solana_commitment_config::CommitmentConfig,
     solana_pubkey::Pubkey,
     solana_signature::Signature,
     solana_transaction_status::{TransactionDetails, UiTransactionEncoding},
-    std::{collections::HashSet, str::FromStr, time::Duration},
+    std::{str::FromStr, time::Duration},
 };
 
 struct Config {
@@ -155,7 +155,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// One poll: everything newer than the cursor, oldest first.
+/// One poll: the next uncovered finalized interval, oldest first.
 async fn ingest_once(
     rpc: &RpcClient,
     pool: &sqlx::PgPool,
@@ -166,130 +166,174 @@ async fn ingest_once(
 ) -> Result<usize> {
     let window = attestation.window()?;
     persist::record_deployment(pool, &config.cluster, window).await?;
-    let cursor = persist::load_cursor(pool, &config.cluster, window).await?;
-    let until = cursor
-        .as_deref()
-        .map(Signature::from_str)
-        .transpose()
-        .context("stored cursor signature is invalid")?;
+    // Hold one transaction-scoped lock across enumeration, decoding and commit.
+    // Interrupted passes leave canonical observations intact but no coverage.
+    let mut scan = pool.begin().await?;
+    if !scans::lock(&mut scan, &config.cluster).await? {
+        return Ok(0);
+    }
+    let start = scans::next_slot(&mut scan, &config.cluster, window).await?;
+    if start > window.through_slot {
+        return Ok(0);
+    }
+    let scan_window = identity::DeploymentWindow {
+        first_slot: start,
+        ..window
+    };
 
-    // Newest-first pages walked back until the cursor (or history start).
+    // Newest-first pages walked back past the last covered slot (or release start).
     let mut new_signatures = Vec::new();
     let mut before = None;
-    let mut previous_oldest = None;
-    let mut seen = HashSet::new();
-    loop {
-        let page = rpc
-            .get_signatures_for_address_with_config(
-                program,
-                GetConfirmedSignaturesForAddress2Config {
-                    before,
-                    until,
-                    limit: Some(config.page_limit),
-                    commitment: Some(CommitmentConfig::finalized()),
-                },
+    let mut pagination = history::Pagination::default();
+    let boundary = loop {
+        // No `until`: observe the actual lower boundary instead of treating an
+        // empty/pruned page as proof that a stored cursor was reached.
+        let page: Vec<solana_client::rpc_response::RpcConfirmedTransactionStatusWithSignature> =
+            rpc.send(
+                solana_client::rpc_request::RpcRequest::GetSignaturesForAddress,
+                serde_json::json!([program.to_string(), {
+                    "before": before, "limit": config.page_limit,
+                    "commitment": "finalized", "minContextSlot": window.through_slot
+                }]),
             )
             .await
             .context("getSignaturesForAddress")?;
-        let page_len = page.len();
-        if previous_oldest
-            .is_some_and(|oldest| page.first().is_some_and(|entry| entry.slot > oldest))
-        {
-            anyhow::bail!("FINALIZED_INVARIANT: signature pages moved forward while backfilling");
-        }
-        let selected = history::select_page(
-            &page.iter().map(|entry| entry.slot).collect::<Vec<_>>(),
-            window,
+        let selected = pagination.select(
+            &page
+                .iter()
+                .map(|entry| (entry.signature.as_str(), entry.slot))
+                .collect::<Vec<_>>(),
+            scan_window,
         )?;
-        previous_oldest = page.last().map(|entry| entry.slot);
-        let last = page.last().map(|entry| entry.signature.clone());
-        for entry in page
-            .into_iter()
-            .skip(selected.range.start)
-            .take(selected.range.len())
-        {
-            if !seen.insert(entry.signature.clone()) {
-                anyhow::bail!("FINALIZED_INVARIANT: repeated signature in history pagination");
-            }
+        for entry in &page {
             Signature::from_str(&entry.signature).context("invalid finalized signature")?;
-            new_signatures.push(entry);
+            if entry.confirmation_status
+                != Some(solana_transaction_status::TransactionConfirmationStatus::Finalized)
+            {
+                anyhow::bail!("signature listing is not finalized");
+            }
         }
-        if selected.reached_start || page_len < config.page_limit {
-            break;
+        before = page.last().map(|entry| entry.signature.clone());
+        let boundary = selected.reached_start.then(|| {
+            let entry = &page[selected.range.end];
+            (entry.signature.clone(), entry.slot)
+        });
+        new_signatures.extend(
+            page.into_iter()
+                .skip(selected.range.start)
+                .take(selected.range.len()),
+        );
+        if let Some(boundary) = boundary {
+            break boundary;
         }
-        before = last.as_deref().map(Signature::from_str).transpose()?;
-    }
+    };
     attestation.verify(rpc, &config.cluster).await?;
-    if new_signatures.is_empty() {
-        return Ok(0);
-    }
 
     // Oldest first, so the cursor only ever advances over persisted work.
     new_signatures.reverse();
-    let mut ingested = 0usize;
+    let mut receipts = Vec::new();
     for entry in new_signatures {
         window.require_slot(entry.slot)?;
         attestation.verify(rpc, &config.cluster).await?;
-        // A failed transaction executed no instructions and emitted nothing;
-        // it still advances the cursor so reprocessing stays bounded.
-        if entry.err.is_none() {
-            let signature = Signature::from_str(&entry.signature)?;
-            let transaction = rpc
-                .get_transaction_with_config(
-                    &signature,
-                    RpcTransactionConfig {
-                        encoding: Some(UiTransactionEncoding::Json),
-                        commitment: Some(CommitmentConfig::finalized()),
-                        max_supported_transaction_version: Some(0),
-                    },
-                )
-                .await
-                .with_context(|| format!("getTransaction {signature}"))?;
-            if transaction.slot != entry.slot {
-                anyhow::bail!("FINALIZED_INVARIANT: signature and transaction slots differ");
-            }
-            window.require_slot(transaction.slot)?;
-            let block = rpc
-                .get_block_with_config(
-                    transaction.slot,
-                    RpcBlockConfig {
-                        encoding: Some(UiTransactionEncoding::Json),
-                        transaction_details: Some(TransactionDetails::None),
-                        rewards: Some(false),
-                        commitment: Some(CommitmentConfig::finalized()),
-                        max_supported_transaction_version: Some(0),
-                    },
-                )
-                .await
-                .context("reading containing finalized block")?;
-            let observed = extract::decode_transaction(
+        let signature = Signature::from_str(&entry.signature)?;
+        let transaction = rpc
+            .get_transaction_with_config(
+                &signature,
+                RpcTransactionConfig {
+                    encoding: Some(UiTransactionEncoding::Json),
+                    commitment: Some(CommitmentConfig::finalized()),
+                    max_supported_transaction_version: Some(0),
+                },
+            )
+            .await
+            .with_context(|| format!("getTransaction {signature}"))?;
+        if transaction.slot != entry.slot {
+            anyhow::bail!("FINALIZED_INVARIANT: signature and transaction slots differ");
+        }
+        window.require_slot(transaction.slot)?;
+        let block = rpc
+            .get_block_with_config(
+                transaction.slot,
+                RpcBlockConfig {
+                    encoding: Some(UiTransactionEncoding::Json),
+                    transaction_details: Some(TransactionDetails::None),
+                    rewards: Some(false),
+                    commitment: Some(CommitmentConfig::finalized()),
+                    max_supported_transaction_version: Some(0),
+                },
+            )
+            .await
+            .context("reading containing finalized block")?;
+        scans::validate_transaction(&entry, &transaction)?;
+        let transaction_sha = scans::transaction_hash(&transaction)?;
+        let observed = if entry.err.is_none() {
+            Some(extract::decode_transaction(
                 decoder,
                 &entry.signature,
                 &transaction,
                 &block.blockhash,
                 block.parent_slot,
                 block.block_time,
-            )?;
-            attestation.verify(rpc, &config.cluster).await?;
+            )?)
+        } else {
+            None
+        };
+        attestation.verify(rpc, &config.cluster).await?;
+        let mut keys = Vec::new();
+        if let Some(observed) = observed {
             for event in &observed.events {
                 persist::persist_event(pool, event, observed.block_time, window).await?;
+                keys.push(event.canonical_record().event_key);
             }
-            if !observed.events.is_empty() {
-                log::info!(
-                    "slot {}: {} event(s) in {} [{}]",
-                    observed.slot,
-                    observed.events.len(),
-                    &entry.signature[..8],
-                    observed.event_names().join(", "),
-                );
-            }
+            log::debug!(
+                "slot {}: {} event(s) [{}]",
+                observed.slot,
+                keys.len(),
+                observed.event_names().join(", ")
+            );
         }
+        keys.sort();
+        receipts.push(serde_json::json!({
+            "signature": entry.signature, "slot": entry.slot, "blockhash": block.blockhash,
+            "failed": entry.err.is_some(), "transactionSha256": transaction_sha, "eventKeys": keys
+        }));
         attestation.verify(rpc, &config.cluster).await?;
         persist::advance_cursor(pool, &config.cluster, &entry.signature, entry.slot, window)
             .await?;
-        ingested += 1;
     }
-    Ok(ingested)
+    let through = rpc
+        .get_block_with_config(
+            window.through_slot,
+            RpcBlockConfig {
+                encoding: Some(UiTransactionEncoding::Json),
+                transaction_details: Some(TransactionDetails::None),
+                rewards: Some(false),
+                commitment: Some(CommitmentConfig::finalized()),
+                max_supported_transaction_version: Some(0),
+            },
+        )
+        .await
+        .context("reading history upper boundary")?;
+    let release_time = rpc
+        .get_block_time(window.first_slot - 1)
+        .await
+        .context("reading deployment block time")?;
+    attestation.verify(rpc, &config.cluster).await?;
+    scans::record(
+        &mut scan,
+        &config.cluster,
+        scan_window,
+        &boundary,
+        &through.blockhash,
+        through
+            .block_time
+            .context("history boundary has no block time")?,
+        release_time,
+        &receipts,
+    )
+    .await?;
+    scan.commit().await?;
+    Ok(receipts.len())
 }
 
 fn dotenv_optional() {

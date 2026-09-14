@@ -7,6 +7,7 @@ import { ACTIVITY_EVENTS, ACTIVITY_METRICS, ActivityMetric, ActivityPriceBasis, 
 import { formatUsd, usdUnits } from './duskPortfolioMath';
 import { StoredPriceCapture, verifyStoredPriceCapture } from './duskPrices';
 import { HistoryDeploymentQuery, historyDeploymentIdentities } from './duskHistoryDeployment';
+import { historyScanCovers, readHistoryScan } from './duskHistoryCoverage';
 
 const identity = () => {
   const pin = loadPinnedProtocol();
@@ -82,6 +83,7 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
   if (options.market !== undefined && new PublicKey(options.market).toBase58() !== options.market)
     throw new Error('Invalid native activity market');
   const deployments = await historyDeploymentIdentities(client,options);
+  const historyScan = await readHistoryScan(client);
   const conflicts = await client.query(`SELECT 1 FROM dusk_ingestion.price_capture_observations
     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
     GROUP BY market,slot HAVING count(DISTINCT (blockhash,preview_hash,reference_config))>1 LIMIT 1`,active);
@@ -163,13 +165,15 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
     prices.clear();
   } while (true);
   const summary = coverage.rows[0];
+  digest.update(JSON.stringify(historyScan));
   return {
     schemaVersion: 'dusk-market-activity.v1' as const,
     window: { since: options.since ? new Date(options.since).toISOString() : null,until: new Date(options.until).toISOString(),maxPriceAgeSeconds },
     metrics: metricResponse(all),events: count,swaps,
     markets: [...byMarket].sort(([a],[b]) => a.localeCompare(b)).map(([market,value]) => ({ market,metrics: metricResponse(value.metrics),events: value.events,swaps: value.swaps })),
     coverage: { cluster: active[0],programId: active[1],idlSha256: active[2],protocolRevision: active[3],commitment: 'finalized' as const,
-      deploymentIdentitySha256: options.deploymentIdentitySha256,basis: 'recorded-economic-events.v1' as const,historyRangeComplete: false as const,
+      deploymentIdentitySha256: options.deploymentIdentitySha256,basis: 'recorded-economic-events.v1' as const,
+      historyRangeComplete: summary.indexed === summary.projected && historyScanCovers(historyScan,options.since,options.until),historyScan,
       totalInterestAccrualAvailable: false as const,feeAllocationAvailable: false as const,
       priceBasis: 'latest-captured-prior-slot.v1' as const,
       indexedEvents: summary.indexed,projectedEvents: summary.projected,pendingEvents: (BigInt(summary.indexed)-BigInt(summary.projected)).toString(),

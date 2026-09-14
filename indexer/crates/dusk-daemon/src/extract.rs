@@ -67,6 +67,7 @@ pub fn decode_transaction(
     if meta.err.is_some() {
         bail!("refusing event projection from a failed transaction");
     }
+    require_complete_transports(&meta.inner_instructions, &meta.log_messages)?;
 
     let EncodedTransaction::Json(ui_transaction) = &transaction.transaction.transaction else {
         bail!("expected JSON-encoded transaction");
@@ -77,6 +78,14 @@ pub fn decode_transaction(
     let UiMessage::Raw(message) = &ui_transaction.message else {
         bail!("expected raw (non-parsed) transaction message");
     };
+    if message
+        .address_table_lookups
+        .as_ref()
+        .is_some_and(|tables| !tables.is_empty())
+        && !matches!(meta.loaded_addresses, OptionSerializer::Some(_))
+    {
+        bail!("loaded account addresses missing for versioned transaction");
+    }
 
     // The full key space: static keys, then the lookup-table loads in the
     // order the runtime appends them (writable before readonly).
@@ -148,6 +157,34 @@ pub fn decode_transaction(
             })
             .collect::<Result<_>>()?;
         let outer_indices = root_instruction_indices(logs, &programs)?;
+        let mut required_roots: Vec<u16> = programs
+            .iter()
+            .enumerate()
+            .filter(|(_, program)| {
+                **program == DUSK_PROGRAM_ID || **program == LEVERAGE_DELEGATE_PROGRAM_ID
+            })
+            .map(|(index, _)| u16::try_from(index))
+            .collect::<std::result::Result<_, _>>()?;
+        if let OptionSerializer::Some(inner_sets) = &meta.inner_instructions {
+            for set in inner_sets {
+                if set
+                    .instructions
+                    .iter()
+                    .any(|instruction| match instruction {
+                        UiInstruction::Compiled(ix) => account_keys
+                            .get(ix.program_id_index as usize)
+                            .is_some_and(|program| {
+                                program == DUSK_PROGRAM_ID
+                                    || program == LEVERAGE_DELEGATE_PROGRAM_ID
+                            }),
+                        _ => false,
+                    })
+                {
+                    required_roots.push(u16::from(set.index));
+                }
+            }
+        }
+        require_logged_roots(&required_roots, &outer_indices)?;
         let output = decoder.decode_program_data_logs(&context, logs, &outer_indices);
         if !output.diagnostics.is_empty() {
             bail!(
@@ -173,6 +210,29 @@ pub fn decode_transaction(
         block_time,
         events,
     })
+}
+
+fn require_complete_transports<T>(
+    inner: &OptionSerializer<T>,
+    logs: &OptionSerializer<Vec<String>>,
+) -> Result<()> {
+    if !matches!(inner, OptionSerializer::Some(_)) {
+        bail!("inner instruction recording unavailable; history coverage cannot advance");
+    }
+    let OptionSerializer::Some(logs) = logs else {
+        bail!("log recording unavailable; history coverage cannot advance");
+    };
+    if logs.iter().any(|line| line == "Log truncated") {
+        bail!("transaction logs truncated; history coverage cannot advance");
+    }
+    Ok(())
+}
+
+fn require_logged_roots(required: &[u16], recorded: &[u16]) -> Result<()> {
+    if required.iter().any(|index| !recorded.contains(index)) {
+        bail!("Dusk invocation is missing from transaction logs; history coverage cannot advance");
+    }
+    Ok(())
 }
 
 fn root_instruction_indices(logs: &[String], programs: &[&str]) -> Result<Vec<u16>> {
@@ -234,6 +294,27 @@ fn now_unix_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn absent_or_truncated_recording_does_not_become_zero_events() {
+        let empty = OptionSerializer::Some(Vec::<String>::new());
+        assert!(require_complete_transports(&empty, &empty).is_ok());
+        assert!(
+            require_complete_transports(&OptionSerializer::<Vec<String>>::None, &empty).is_err()
+        );
+        assert!(
+            require_complete_transports(&OptionSerializer::<Vec<String>>::Skip, &empty).is_err()
+        );
+        assert!(require_complete_transports(&empty, &OptionSerializer::None).is_err());
+        assert!(require_complete_transports(&empty, &OptionSerializer::Skip).is_err());
+        assert!(require_complete_transports(
+            &empty,
+            &OptionSerializer::Some(vec!["Log truncated".to_owned()])
+        )
+        .is_err());
+        assert!(require_logged_roots(&[1, 3], &[1, 3]).is_ok());
+        assert!(require_logged_roots(&[1, 3], &[1]).is_err());
+        assert!(require_logged_roots(&[1], &[]).is_err());
+    }
     #[test]
     fn root_paths_skip_instructions_that_emit_no_logs() {
         let logs = vec![

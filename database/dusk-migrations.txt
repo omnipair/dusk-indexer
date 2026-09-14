@@ -18,3 +18,4 @@
 036_dusk_quote_history.sql
 037_dusk_quote_notifications.sql
 038_dusk_capture_deployments.sql
+039_dusk_history_scans.sql
