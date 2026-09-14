@@ -7,6 +7,7 @@ import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { canonicalJson, duskApiConfig, loadPinnedProtocol, sha256 } from '../config/duskProtocol';
 import { deploymentEnvelope } from './duskDeploymentService';
+import { storeCaptureDeployment } from './duskHistoryDeployment';
 import { readFinalizedBlock } from './duskFinalizedBlock';
 import { projectRecordedYield, yieldBindings } from './duskYieldCheckpointMath';
 
@@ -57,13 +58,18 @@ export async function storeYieldCheckpointSource(client: PoolClient, source: Yie
   return previous.rows[0].observation_id;
 }
 
-/** Caller owns a transaction; replay consumes the same immutable observation. */
-export async function projectYieldCheckpoint(client: PoolClient, observationId: string) {
+export interface StoredYieldCheckpointObservation {
+  cluster: string; program_id: string; idl_hash: string; protocol_revision: string;
+  yield_account: string; market: string; lp_token_account: string; slot: string;
+  blockhash: string; block_time: Date; deployment_identity_sha256: string;
+  source_accounts: YieldCheckpointSource['accounts']; content_hash: string;
+}
+
+/** Rebuild a checkpoint from immutable evidence for both replay and reads. */
+export function verifyYieldCheckpointObservation(row: StoredYieldCheckpointObservation) {
   const active = identity();
-  const result = await client.query(`SELECT *,slot::text FROM dusk_ingestion.yield_checkpoint_observations
-    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND observation_id=$5`, [...active,observationId]);
-  if (!result.rows[0]) throw new Error('Yield checkpoint observation is not in the active protocol identity');
-  const row = result.rows[0];
+  if (JSON.stringify([row.cluster,row.program_id,row.idl_hash,row.protocol_revision]) !== JSON.stringify(active))
+    throw new Error('Yield checkpoint differs from the pinned protocol identity');
   const source: YieldCheckpointSource = { yieldAddress: row.yield_account,market: row.market,lpTokenAccount: row.lp_token_account,
     slot: Number(row.slot),blockhash: row.blockhash,blockTime: (row.block_time as Date).toISOString(),
     deploymentIdentitySha256: row.deployment_identity_sha256,accounts: row.source_accounts };
@@ -84,6 +90,17 @@ export async function projectYieldCheckpoint(client: PoolClient, observationId: 
   }
   const projected = projectRecordedYield({ programId: active[1],yieldAddress: source.yieldAddress,yield: yieldState,
     market: marketState,lpTokenAccount: source.lpTokenAccount,lpBalance: balance });
+  return { source,projected,yieldInfo,marketInfo,lpInfo,marketState };
+}
+
+/** Caller owns a transaction; replay consumes the same immutable observation. */
+export async function projectYieldCheckpoint(client: PoolClient, observationId: string) {
+  const active = identity();
+  const result = await client.query(`SELECT *,slot::text FROM dusk_ingestion.yield_checkpoint_observations
+    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND observation_id=$5`, [...active,observationId]);
+  if (!result.rows[0]) throw new Error('Yield checkpoint observation is not in the active protocol identity');
+  const row = result.rows[0];
+  const { source,projected,yieldInfo,marketInfo,lpInfo } = verifyYieldCheckpointObservation(row);
   await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`yield-checkpoint:${JSON.stringify(active)}:${source.yieldAddress}`]);
   const previous = await client.query(`SELECT content_hash FROM dusk_ingestion.yield_checkpoints
     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND yield_account=$5 AND slot=$6`, [...active,source.yieldAddress,source.slot]);
@@ -161,6 +178,7 @@ export async function captureDuskYieldCheckpoints() {
     const client = await pool.connect();
     try {
       // Autocommit the raw observation before starting its projection transaction.
+      await storeCaptureDeployment(client,after);
       const observationId = await storeYieldCheckpointSource(client,source);
       await client.query('BEGIN');
       await projectYieldCheckpoint(client,observationId);
