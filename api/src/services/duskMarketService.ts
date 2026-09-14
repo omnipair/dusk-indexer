@@ -27,6 +27,7 @@ import { cache } from '../utils/cache';
 import { captureLiveMarketSimulation, duskRawIdl, LiveMarketSimulationSnapshot } from './duskMarketSimulation';
 import { indexedPortfolioDebt } from './duskPortfolioMath';
 import { parsePriceReferences, projectMarketPrices } from './duskPriceMath';
+import { leverageCollateralAddress, snapshotCollateralAmount, snapshotTokenMetadata, tokenMetadataAddress } from './duskMarketExtras';
 
 const NAD = 1_000_000_000n;
 
@@ -115,7 +116,10 @@ export async function currentMarketSnapshot(market: PublicKey, discovery: unknow
   const previous = cache.get(key) as LiveMarketSimulationSnapshot | null;
   if (previous && previous.slot>=minSlot) return previous;
   const mints = ['base','quote'].map((side) => stringValue(field(field(discovery,`${side}Side`,`${side}_side`),'assetMint','asset_mint')));
-  const snapshot = await cache.getOrSet(`${key}:floor:${minSlot}`,0,() => capture(market.toBase58(),minSlot,mints));
+  const collateral = ['base','quote'].map((side) => stringValue(field(field(discovery,`${side}Side`,`${side}_side`),'collateralVault','collateral_vault')));
+  const reserves = ['base','quote'].map((side) => stringValue(field(field(discovery,`${side}Side`,`${side}_side`),'reserveVault','reserve_vault')));
+  const extras = [...mints,...collateral,...reserves,...mints.map((mint) => leverageCollateralAddress(market.toBase58(),mint)),...mints.map(tokenMetadataAddress)];
+  const snapshot = await cache.getOrSet(`${key}:floor:${minSlot}`,0,() => capture(market.toBase58(),minSlot,extras));
   if (snapshot.commitment !== 'confirmed' || snapshot.slot<minSlot || snapshot.market !== market.toBase58()
     || snapshot.deploymentIdentitySha256 !== identity) throw new Error('Live market snapshot identity or slot mismatch');
   const current = cache.get(key) as LiveMarketSimulationSnapshot | null;
@@ -377,6 +381,15 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
     marketKind: marketKindFromConfig(config),
     marketAddress: market.toBase58(),
     ...addresses,
+    tokenMetadata: { schemaVersion: 'dusk-token-labels.v1',sourceSlot,
+      base: snapshotTokenMetadata(snapshot,addresses.baseMint),quote: snapshotTokenMetadata(snapshot,addresses.quoteMint) },
+    deposits: { schemaVersion: 'dusk-market-deposits.v1',sourceSlot,basis: 'reserve-and-collateral-custody.v1',
+      baseReserveAmount: snapshotCollateralAmount(snapshot,addresses.baseReserveVault,addresses.baseMint,addresses.baseTokenProgram),
+      quoteReserveAmount: snapshotCollateralAmount(snapshot,addresses.quoteReserveVault,addresses.quoteMint,addresses.quoteTokenProgram),
+      baseCollateralAmount: snapshotCollateralAmount(snapshot,addresses.baseCollateralVault,addresses.baseMint,addresses.baseTokenProgram),
+      quoteCollateralAmount: snapshotCollateralAmount(snapshot,addresses.quoteCollateralVault,addresses.quoteMint,addresses.quoteTokenProgram),
+      baseLeverageAmount: snapshotCollateralAmount(snapshot,leverageCollateralAddress(snapshot.market,addresses.baseMint),addresses.baseMint,addresses.baseTokenProgram,true),
+      quoteLeverageAmount: snapshotCollateralAmount(snapshot,leverageCollateralAddress(snapshot.market,addresses.quoteMint),addresses.quoteMint,addresses.quoteTokenProgram,true) },
     targetHlpLeverageBps: config.targetHlpLeverageBps,
     swapFeeBps: config.swapFeeBps,
     config,

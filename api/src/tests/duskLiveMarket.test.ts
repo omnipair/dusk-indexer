@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BorshCoder, BN } from '@coral-xyz/anchor';
-import { MintLayout, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
+import { AccountLayout, AccountState, MintLayout, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { PublicKey } from '@solana/web3.js';
 import { currentMarketSnapshot, projectMarketSnapshot } from '../services/duskMarketService';
 import { duskRawIdl, LiveMarketSimulationSnapshot } from '../services/duskMarketSimulation';
 import { cache } from '../utils/cache';
 import { portfolioFixture } from './duskPortfolioFixtures';
 import { encodeFixtureAccount, encodeFixtureType, fixtureKey } from './duskYieldCheckpointFixtures';
+import { leverageCollateralAddress } from '../services/duskMarketExtras';
 
 function liveFixture() {
   const fixture = portfolioFixture(),group = fixture.source.groups[0],decoder = new BorshCoder(duskRawIdl());
@@ -27,7 +28,19 @@ function liveFixture() {
       decimals: state.asset_decimals,isInitialized: true,freezeAuthorityOption: 0,freezeAuthority: fixtureKey(0) },raw);
     return { address: state.asset_mint.toBase58(),account: { owner: TOKEN_2022_PROGRAM_ID.toBase58(),executable: false,data: raw.toString('base64') } };
   });
-  const snapshot: LiveMarketSimulationSnapshot = { ...group,commitment: 'confirmed',accounts,
+  const vaults = ['base','quote'].flatMap((side,index) => {
+    const state = market[`${side}_side`];
+    return ['reserve','collateral','leverage'].map((kind,offset) => {
+      const address = kind === 'leverage' ? new PublicKey(leverageCollateralAddress(group.market,state.asset_mint.toBase58())) : fixtureKey(200+index*3+offset);
+      if (kind !== 'leverage') state[`${kind}_vault`] = address;
+      const raw = Buffer.alloc(AccountLayout.span);
+      AccountLayout.encode({ mint: state.asset_mint,owner: new PublicKey(group.market),amount: BigInt((offset+1)*100),
+        delegateOption: 0,delegate: fixtureKey(0),state: AccountState.Initialized,isNativeOption: 0,isNative: 0n,
+        delegatedAmount: 0n,closeAuthorityOption: 0,closeAuthority: fixtureKey(0) },raw);
+      return { address: address.toBase58(),account: { owner: TOKEN_2022_PROGRAM_ID.toBase58(),executable: false,data: raw.toString('base64') } };
+    });
+  });
+  const snapshot: LiveMarketSimulationSnapshot = { ...group,commitment: 'confirmed',accounts: [...accounts,...vaults],
     marketAccount: { ...group.marketAccount,data: encodeFixtureAccount('Market',market).toString('base64') },
     preview: encodeFixtureType('MarketPreview',preview).toString('base64') };
   return { snapshot,market,references: fixture.source.references };
@@ -40,6 +53,23 @@ test('live payload uses one bank and preserves program debt, curve price and exp
   assert.equal(payload.state.baseSpotPriceNad,'3000000000'); assert.equal(payload.state.previewStatus,'available');
   assert.equal(payload.displayPrices.prices.find((row: any) => row.mint === payload.baseMint).priceUsd,'3');
   assert.equal(payload.displayPrices.prices.find((row: any) => row.mint === payload.baseMint).quality,'derived-reference');
+  assert.deepEqual(payload.deposits,{ schemaVersion: 'dusk-market-deposits.v1',sourceSlot: sample.snapshot.slot,basis: 'reserve-and-collateral-custody.v1',
+    baseReserveAmount: '100',quoteReserveAmount: '100',baseCollateralAmount: '200',quoteCollateralAmount: '200',baseLeverageAmount: '300',quoteLeverageAmount: '300' });
+  assert.equal(payload.tokenMetadata.base,null);
+});
+
+test('deposits reject foreign vaults and only an observed absent leverage PDA is zero',() => {
+  const sample = liveFixture(),vault = sample.snapshot.accounts[2];
+  vault.account!.owner = fixtureKey(197).toBase58();
+  assert.throws(() => projectMarketSnapshot(sample.snapshot,sample.references),/valid collateral vault/);
+  vault.account!.owner = TOKEN_2022_PROGRAM_ID.toBase58();
+  const leverage = sample.snapshot.accounts.find((item) => item.address === leverageCollateralAddress(sample.snapshot.market,sample.market.base_side.asset_mint.toBase58()))!;
+  leverage.account = null;
+  assert.equal((projectMarketSnapshot(sample.snapshot,sample.references) as any).deposits.baseLeverageAmount,'0');
+  leverage.account = { owner: PublicKey.default.toBase58(),executable: false,data: '' };
+  assert.equal((projectMarketSnapshot(sample.snapshot,sample.references) as any).deposits.baseLeverageAmount,'0');
+  sample.snapshot.accounts = sample.snapshot.accounts.filter((item) => item !== leverage);
+  assert.throws(() => projectMarketSnapshot(sample.snapshot,sample.references),/valid collateral vault/);
 });
 test('a failed preview preserves market inventory and marks every preview-only value unavailable',() => {
   const sample = liveFixture(),payload = projectMarketSnapshot({ ...sample.snapshot,preview: null,basis: 'rpc-account',previewUnavailable: true },sample.references) as any;
