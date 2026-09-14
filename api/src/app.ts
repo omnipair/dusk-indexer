@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
-import rateLimit from 'express-rate-limit';
+import { createApiRateLimits } from './middleware/rateLimits';
 import { observeRequest, requestId } from './utils/metrics';
 import dotenv from 'dotenv';
 import routes from './routes';
@@ -25,19 +25,7 @@ app.use(cors({
   credentials: true
 }));
 
-const limiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => {
-    const cfIp = req.headers['cf-connecting-ip'];
-    if (typeof cfIp === 'string') return cfIp;
-    return req.ip || req.socket.remoteAddress || 'unknown';
-  },
-  message: { success: false, error: 'Too many requests, please try again later.' },
-});
-app.use(limiter);
+app.use(...createApiRateLimits());
 
 /**
  * Structured request logging and metrics.

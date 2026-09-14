@@ -321,13 +321,20 @@ NODE_ENV=production
 # Database
 DATABASE_URL=postgresql://user:pass@host/db
 
-# Rate limiting
-RATE_LIMIT_WINDOW_MS=60000
-RATE_LIMIT_MAX_REQUESTS=100
+# Rate limiting (requests per client per 60 seconds)
+RATE_LIMIT_MAX=100
+RATE_LIMIT_IDENTITY_MAX=600
 
 # CORS
-ALLOWED_ORIGINS=https://yourdomain.com
+CORS_ORIGIN=https://yourdomain.com
 ```
+
+Native reads check deployment identity before and after their payload. The
+identity endpoint has its own bounded allowance; these checks do not consume
+the ordinary data-request budget. Both limits return HTTP 429 and Retry-After
+when exhausted. Client keys use Express's configured proxy resolution and IPv6
+subnet normalization, not a caller-supplied `cf-connecting-ip` header. The
+current server trusts two proxy hops; deployments must match that topology.
 
 ## 📚 Documentation
 
