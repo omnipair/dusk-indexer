@@ -23,6 +23,17 @@ type Cursor = { scope: string; watermark: string; slot: string; key: string };
 const invalid = (): never => { throw Object.assign(new Error('Invalid native event-history query or cursor'), { status: 400 }); };
 const integer = (value: unknown): value is string => typeof value === 'string' && /^(0|[1-9]\d{0,18})$/.test(value) && BigInt(value) <= (1n << 63n) - 1n;
 
+/** CanonicalEventKey::stable_key from dusk-ingestion, not a payload hash. */
+function canonicalCursorKey(value: unknown, identity: string[]): value is string {
+  if (typeof value !== 'string' || value.length > 1024) return false;
+  const parts = value.split('|');
+  if (parts.length !== 7 || identity.some((part, index) => parts[index] !== part)
+    || !/^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(parts[4])) return false;
+  const u16 = (part: string) => /^(0|[1-9]\d{0,4})$/.test(part) && Number(part) <= 65535;
+  const path = parts[5].split('.');
+  return path.length <= 64 && path.every(u16) && u16(parts[6]);
+}
+
 export function eventHistorySelection(query: EventHistoryQuery) {
   const pin = loadPinnedProtocol();
   if (!Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 500
@@ -38,10 +49,10 @@ export function eventHistorySelection(query: EventHistoryQuery) {
   let cursor: Cursor | null = null;
   if (query.cursor !== undefined) {
     try {
-      if (query.cursor.length > 1024 || !/^[\w-]+$/.test(query.cursor)) invalid();
+      if (query.cursor.length > 2048 || !/^[\w-]+$/.test(query.cursor)) invalid();
       cursor = JSON.parse(Buffer.from(query.cursor, 'base64url').toString('utf8'));
       if (!cursor || cursor.scope !== scope || !integer(cursor.watermark) || !integer(cursor.slot)
-        || BigInt(cursor.slot) < BigInt(pin.historyFirstSlot) || !/^[0-9a-f]{64}$/.test(cursor.key)) invalid();
+        || BigInt(cursor.slot) < BigInt(pin.historyFirstSlot) || !canonicalCursorKey(cursor.key, identity)) invalid();
     } catch { invalid(); }
   }
   return { pin, identity, window, scope, cursor };

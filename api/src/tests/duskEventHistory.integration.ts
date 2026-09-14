@@ -13,6 +13,7 @@ after(() => pool.end());
 const pin = loadPinnedProtocol(), identity = [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
 const market = fixtureKey(159).toBase58(), slot = pin.historyFirstSlot + 100;
 const query = { market, since: '2026-09-01T00:00:00Z', until: '2026-09-02T00:00:00Z', limit: 2, deploymentIdentitySha256: 'a'.repeat(64) };
+let nextPath = 0;
 async function transaction(work: (client: PoolClient) => Promise<void>) {
   const client = await pool.connect();
   try { await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ'); await work(client); }
@@ -20,15 +21,16 @@ async function transaction(work: (client: PoolClient) => Promise<void>) {
 }
 async function source(client: PoolClient, offset: number, options: { commitment?: string; revision?: string; omitStream?: boolean } = {}) {
   const active = [...identity.slice(0,3),options.revision ?? identity[3]], commitment = options.commitment ?? 'finalized';
-  const key = createHash('sha256').update(randomUUID()).digest('hex'), signature = '2'.repeat(88);
+  const signature = '2'.repeat(88), path = [0, ++nextPath];
+  const key = [...active, signature, path.join('.'), '0'].join('|');
   const payload = { market,trader: fixtureKey(121).toBase58(),asset_in_side:'0',amount_in:'9007199254740993',amount_out:'4' };
   await client.query(`INSERT INTO dusk_ingestion.protocol_identities(cluster,program_id,idl_hash,protocol_revision)
     VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,active);
   const inserted = await client.query(`INSERT INTO dusk_ingestion.event_observations
     (cluster,program_id,idl_hash,protocol_revision,event_key,transaction_signature,instruction_path,event_ordinal,
       slot,blockhash,commitment,event_name,payload_hash,decoded_payload,source)
-    VALUES($1,$2,$3,$4,$5,$6,'{0,1}',0,$7,$8,$9,'SwapExecuted',$10,$11,'disposable-history-fixture') RETURNING observation_id`,
-    [...active,key,signature,slot+offset,fixtureKey(130).toBase58(),commitment,createHash('sha256').update(JSON.stringify(payload)).digest('hex'),JSON.stringify(payload)]);
+    VALUES($1,$2,$3,$4,$5,$6,$12,0,$7,$8,$9,'SwapExecuted',$10,$11,'disposable-history-fixture') RETURNING observation_id`,
+    [...active,key,signature,slot+offset,fixtureKey(130).toBase58(),commitment,createHash('sha256').update(JSON.stringify(payload)).digest('hex'),JSON.stringify(payload),path]);
   await client.query(`INSERT INTO dusk_ingestion.canonical_events
     (cluster,program_id,idl_hash,protocol_revision,event_key,observation_id,commitment) VALUES($1,$2,$3,$4,$5,$6,$7)`,
     [...active,key,inserted.rows[0].observation_id,commitment]);
