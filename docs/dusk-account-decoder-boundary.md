@@ -51,7 +51,7 @@ Each result carries:
 - optional transaction signature and write version;
 - observation timestamp and source.
 
-The envelope rejects missing fork identity, invalid account/signature values,
+The envelope rejects missing deployment identity, invalid account/signature values,
 empty sources, and unpinned owner programs.
 
 ## Typed projections
@@ -93,7 +93,7 @@ revalidate immediately before submitting.
 5. The API contract must decide how cross-program portfolios represent identity.
    A Dusk identity cannot silently contain delegate-order state; use separate
    envelopes or an explicit multi-program bundle identity and cursor contract.
-6. Captured Surfpool fixtures are still required to validate real account owner,
+6. Captured devnet fixtures are still required to validate real account owner,
    allocation size—especially `ParameterProposal`—deletion behavior, block/fork
    reconciliation, and replay idempotency.
 

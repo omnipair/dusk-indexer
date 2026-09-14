@@ -12,6 +12,7 @@
 import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { PublicKey } from '@solana/web3.js';
 
 export const DUSK_DEPLOYMENT_SCHEMA_VERSION = 'dusk-deployment.v2';
 
@@ -26,6 +27,12 @@ export interface DuskPinnedProgram {
   readonly idlRawSha256: string;
   /** SHA-256 of the recursively key-sorted canonical JSON. */
   readonly idlCanonicalSha256: string;
+  readonly deployment: {
+    readonly programData: string;
+    readonly deploySlot: number;
+    readonly upgradeAuthority: string | null;
+    readonly allocatedBinaryBytes: number;
+  };
 }
 
 export interface DuskPinnedProtocol {
@@ -34,6 +41,7 @@ export interface DuskPinnedProtocol {
   readonly genesisHash: string;
   readonly dusk: DuskPinnedProgram;
   readonly leverageDelegate: DuskPinnedProgram;
+  readonly historyFirstSlot: number;
 }
 
 /** Recursive key-sorted JSON, so a digest is independent of key order. */
@@ -68,7 +76,25 @@ interface LockProgram {
   name?: unknown;
   programId?: unknown;
   binary?: { sha256?: unknown };
-  idl?: { path?: unknown; sha256?: unknown };
+  idl?: { path?: unknown; sha256?: unknown; canonicalSha256?: unknown };
+  deployment?: unknown;
+}
+
+export function parseProgramDeployment(value: unknown,programId: string): DuskPinnedProgram['deployment'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Missing pinned deployment metadata');
+  const raw=value as Record<string,unknown>;
+  const publicKey=(value:unknown):string => {
+    if (typeof value!=='string' || new PublicKey(value).toBase58()!==value) throw new Error('Invalid pinned deployment public key');
+    return value;
+  };
+  const programData=publicKey(raw.programData);
+  const expected=PublicKey.findProgramAddressSync([new PublicKey(programId).toBuffer()],new PublicKey('BPFLoaderUpgradeab1e11111111111111111111111'))[0].toBase58();
+  const deploySlot=raw.deploySlot,allocatedBinaryBytes=raw.allocatedBinaryBytes;
+  if (programData!==expected || typeof deploySlot!=='number' || !Number.isSafeInteger(deploySlot) || deploySlot<=0 || deploySlot>=Number.MAX_SAFE_INTEGER
+      || typeof allocatedBinaryBytes!=='number' || !Number.isSafeInteger(allocatedBinaryBytes) || allocatedBinaryBytes<4 || allocatedBinaryBytes>16*1024*1024)
+    throw new Error('Invalid pinned deployment address, slot or allocation');
+  const upgradeAuthority=raw.upgradeAuthority===null ? null : publicKey(raw.upgradeAuthority);
+  return {programData,deploySlot,upgradeAuthority,allocatedBinaryBytes};
 }
 
 function requireString(value: unknown, field: string): string {
@@ -102,6 +128,9 @@ function loadProgram(entry: LockProgram, root: string): DuskPinnedProgram {
   }
 
   const parsed = JSON.parse(raw) as { address?: unknown };
+  const idlCanonicalSha256=sha256(canonicalJson(parsed));
+  if (entry.idl?.canonicalSha256!==idlCanonicalSha256 || !/^[0-9a-f]{64}$/.test(binarySha256))
+    throw new Error('Protocol lock canonical IDL or binary hash is invalid');
   const declared = typeof parsed.address === 'string' ? parsed.address : '';
   if (declared !== programId) {
     throw new Error(
@@ -114,7 +143,8 @@ function loadProgram(entry: LockProgram, root: string): DuskPinnedProgram {
     programId,
     binarySha256,
     idlRawSha256,
-    idlCanonicalSha256: sha256(canonicalJson(parsed)),
+    idlCanonicalSha256,
+    deployment:parseProgramDeployment(entry.deployment,programId),
   };
 }
 
@@ -140,18 +170,22 @@ export function loadPinnedProtocol(): DuskPinnedProtocol {
 
   const duskEntry = byName.get('dusk');
   const delegateEntry = byName.get('leverage_delegate');
-  if (!duskEntry || !delegateEntry) {
+  if (!duskEntry || !delegateEntry || programs.length!==2 || byName.size!==2) {
     throw new Error(
       'protocol.lock.json must pin both the dusk and leverage_delegate programs',
     );
   }
 
+  const dusk=loadProgram(duskEntry,root),leverageDelegate=loadProgram(delegateEntry,root);
+  if (lock.cluster?.name!=='devnet' || lock.cluster.genesisHash!=='EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG')
+    throw new Error('Protocol lock must identify Solana devnet');
   cached = {
     revision: requireString(lock.revision, 'revision'),
     cluster: requireString(lock.cluster?.name, 'cluster.name'),
     genesisHash: requireString(lock.cluster?.genesisHash, 'cluster.genesisHash'),
-    dusk: loadProgram(duskEntry, root),
-    leverageDelegate: loadProgram(delegateEntry, root),
+    dusk,
+    leverageDelegate,
+    historyFirstSlot:Math.max(dusk.deployment.deploySlot,leverageDelegate.deployment.deploySlot)+1,
   };
   return cached;
 }
@@ -168,9 +202,9 @@ export interface DuskApiConfig {
 export function duskApiConfig(): DuskApiConfig {
   const pinned = loadPinnedProtocol();
   const network = process.env.DUSK_CLUSTER?.trim() || pinned.cluster;
+  if (network !== pinned.cluster) throw new Error('DUSK_CLUSTER differs from the protocol lock');
   const rpcUrl = process.env.DUSK_RPC_URL?.trim();
   if (!rpcUrl) throw new Error('DUSK_RPC_URL is required');
-
   // Default to no caching. A cached envelope reports the slot it was observed
   // at, and a client brackets its read between two of its own slot
   // observations: an envelope even a few seconds old falls outside that
@@ -186,7 +220,6 @@ export function duskApiConfig(): DuskApiConfig {
 
   return {
     network,
-    // A real cluster is not a fork of anything; it is its own source.
     rpcUrl,
     buildRevision:
       process.env.DUSK_BUILD_REVISION?.trim() ||

@@ -12,7 +12,10 @@
 //! (~seconds), which discovery and history — this daemon's consumers — can
 //! afford. Keepers read chain state directly and never wait on this pipeline.
 
+mod accounts;
 mod extract;
+mod history;
+mod identity;
 mod persist;
 
 use {
@@ -23,13 +26,13 @@ use {
     solana_client::{
         nonblocking::rpc_client::RpcClient,
         rpc_client::GetConfirmedSignaturesForAddress2Config,
-        rpc_config::RpcTransactionConfig,
+        rpc_config::{RpcBlockConfig, RpcTransactionConfig},
     },
     solana_commitment_config::CommitmentConfig,
     solana_pubkey::Pubkey,
     solana_signature::Signature,
-    solana_transaction_status::UiTransactionEncoding,
-    std::{str::FromStr, time::Duration},
+    solana_transaction_status::{TransactionDetails, UiTransactionEncoding},
+    std::{collections::HashSet, str::FromStr, time::Duration},
 };
 
 struct Config {
@@ -95,19 +98,35 @@ async fn main() -> Result<()> {
         .context("connecting to postgres")?;
     persist::ensure_protocol_identity(&pool, &config.cluster).await?;
 
-    let rpc = RpcClient::new_with_commitment(
-        config.rpc_url.clone(),
-        CommitmentConfig::finalized(),
-    );
+    let rpc = RpcClient::new_with_commitment(config.rpc_url.clone(), CommitmentConfig::finalized());
+
+    let mut attestation = identity::Attestation::default();
+    attestation.verify(&rpc, &config.cluster).await?;
+    if std::env::args().any(|arg| arg == "--ingest-once") {
+        let count = ingest_once(&rpc, &pool, &decoder, &config, &program, &mut attestation).await?;
+        let window = attestation.window()?;
+        println!(
+            "{}",
+            serde_json::json!({"cluster":config.cluster,"ingestedTransactions":count,
+            "firstDeploymentSlot":window.first_slot,"attestedThroughSlot":window.through_slot,
+            "submittedTransactions":0})
+        );
+        return Ok(());
+    }
+    if std::env::args().any(|arg| arg == "--scan-accounts-once") {
+        accounts::capture(&rpc, &pool, &decoder, &config.cluster, &mut attestation).await?;
+        return Ok(());
+    }
 
     let mut shutdown = std::pin::pin!(shutdown_signal());
     loop {
+        attestation.verify(&rpc, &config.cluster).await?;
         tokio::select! {
             _ = &mut shutdown => {
                 log::info!("shutdown signal received; draining");
                 break;
             }
-            result = ingest_once(&rpc, &pool, &decoder, &config, &program) => {
+            result = ingest_once(&rpc, &pool, &decoder, &config, &program, &mut attestation) => {
                 match result {
                     // A pass that found nothing still proves the daemon is
                     // polling, which is the difference between a quiet market
@@ -122,7 +141,12 @@ async fn main() -> Result<()> {
                     Ok(count) => log::info!("ingested {count} new transactions"),
                     // Transient RPC/database trouble must not kill the daemon;
                     // the cursor guarantees the next pass re-covers the gap.
+                    Err(error) if format!("{error:#}").contains("FINALIZED_INVARIANT") => return Err(error),
                     Err(error) => log::warn!("ingestion pass failed: {error:#}"),
+                }
+                if let Err(error) = accounts::capture(&rpc, &pool, &decoder, &config.cluster, &mut attestation).await {
+                    if format!("{error:#}").contains("FINALIZED_INVARIANT") { return Err(error); }
+                    log::warn!("native account scan failed: {error:#}");
                 }
                 tokio::time::sleep(config.poll_interval).await;
             }
@@ -138,8 +162,11 @@ async fn ingest_once(
     decoder: &PinnedIdlDecoder,
     config: &Config,
     program: &Pubkey,
+    attestation: &mut identity::Attestation,
 ) -> Result<usize> {
-    let cursor = persist::load_cursor(pool, &config.cluster).await?;
+    let window = attestation.window()?;
+    persist::record_deployment(pool, &config.cluster, window).await?;
+    let cursor = persist::load_cursor(pool, &config.cluster, window).await?;
     let until = cursor
         .as_deref()
         .map(Signature::from_str)
@@ -149,6 +176,8 @@ async fn ingest_once(
     // Newest-first pages walked back until the cursor (or history start).
     let mut new_signatures = Vec::new();
     let mut before = None;
+    let mut previous_oldest = None;
+    let mut seen = HashSet::new();
     loop {
         let page = rpc
             .get_signatures_for_address_with_config(
@@ -163,13 +192,34 @@ async fn ingest_once(
             .await
             .context("getSignaturesForAddress")?;
         let page_len = page.len();
+        if previous_oldest
+            .is_some_and(|oldest| page.first().is_some_and(|entry| entry.slot > oldest))
+        {
+            anyhow::bail!("FINALIZED_INVARIANT: signature pages moved forward while backfilling");
+        }
+        let selected = history::select_page(
+            &page.iter().map(|entry| entry.slot).collect::<Vec<_>>(),
+            window,
+        )?;
+        previous_oldest = page.last().map(|entry| entry.slot);
         let last = page.last().map(|entry| entry.signature.clone());
-        new_signatures.extend(page);
-        if page_len < config.page_limit {
+        for entry in page
+            .into_iter()
+            .skip(selected.range.start)
+            .take(selected.range.len())
+        {
+            if !seen.insert(entry.signature.clone()) {
+                anyhow::bail!("FINALIZED_INVARIANT: repeated signature in history pagination");
+            }
+            Signature::from_str(&entry.signature).context("invalid finalized signature")?;
+            new_signatures.push(entry);
+        }
+        if selected.reached_start || page_len < config.page_limit {
             break;
         }
         before = last.as_deref().map(Signature::from_str).transpose()?;
     }
+    attestation.verify(rpc, &config.cluster).await?;
     if new_signatures.is_empty() {
         return Ok(0);
     }
@@ -178,6 +228,8 @@ async fn ingest_once(
     new_signatures.reverse();
     let mut ingested = 0usize;
     for entry in new_signatures {
+        window.require_slot(entry.slot)?;
+        attestation.verify(rpc, &config.cluster).await?;
         // A failed transaction executed no instructions and emitted nothing;
         // it still advances the cursor so reprocessing stays bounded.
         if entry.err.is_none() {
@@ -193,9 +245,34 @@ async fn ingest_once(
                 )
                 .await
                 .with_context(|| format!("getTransaction {signature}"))?;
-            let observed = extract::decode_transaction(decoder, &entry.signature, &transaction)?;
+            if transaction.slot != entry.slot {
+                anyhow::bail!("FINALIZED_INVARIANT: signature and transaction slots differ");
+            }
+            window.require_slot(transaction.slot)?;
+            let block = rpc
+                .get_block_with_config(
+                    transaction.slot,
+                    RpcBlockConfig {
+                        encoding: Some(UiTransactionEncoding::Json),
+                        transaction_details: Some(TransactionDetails::None),
+                        rewards: Some(false),
+                        commitment: Some(CommitmentConfig::finalized()),
+                        max_supported_transaction_version: Some(0),
+                    },
+                )
+                .await
+                .context("reading containing finalized block")?;
+            let observed = extract::decode_transaction(
+                decoder,
+                &entry.signature,
+                &transaction,
+                &block.blockhash,
+                block.parent_slot,
+                block.block_time,
+            )?;
+            attestation.verify(rpc, &config.cluster).await?;
             for event in &observed.events {
-                persist::persist_event(pool, event, observed.block_time).await?;
+                persist::persist_event(pool, event, observed.block_time, window).await?;
             }
             if !observed.events.is_empty() {
                 log::info!(
@@ -207,7 +284,9 @@ async fn ingest_once(
                 );
             }
         }
-        persist::advance_cursor(pool, &config.cluster, &entry.signature, entry.slot).await?;
+        attestation.verify(rpc, &config.cluster).await?;
+        persist::advance_cursor(pool, &config.cluster, &entry.signature, entry.slot, window)
+            .await?;
         ingested += 1;
     }
     Ok(ingested)
@@ -244,9 +323,8 @@ async fn shutdown_signal() {
     let ctrl_c = tokio::signal::ctrl_c();
     #[cfg(unix)]
     {
-        let mut sigterm =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .expect("SIGTERM handler");
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("SIGTERM handler");
         tokio::select! {
             _ = ctrl_c => {}
             _ = sigterm.recv() => {}

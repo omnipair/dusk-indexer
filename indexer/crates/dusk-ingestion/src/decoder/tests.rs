@@ -1,13 +1,14 @@
 use {
     super::*,
-    base64::{engine::general_purpose::STANDARD, Engine},
-    serde_json::{json, Value},
+    base64::{Engine, engine::general_purpose::STANDARD},
+    serde_json::{Value, json},
     solana_pubkey::Pubkey,
     std::collections::BTreeSet,
 };
 
-const DUSK_EVENTS: [&str; 37] = [
+const DUSK_EVENTS: [&str; 38] = [
     "BorrowPositionLiquidated",
+    "HarvestAuthorityUpdated",
     "HlpClosed",
     "HlpOpened",
     "HlpTerminalLiquidated",
@@ -89,7 +90,7 @@ const DELEGATE_ACCOUNTS: [&str; 10] = [
 ];
 
 fn decoder() -> PinnedIdlDecoder {
-    PinnedIdlDecoder::new("surfpool-mainnet-fork").unwrap()
+    PinnedIdlDecoder::new("devnet").unwrap()
 }
 
 fn context() -> TransactionObservationContext {
@@ -246,10 +247,12 @@ fn registry_classifies_every_pinned_event_and_instruction() {
         .collect();
     let expected_events: BTreeSet<_> = DUSK_EVENTS.into_iter().collect();
     assert_eq!(actual_events, expected_events);
-    assert!(decoder
-        .event_names(PinnedProgram::LeverageDelegate)
-        .is_empty());
-    assert_eq!(decoder.instruction_names(PinnedProgram::Dusk).len(), 58);
+    assert!(
+        decoder
+            .event_names(PinnedProgram::LeverageDelegate)
+            .is_empty()
+    );
+    assert_eq!(decoder.instruction_names(PinnedProgram::Dusk).len(), 60);
     let actual_delegate: BTreeSet<_> = decoder
         .instruction_names(PinnedProgram::LeverageDelegate)
         .into_iter()
@@ -263,8 +266,8 @@ fn anchor_tags_and_every_idl_discriminator_are_cryptographically_verified() {
     anchor_event_digest.reverse();
     assert_eq!(anchor_event_digest, ANCHOR_EVENT_CPI_TAG);
     let decoder = decoder();
-    assert_eq!(decoder.dusk.events.len(), 37);
-    assert_eq!(decoder.dusk.instructions.len(), 58);
+    assert_eq!(decoder.dusk.events.len(), 38);
+    assert_eq!(decoder.dusk.instructions.len(), 60);
     assert_eq!(decoder.delegate.events.len(), 0);
     assert_eq!(decoder.delegate.instructions.len(), 13);
 
@@ -395,11 +398,13 @@ fn event_cpi_unknown_missing_and_malformed_envelopes_remain_persistable() {
         .decode_event_cpi_instruction(&context(), DUSK_PROGRAM_ID, vec![2, 2], 0, &malformed)
         .unwrap();
     assert_eq!(decoded.status, EventDecodeStatus::MalformedKnownPayload);
-    assert!(decoded
-        .decode_error
-        .as_deref()
-        .unwrap()
-        .contains("truncated"));
+    assert!(
+        decoded
+            .decode_error
+            .as_deref()
+            .unwrap()
+            .contains("truncated")
+    );
     assert_eq!(decoded.raw_envelope, malformed);
 }
 
@@ -412,11 +417,13 @@ fn trailing_known_payload_bytes_are_rejected_without_losing_raw_data() {
         .decode_event_cpi_instruction(&context(), DUSK_PROGRAM_ID, vec![7, 0], 0, &data)
         .unwrap();
     assert_eq!(decoded.status, EventDecodeStatus::MalformedKnownPayload);
-    assert!(decoded
-        .decode_error
-        .as_deref()
-        .unwrap()
-        .contains("trailing bytes"));
+    assert!(
+        decoded
+            .decode_error
+            .as_deref()
+            .unwrap()
+            .contains("trailing bytes")
+    );
     assert_eq!(decoded.raw_envelope, data);
 }
 
@@ -566,11 +573,13 @@ fn instruction_envelopes_distinguish_event_cpi_unknown_and_short_data() {
         malformed.instruction_name.as_deref(),
         Some("add_leverage_margin")
     );
-    assert!(malformed
-        .decode_error
-        .as_deref()
-        .unwrap()
-        .contains("truncated"));
+    assert!(
+        malformed
+            .decode_error
+            .as_deref()
+            .unwrap()
+            .contains("truncated")
+    );
     assert_eq!(malformed.raw_instruction, known_discriminator);
 }
 
@@ -688,11 +697,13 @@ fn account_allocation_padding_is_explicit_and_nonzero_trailing_data_is_malformed
         .decode_account(&account_context(), DUSK_PROGRAM_ID, &ambiguous)
         .unwrap();
     assert_eq!(decoded.status, AccountDecodeStatus::MalformedKnownPayload);
-    assert!(decoded
-        .decode_error
-        .as_deref()
-        .unwrap()
-        .contains("non-zero trailing byte"));
+    assert!(
+        decoded
+            .decode_error
+            .as_deref()
+            .unwrap()
+            .contains("non-zero trailing byte")
+    );
     assert_eq!(decoded.raw_account, ambiguous);
 }
 
@@ -724,11 +735,13 @@ fn unknown_missing_and_truncated_accounts_preserve_raw_data_and_freshness() {
     assert_eq!(decoded.status, AccountDecodeStatus::MalformedKnownPayload);
     assert_eq!(decoded.account_name.as_deref(), Some("BorrowPosition"));
     assert_eq!(decoded.raw_account, truncated);
-    assert!(decoded
-        .decode_error
-        .as_deref()
-        .unwrap()
-        .contains("truncated"));
+    assert!(
+        decoded
+            .decode_error
+            .as_deref()
+            .unwrap()
+            .contains("truncated")
+    );
 }
 
 #[test]
@@ -758,8 +771,7 @@ fn market_and_keeper_projections_cover_curve_and_all_protocol_auction_lanes() {
     assert_eq!(market.amm_kind, AmmKind::ConstantProduct);
     assert_eq!(market.configured_amm_kind, AmmKind::Concentrated);
 
-    fields["amm"]["concentrated_curve_cache"]["peak_amplification_nad"] =
-        json!("2000000000");
+    fields["amm"]["concentrated_curve_cache"]["peak_amplification_nad"] = json!("2000000000");
     let concentrated = projections::build_product_projections(
         "Market",
         &account_context().account_pubkey,

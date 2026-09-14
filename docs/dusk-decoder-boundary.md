@@ -56,7 +56,7 @@ no byte envelope to retain, so it is returned as a line-indexed diagnostic.
 
 ## Next integration gate
 
-Before enabling an RPC consumer, add captured Surfpool transactions for at least
+Before enabling an RPC consumer, add captured devnet transactions for at least
 one event from each product family and assert:
 
 1. message and loaded-address resolution selects the correct program ID;

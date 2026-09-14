@@ -3,6 +3,9 @@ import pool from './config/database';
 import { startActivityInvalidationListener, stopActivityInvalidationListener } from './services/activityInvalidationService';
 import { startPoolInvalidationListener, stopPoolInvalidationListener } from './services/poolInvalidationService';
 import { perfMetrics } from './utils/perfMetrics';
+import { startDuskInvalidationListener, stopDuskInvalidationListener } from './services/duskInvalidationService';
+
+if (!process.env.DATABASE_URL?.trim()) throw new Error('DATABASE_URL is required');
 
 const PORT = process.env.PORT || 3000;
 
@@ -14,6 +17,7 @@ const gracefulShutdown = async (signal: string) => {
   perfMetrics.stopReporting();
   await stopActivityInvalidationListener();
   await stopPoolInvalidationListener();
+  await stopDuskInvalidationListener();
   
   if (server) {
     server.close(async () => {
@@ -40,6 +44,11 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 server = app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
+  try {
+    await startDuskInvalidationListener();
+  } catch (error) {
+    console.error('Dusk invalidation listener will reconnect:', error);
+  }
   try {
     await startActivityInvalidationListener();
   } catch (error) {

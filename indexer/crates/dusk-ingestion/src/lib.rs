@@ -4,6 +4,7 @@
 //! or its `Pair`/`UserPosition` database model.
 
 pub mod decoder;
+pub mod deployment;
 
 use {
     serde::{Deserialize, Serialize},
@@ -12,13 +13,18 @@ use {
     thiserror::Error,
 };
 
-pub const PROTOCOL_REVISION: &str = "devnet-1";
+pub const PROTOCOL_REVISION: &str = "devnet-2026-09-13-9973dea";
 pub const DUSK_PROGRAM_ID: &str = "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X";
-pub const DUSK_IDL_SHA256: &str =
-    "6a8b96e2c230d1efa0f9ecb87d2ab49cb756f69c27331c08f683ae8cf1387b98";
+pub const DUSK_IDL_RAW_SHA256: &str =
+    "df6ae43c56d73a1a4bc51fef69a0a398aa0adadd06018a84b632f71d7df8c9be";
 pub const LEVERAGE_DELEGATE_PROGRAM_ID: &str = "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv";
+pub const LEVERAGE_DELEGATE_IDL_RAW_SHA256: &str =
+    "b2d39d3575f72ad334a0f853784bdb5909ddead5e0ebf3dc84ccd5253eccdce3";
+
+pub const DUSK_IDL_SHA256: &str =
+    "ecac9a2649c80312abae58c36f88304ca517badfd01fc3774e45ffd990e03e96";
 pub const LEVERAGE_DELEGATE_IDL_SHA256: &str =
-    "d0a5997fba913d78c31f585abb068b7048fe302b35f50e3d5a246680400c7d81";
+    "d9caaebbe1839263ad91dab2eab43ff628f612bc25c02e0746b33a8a32631f27";
 
 const DUSK_IDL: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -383,11 +389,18 @@ struct LockedIdl {
 }
 
 pub fn verify_vendored_protocol() -> Result<(), FoundationError> {
-    verify_bytes("dusk", DUSK_IDL, DUSK_IDL_SHA256)?;
-    verify_bytes(
+    deployment::pinned_deployment()?;
+    verify_bytes("dusk", DUSK_IDL, DUSK_IDL_RAW_SHA256)?;
+    verify_canonical_idl("dusk", DUSK_IDL, DUSK_IDL_SHA256)?;
+    verify_canonical_idl(
         "leverage_delegate",
         LEVERAGE_DELEGATE_IDL,
         LEVERAGE_DELEGATE_IDL_SHA256,
+    )?;
+    verify_bytes(
+        "leverage_delegate",
+        LEVERAGE_DELEGATE_IDL,
+        LEVERAGE_DELEGATE_IDL_RAW_SHA256,
     )?;
     let lock: ProtocolLock = serde_json::from_str(PROTOCOL_LOCK)
         .map_err(|error| FoundationError::InvalidProtocolLock(error.to_string()))?;
@@ -396,12 +409,12 @@ pub fn verify_vendored_protocol() -> Result<(), FoundationError> {
             "protocol revision differs from the compiled constant".into(),
         ));
     }
-    verify_locked_program(&lock, "dusk", DUSK_PROGRAM_ID, DUSK_IDL_SHA256)?;
+    verify_locked_program(&lock, "dusk", DUSK_PROGRAM_ID, DUSK_IDL_RAW_SHA256)?;
     verify_locked_program(
         &lock,
         "leverage_delegate",
         LEVERAGE_DELEGATE_PROGRAM_ID,
-        LEVERAGE_DELEGATE_IDL_SHA256,
+        LEVERAGE_DELEGATE_IDL_RAW_SHA256,
     )
 }
 
@@ -428,6 +441,41 @@ fn verify_locked_program(
     Ok(())
 }
 
+fn verify_canonical_idl(name: &str, bytes: &[u8], expected: &str) -> Result<(), FoundationError> {
+    fn canonical(value: &serde_json::Value) -> String {
+        match value {
+            serde_json::Value::Object(map) => {
+                let mut keys: Vec<_> = map.keys().collect();
+                keys.sort();
+                format!(
+                    "{{{}}}",
+                    keys.into_iter()
+                        .map(|key| format!(
+                            "{}:{}",
+                            serde_json::to_string(key).unwrap(),
+                            canonical(&map[key])
+                        ))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            }
+            serde_json::Value::Array(values) => format!(
+                "[{}]",
+                values.iter().map(canonical).collect::<Vec<_>>().join(",")
+            ),
+            value => value.to_string(),
+        }
+    }
+    let value: serde_json::Value = serde_json::from_slice(bytes)
+        .map_err(|error| FoundationError::InvalidProtocolLock(error.to_string()))?;
+    verify_bytes(name, canonical(&value).as_bytes(), expected)
+}
+
+/// Runtime attestation uses the same vendored lock as decoding and cursors.
+pub fn vendored_protocol_lock() -> serde_json::Value {
+    serde_json::from_str(PROTOCOL_LOCK).expect("verified protocol lock")
+}
+
 fn verify_bytes(name: &str, bytes: &[u8], expected: &str) -> Result<(), FoundationError> {
     let actual = sha256_hex(bytes);
     if actual != expected {
@@ -438,7 +486,7 @@ fn verify_bytes(name: &str, bytes: &[u8], expected: &str) -> Result<(), Foundati
     Ok(())
 }
 
-pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
+pub fn sha256_hex(bytes: &[u8]) -> String {
     let bytes = solana_sha256_hasher::hash(bytes).to_bytes();
     let mut encoded = String::with_capacity(64);
     for byte in bytes {
@@ -471,7 +519,7 @@ mod tests {
     use super::*;
 
     fn identity() -> ProtocolIdentity {
-        ProtocolIdentity::vendored_dusk("surfpool-mainnet-fork").unwrap()
+        ProtocolIdentity::vendored_dusk("devnet").unwrap()
     }
 
     fn key(ordinal: u16) -> CanonicalEventKey {

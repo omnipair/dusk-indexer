@@ -67,7 +67,7 @@ mod tests {
         ));
         assert!(origin_allowed(
             &patterns(),
-            "https://omnipair-webapp-git-surfpool-omnipair.vercel.app"
+            "https://dusk-webapp-git-preview-omnipair.vercel.app"
         ));
     }
 

@@ -9,6 +9,14 @@
  */
 
 import pool from '../config/database';
+import { loadPinnedProtocol } from '../config/duskProtocol';
+
+function identityValues(cluster: string): string[] {
+  const pin = loadPinnedProtocol();
+  if (cluster !== pin.cluster) throw new Error('Indexer query cluster differs from the protocol lock');
+  return [cluster, pin.dusk.programId, pin.dusk.idlCanonicalSha256, pin.revision];
+}
+
 
 export interface DuskEventRow {
   time: string;
@@ -74,8 +82,8 @@ export async function listMarkets(
   const totals = await pool.query<{ total: string }>(
     `SELECT count(DISTINCT market)::text AS total
        FROM dusk_ingestion.event_stream
-      WHERE cluster = $1 AND market IS NOT NULL`,
-    [cluster],
+      WHERE cluster = $1 AND program_id = $2 AND idl_hash = $3 AND protocol_revision = $4 AND market IS NOT NULL`,
+    identityValues(cluster),
   );
 
   const rows = await pool.query(
@@ -85,14 +93,14 @@ export async function listMarkets(
                 max(time) AS last_activity,
                 count(*)::int AS event_count
            FROM dusk_ingestion.event_stream
-          WHERE cluster = $1 AND market IS NOT NULL
+          WHERE cluster = $1 AND program_id = $2 AND idl_hash = $3 AND protocol_revision = $4 AND market IS NOT NULL
           GROUP BY market
      ),
      created AS (
          SELECT DISTINCT ON (market)
                 market, transaction_signature, payload
            FROM dusk_ingestion.event_stream
-          WHERE cluster = $1 AND market IS NOT NULL
+          WHERE cluster = $1 AND program_id = $2 AND idl_hash = $3 AND protocol_revision = $4 AND market IS NOT NULL
             AND event_name = 'MarketCreated'
           ORDER BY market, time ASC
      )
@@ -105,8 +113,8 @@ export async function listMarkets(
        FROM activity
        LEFT JOIN created ON created.market = activity.market
       ORDER BY activity.last_activity DESC
-      LIMIT $2 OFFSET $3`,
-    [cluster, limit, offset],
+      LIMIT $5 OFFSET $6`,
+    [...identityValues(cluster), limit, offset],
   );
 
   return {
@@ -142,9 +150,9 @@ export async function marketDetail(
             min(time) AS first_seen,
             max(time) AS last_activity
        FROM dusk_ingestion.event_stream
-      WHERE cluster = $1 AND market = $2
+      WHERE cluster = $1 AND program_id = $2 AND idl_hash = $3 AND protocol_revision = $4 AND market = $5
       GROUP BY event_name`,
-    [cluster, market],
+    [...identityValues(cluster), market],
   );
   if (rows.rowCount === 0) return null;
 
@@ -179,8 +187,8 @@ export async function listEvents(
     offset: number;
   },
 ): Promise<{ events: DuskEventRow[]; pagination: DuskPagination }> {
-  const filters: string[] = ['cluster = $1'];
-  const values: unknown[] = [cluster];
+  const filters: string[] = ['cluster = $1', 'program_id = $2', 'idl_hash = $3', 'protocol_revision = $4'];
+  const values: unknown[] = identityValues(cluster);
 
   if (options.market) {
     values.push(options.market);
@@ -210,7 +218,7 @@ export async function listEvents(
     `SELECT time, event_name, market, transaction_signature, slot, payload
        FROM dusk_ingestion.event_stream
       WHERE ${where}
-      ORDER BY time DESC, slot DESC
+      ORDER BY time DESC, slot DESC, event_key DESC
       LIMIT $${values.length - 1} OFFSET $${values.length}`,
     values,
   );
@@ -249,16 +257,16 @@ export async function ingestionHealth(
               max(time) AS latest_event_at,
               max(slot)::text AS latest_slot
          FROM dusk_ingestion.event_stream
-        WHERE cluster = $1`,
-      [cluster],
+        WHERE cluster = $1 AND program_id = $2 AND idl_hash = $3 AND protocol_revision = $4`,
+      identityValues(cluster),
     ),
     pool.query(
       `SELECT last_signature, last_observed_slot::text, updated_at, protocol_revision
          FROM dusk_ingestion.ingestion_cursors
-        WHERE cluster = $1
+        WHERE cluster = $1 AND program_id = $2 AND idl_hash = $3 AND protocol_revision = $4
         ORDER BY updated_at DESC
         LIMIT 1`,
-      [cluster],
+      identityValues(cluster),
     ),
   ]);
 
