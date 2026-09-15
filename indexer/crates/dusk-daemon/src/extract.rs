@@ -19,6 +19,7 @@ pub struct ObservedTransaction {
     pub slot: u64,
     pub block_time: Option<i64>,
     pub events: Vec<DecodedEventEnvelope>,
+    pub orders: Vec<crate::orders::OrderInstruction>,
 }
 
 impl ObservedTransaction {
@@ -106,6 +107,39 @@ pub fn decode_transaction(
     };
 
     let mut events = Vec::new();
+    let mut orders = Vec::new();
+    let programs = message
+        .instructions
+        .iter()
+        .map(|instruction| {
+            account_keys
+                .get(instruction.program_id_index as usize)
+                .map(String::as_str)
+                .context("invalid outer instruction program index")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let OptionSerializer::Some(logs) = &meta.log_messages else {
+        bail!("missing invocation logs");
+    };
+    let outer_indices = root_instruction_indices(logs, &programs)?;
+    let outcomes = invocation_outcomes(logs, &outer_indices)?;
+    for (index, instruction) in message.instructions.iter().enumerate() {
+        let program = account_keys
+            .get(instruction.program_id_index as usize)
+            .context("invalid instruction program index")?;
+        if program == LEVERAGE_DELEGATE_PROGRAM_ID
+            && committed_invocation(&outcomes, &[u16::try_from(index)?], program)?
+        {
+            if let Some(order) = crate::orders::decode(
+                decoder,
+                instruction,
+                &account_keys,
+                vec![u16::try_from(index)?],
+            )? {
+                orders.push(order);
+            }
+        }
+    }
 
     // Event-CPI: inner instructions owned by a pinned program.
     if let OptionSerializer::Some(inner_sets) = &meta.inner_instructions {
@@ -128,6 +162,15 @@ pub fn decode_transaction(
                 let data = bs58::decode(&compiled.data)
                     .into_vec()
                     .context("inner instruction data is not base58")?;
+                if program_id == LEVERAGE_DELEGATE_PROGRAM_ID
+                    && committed_invocation(&outcomes, &path, program_id)?
+                {
+                    if let Some(order) =
+                        crate::orders::decode(decoder, compiled, &account_keys, path.clone())?
+                    {
+                        orders.push(order);
+                    }
+                }
                 match decoder.decode_event_cpi_instruction(&context, program_id, path, 0, &data) {
                     Ok(event) => events.push(event),
                     // A pinned program's inner instruction that is not an
@@ -209,6 +252,7 @@ pub fn decode_transaction(
         slot,
         block_time,
         events,
+        orders,
     })
 }
 
@@ -291,9 +335,104 @@ fn now_unix_ms() -> u64 {
         .unwrap_or(0)
 }
 
+type InvocationOutcomes = std::collections::BTreeMap<Vec<u16>, (String, bool)>;
+fn invocation_outcomes(logs: &[String], roots: &[u16]) -> Result<InvocationOutcomes> {
+    let mut stack: Vec<(String, Vec<u16>, u16)> = Vec::new();
+    let mut root = 0;
+    let mut outcomes = InvocationOutcomes::new();
+    for line in logs {
+        let Some(line) = line.strip_prefix("Program ") else {
+            continue;
+        };
+        if let Some((program, height)) = line.split_once(" invoke [") {
+            if program.contains(' ') {
+                continue;
+            }
+            let height: usize = height
+                .strip_suffix(']')
+                .context("invalid invocation depth")?
+                .parse()?;
+            if height != stack.len() + 1 {
+                bail!("incomplete invocation stack");
+            }
+            let path = if let Some((_, parent, child)) = stack.last_mut() {
+                let mut path = parent.clone();
+                path.push(*child);
+                *child = child.checked_add(1).context("too many CPI children")?;
+                path
+            } else {
+                let index = *roots.get(root).context("missing root invocation")?;
+                root += 1;
+                vec![index]
+            };
+            stack.push((program.to_owned(), path, 0));
+        } else if let Some((program, success)) = line
+            .strip_suffix(" success")
+            .map(|program| (program, true))
+            .or_else(|| {
+                line.split_once(" failed:")
+                    .map(|(program, _)| (program, false))
+            })
+        {
+            if program.contains(' ') {
+                continue;
+            }
+            let (expected, path, _) = stack.pop().context("unbalanced invocation completion")?;
+            if expected != program {
+                bail!("invocation completion program mismatch");
+            }
+            outcomes.insert(path, (expected, success));
+        }
+    }
+    if !stack.is_empty() || root != roots.len() {
+        bail!("incomplete invocation recording");
+    }
+    Ok(outcomes)
+}
+fn committed_invocation(
+    outcomes: &InvocationOutcomes,
+    path: &[u16],
+    program: &str,
+) -> Result<bool> {
+    let (observed, _) = outcomes
+        .get(path)
+        .context("instruction invocation missing from logs")?;
+    if observed != program {
+        bail!("instruction path differs from its invocation log");
+    }
+    for length in 1..=path.len() {
+        if !outcomes
+            .get(&path[..length])
+            .context("missing instruction ancestor")?
+            .1
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn caught_cpi_failure_does_not_become_a_completed_order() {
+        let logs = [
+            "Program root invoke [1]",
+            "Program parent invoke [2]",
+            "Program delegate invoke [3]",
+            "Program delegate success",
+            "Program parent failed: custom program error",
+            "Program delegate invoke [2]",
+            "Program delegate success",
+            "Program root success",
+        ]
+        .map(str::to_owned);
+        let outcomes = invocation_outcomes(&logs, &[2]).unwrap();
+        assert!(!committed_invocation(&outcomes, &[2, 0, 0], "delegate").unwrap());
+        assert!(committed_invocation(&outcomes, &[2, 1], "delegate").unwrap());
+        assert!(committed_invocation(&outcomes, &[2, 1], "wrong").is_err());
+    }
     #[test]
     fn absent_or_truncated_recording_does_not_become_zero_events() {
         let empty = OptionSerializer::Some(Vec::<String>::new());

@@ -16,6 +16,7 @@ mod accounts;
 mod extract;
 mod history;
 mod identity;
+mod orders;
 mod persist;
 mod scans;
 
@@ -23,6 +24,7 @@ use {
     anyhow::{Context as _, Result},
     dusk_indexer_foundation::{
         decoder::PinnedIdlDecoder, verify_vendored_protocol, DUSK_PROGRAM_ID,
+        LEVERAGE_DELEGATE_PROGRAM_ID,
     },
     solana_client::{
         nonblocking::rpc_client::RpcClient,
@@ -102,8 +104,18 @@ async fn main() -> Result<()> {
 
     let mut attestation = identity::Attestation::default();
     attestation.verify(&rpc, &config.cluster).await?;
+    if std::env::args().any(|arg| arg == "--ingest-orders-once") {
+        let delegate = Pubkey::from_str(LEVERAGE_DELEGATE_PROGRAM_ID)?;
+        let count =
+            ingest_once(&rpc, &pool, &decoder, &config, &delegate, &mut attestation).await?;
+        println!(
+            "{}",
+            serde_json::json!({"ingestedOrderTransactions":count,"submittedTransactions":0})
+        );
+        return Ok(());
+    }
     if std::env::args().any(|arg| arg == "--ingest-once") {
-        let count = ingest_once(&rpc, &pool, &decoder, &config, &program, &mut attestation).await?;
+        let count = ingest_all(&rpc, &pool, &decoder, &config, &program, &mut attestation).await?;
         let window = attestation.window()?;
         println!(
             "{}",
@@ -126,7 +138,7 @@ async fn main() -> Result<()> {
                 log::info!("shutdown signal received; draining");
                 break;
             }
-            result = ingest_once(&rpc, &pool, &decoder, &config, &program, &mut attestation) => {
+            result = ingest_all(&rpc, &pool, &decoder, &config, &program, &mut attestation) => {
                 match result {
                     // A pass that found nothing still proves the daemon is
                     // polling, which is the difference between a quiet market
@@ -164,15 +176,16 @@ async fn ingest_once(
     program: &Pubkey,
     attestation: &mut identity::Attestation,
 ) -> Result<usize> {
+    let order_scan = program.to_string() == LEVERAGE_DELEGATE_PROGRAM_ID;
     let window = attestation.window()?;
     persist::record_deployment(pool, &config.cluster, window).await?;
     // Hold one transaction-scoped lock across enumeration, decoding and commit.
     // Interrupted passes leave canonical observations intact but no coverage.
     let mut scan = pool.begin().await?;
-    if !scans::lock(&mut scan, &config.cluster).await? {
+    if !scans::lock(&mut scan, &config.cluster, order_scan).await? {
         return Ok(0);
     }
-    let start = scans::next_slot(&mut scan, &config.cluster, window).await?;
+    let start = scans::next_slot(&mut scan, &config.cluster, window, order_scan).await?;
     if start > window.through_slot {
         return Ok(0);
     }
@@ -280,10 +293,28 @@ async fn ingest_once(
         };
         attestation.verify(rpc, &config.cluster).await?;
         let mut keys = Vec::new();
+        let mut instruction_keys = Vec::new();
         if let Some(observed) = observed {
-            for event in &observed.events {
-                persist::persist_event(pool, event, observed.block_time, window).await?;
-                keys.push(event.canonical_record().event_key);
+            if order_scan {
+                for instruction in &observed.orders {
+                    instruction_keys.push(
+                        orders::persist(
+                            pool,
+                            &config.cluster,
+                            &entry.signature,
+                            observed.slot,
+                            &block.blockhash,
+                            observed.block_time,
+                            instruction,
+                        )
+                        .await?,
+                    );
+                }
+            } else {
+                for event in &observed.events {
+                    persist::persist_event(pool, event, observed.block_time, window).await?;
+                    keys.push(event.canonical_record().event_key);
+                }
             }
             log::debug!(
                 "slot {}: {} event(s) [{}]",
@@ -293,13 +324,16 @@ async fn ingest_once(
             );
         }
         keys.sort();
+        instruction_keys.sort();
         receipts.push(serde_json::json!({
             "signature": entry.signature, "slot": entry.slot, "blockhash": block.blockhash,
-            "failed": entry.err.is_some(), "transactionSha256": transaction_sha, "eventKeys": keys
+            "failed": entry.err.is_some(), "transactionSha256": transaction_sha, "eventKeys": keys, "instructionKeys": instruction_keys
         }));
         attestation.verify(rpc, &config.cluster).await?;
-        persist::advance_cursor(pool, &config.cluster, &entry.signature, entry.slot, window)
-            .await?;
+        if !order_scan {
+            persist::advance_cursor(pool, &config.cluster, &entry.signature, entry.slot, window)
+                .await?;
+        }
     }
     let through = rpc
         .get_block_with_config(
@@ -330,6 +364,7 @@ async fn ingest_once(
             .context("history boundary has no block time")?,
         release_time,
         &receipts,
+        order_scan,
     )
     .await?;
     scan.commit().await?;
@@ -378,4 +413,19 @@ async fn shutdown_signal() {
     {
         let _ = ctrl_c.await;
     }
+}
+
+async fn ingest_all(
+    rpc: &RpcClient,
+    pool: &sqlx::PgPool,
+    decoder: &PinnedIdlDecoder,
+    config: &Config,
+    program: &Pubkey,
+    attestation: &mut identity::Attestation,
+) -> Result<usize> {
+    let events = ingest_once(rpc, pool, decoder, config, program, attestation).await?;
+    attestation.verify(rpc, &config.cluster).await?;
+    let delegate = Pubkey::from_str(LEVERAGE_DELEGATE_PROGRAM_ID)?;
+    let orders = ingest_once(rpc, pool, decoder, config, &delegate, attestation).await?;
+    Ok(events + orders)
 }
