@@ -1631,6 +1631,7 @@ dependencies = [
  "env_logger 0.11.10",
  "log",
  "serde_json",
+ "sha2 0.10.9",
  "solana-account",
  "solana-account-decoder-client-types",
  "solana-client",

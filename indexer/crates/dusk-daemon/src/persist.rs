@@ -104,38 +104,6 @@ pub async fn touch_cursor(pool: &PgPool, cluster: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn load_cursor(
-    pool: &PgPool,
-    cluster: &str,
-    window: crate::identity::DeploymentWindow,
-) -> Result<Option<String>> {
-    let row: Option<(Option<String>, Option<i64>)> = sqlx::query_as(
-        r#"
-        SELECT last_signature,last_observed_slot FROM dusk_ingestion.ingestion_cursors
-        WHERE cluster = $1 AND program_id = $2 AND idl_hash = $3
-          AND protocol_revision = $4 AND stream_name = $5
-        "#,
-    )
-    .bind(cluster)
-    .bind(DUSK_PROGRAM_ID)
-    .bind(DUSK_IDL_SHA256)
-    .bind(PROTOCOL_REVISION)
-    .bind(STREAM_NAME)
-    .fetch_optional(pool)
-    .await
-    .context("loading ingestion cursor")?;
-    let Some((signature, slot)) = row else {
-        return Ok(None);
-    };
-    if signature.is_some() != slot.is_some() {
-        anyhow::bail!("FINALIZED_INVARIANT: cursor signature/slot mismatch");
-    }
-    if let Some(slot) = slot {
-        window.require_slot(slot.try_into()?)?;
-    }
-    Ok(signature)
-}
-
 pub async fn advance_cursor(
     pool: &PgPool,
     cluster: &str,
@@ -164,6 +132,8 @@ pub async fn advance_cursor(
             ),
             last_signature = EXCLUDED.last_signature,
             updated_at = now()
+        WHERE dusk_ingestion.ingestion_cursors.last_observed_slot IS NULL
+           OR dusk_ingestion.ingestion_cursors.last_observed_slot <= EXCLUDED.last_observed_slot
         "#,
     )
     .bind(cluster)

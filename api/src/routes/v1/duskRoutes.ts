@@ -9,6 +9,7 @@ import { Router } from 'express';
 
 import { duskApiConfig, loadPinnedProtocol } from '../../config/duskProtocol';
 import {
+  DuskDeploymentEnvelope,
   deploymentEnvelope,
   withDeployment,
   withDeploymentRead,
@@ -34,6 +35,7 @@ import { listYieldClaims } from '../../services/duskYieldClaims';
 import { listYieldCheckpoints } from '../../services/duskYieldCheckpoints';
 import { listDuskPriceHistory } from '../../services/duskPrices';
 import { listMarketActivity } from '../../services/duskMarketActivity';
+import { listOrderHistory } from '../../services/duskOrderHistory';
 import { listEventHistory } from '../../services/duskEventHistory';
 import { listQuoteHistory } from '../../services/duskQuoteHistory';
 import { openDuskChangeStream } from '../../services/duskChangeStream';
@@ -57,10 +59,26 @@ router.get('/history/quotes/:market', asyncRoute(async (req,res) => {
   const selection = { market: req.params.market,side,since: parameter('since'),until: parameter('until',new Date().toISOString()),
     resolutionSeconds: Number(parameter('resolutionSeconds','60')) };
   res.json(await withDeploymentRead(async deployment => {
-    const data = await listQuoteHistory({ ...selection,side,deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
+    const data = await listQuoteHistory({ ...selection,side,deployment,deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
     const sourceSlot = Number(data.coverage.lastSourceSlot ?? 0);
     if (!Number.isSafeInteger(sourceSlot)) throw new Error('Invalid quote-history source slot');
     return { data,sourceSlot };
+  }));
+}));
+
+router.get('/history/orders', asyncRoute(async (req,res) => {
+  const parameter = (name: string, fallback?: string) => {
+    const value=req.query[name]??fallback;
+    if(value!==undefined&&typeof value!=='string') throw Object.assign(new Error(`Invalid ${name}`),{status:400});
+    return value as string | undefined;
+  };
+  const owner=parameter('owner');
+  if(!owner) throw Object.assign(new Error('Order history requires an owner'),{status:400});
+  res.json(await withDeploymentRead(async deployment => {
+    const data=await listOrderHistory({owner,market:parameter('market'),until:parameter('until',new Date().toISOString())!,limit:Number(parameter('limit','50')),cursor:parameter('cursor'),deploymentIdentitySha256:deployment.deploymentIdentitySha256});
+    const sourceSlot=Math.max(Number(data.coverage.throughSlot),...data.orders.map(row=>Number(row.slot)));
+    if(!Number.isSafeInteger(sourceSlot)) throw new Error('Invalid order history slot');
+    return {data,sourceSlot};
   }));
 }));
 
@@ -87,7 +105,8 @@ router.get('/history/events', asyncRoute(async (req, res) => {
  * configuration describes the primary market and lists every market, and the
  * list endpoint returns all of them in one page.
  */
-async function deploymentPayload(identity: string) {
+async function deploymentPayload(deployment: DuskDeploymentEnvelope) {
+  const identity = deployment.deploymentIdentitySha256;
   const pinned = loadPinnedProtocol();
   const config = duskApiConfig();
   const { markets, sourceSlot } = await discoverMarkets();
@@ -125,7 +144,8 @@ async function deploymentPayload(identity: string) {
       protocolRevision: pinned.revision,
       programId: pinned.dusk.programId,
       leverageDelegateProgramId: pinned.leverageDelegate.programId,
-      payer: (await deploymentEnvelope()).programUpgradeAuthority,
+      // The surrounding read brackets this authority with fresh observations.
+      payer: deployment.programUpgradeAuthority,
       markets: projected.map((market) => ({
         label: market.label,
         market: market.marketAddress,
@@ -172,9 +192,9 @@ async function deploymentPayload(identity: string) {
 type DeploymentSnapshot = Awaited<ReturnType<typeof deploymentPayload>>;
 
 /** Coalesce concurrent requests; never keep a fully assembled live surface. */
-async function deploymentSnapshot(identity: string): Promise<DeploymentSnapshot> {
-  return cache.getOrSet(`dusk:deployment_surface:${identity}`, 0, () =>
-    deploymentPayload(identity),
+async function deploymentSnapshot(deployment: DuskDeploymentEnvelope): Promise<DeploymentSnapshot> {
+  return cache.getOrSet(`dusk:deployment_surface:${deployment.deploymentIdentitySha256}`, 0, () =>
+    deploymentPayload(deployment),
   );
 }
 
@@ -220,7 +240,7 @@ router.get(
   '/config',
   asyncRoute(async (_req, res) => {
     res.json(await withDeploymentRead(async (deployment) => {
-      const { config, sourceSlot } = await deploymentSnapshot(deployment.deploymentIdentitySha256);
+      const { config, sourceSlot } = await deploymentSnapshot(deployment);
       return { data: config, sourceSlot };
     }));
   }),
@@ -249,8 +269,10 @@ router.get(
   '/markets/state',
   asyncRoute(async (_req, res) => {
     res.json(await withDeploymentRead(async (deployment) => {
-      const { projected, sourceSlot } = await deploymentSnapshot(deployment.deploymentIdentitySha256);
-      return { data: { markets: projected, pagination: { limit: Math.max(100, projected.length), offset: 0, total: projected.length } }, sourceSlot };
+      const { config, projected, sourceSlot } = await deploymentSnapshot(deployment);
+      // Inventory and its configuration come from this exact snapshot. Clients
+      // need one data request and validate both under the same final envelope.
+      return { data: { configuration: config, markets: projected, pagination: { limit: Math.max(100, projected.length), offset: 0, total: projected.length } }, sourceSlot };
     }));
   }),
 );
@@ -278,8 +300,8 @@ router.get('/analytics/activity',asyncRoute(async (req,res) => {
     || !Number.isSafeInteger(maxPriceAgeSeconds) || maxPriceAgeSeconds<1 || maxPriceAgeSeconds>86400)
     throw Object.assign(new Error('Invalid activity time range'),{ status: 400 });
   res.json(await withDeploymentRead(async (deployment) => {
-    const data = await listMarketActivity({ since,until,market,maxPriceAgeSeconds,deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
-    const sourceSlot = Number(data.coverage.lastSourceSlot ?? 0);
+    const data = await listMarketActivity({ since,until,market,maxPriceAgeSeconds,deployment,deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
+    const sourceSlot = Math.max(Number(data.coverage.lastSourceSlot ?? 0),Number(data.coverage.historyScan?.throughSlot ?? 0));
     if (!Number.isSafeInteger(sourceSlot) || sourceSlot<0) throw new Error('Invalid activity source slot');
     return { data,sourceSlot };
   }));

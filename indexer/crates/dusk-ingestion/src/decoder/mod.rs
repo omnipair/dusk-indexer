@@ -205,6 +205,26 @@ struct EventDescriptor {
 struct InstructionDescriptor {
     name: String,
     args: Vec<Value>,
+    account_names: Vec<String>,
+}
+
+fn instruction_account_names(
+    accounts: &[Value],
+    prefix: &str,
+) -> Result<Vec<String>, DecoderError> {
+    let mut names = Vec::new();
+    for account in accounts {
+        let name = format!("{prefix}{}", required_name(account, "instruction account")?);
+        if let Some(children) = account.get("accounts") {
+            let children = children
+                .as_array()
+                .ok_or_else(|| DecoderError::InvalidIdl("invalid nested accounts".to_owned()))?;
+            names.extend(instruction_account_names(children, &format!("{name}."))?);
+        } else {
+            names.push(name);
+        }
+    }
+    Ok(names)
 }
 
 #[derive(Debug, Clone)]
@@ -353,6 +373,17 @@ impl ProgramRegistry {
                     InstructionDescriptor {
                         name: name.to_owned(),
                         args,
+                        account_names: instruction_account_names(
+                            instruction
+                                .get("accounts")
+                                .and_then(Value::as_array)
+                                .ok_or_else(|| {
+                                    DecoderError::InvalidIdl(
+                                        "instruction accounts missing".to_owned(),
+                                    )
+                                })?,
+                            "",
+                        )?,
                     },
                 )
                 .is_some()
@@ -516,6 +547,21 @@ impl PinnedIdlDecoder {
                 decode_error: Some(error),
             }),
         }
+    }
+
+    /// Account roles are resolved from the same pinned IDL as argument
+    /// decoding.
+    pub fn instruction_account_names(
+        &self,
+        program_id: &str,
+        discriminator: [u8; 8],
+    ) -> Result<Vec<String>, DecoderError> {
+        let program = self.program_for_id(program_id)?;
+        self.registry(program)
+            .instructions
+            .get(&discriminator)
+            .map(|descriptor| descriptor.account_names.clone())
+            .ok_or_else(|| DecoderError::InvalidIdl("unknown instruction discriminator".to_owned()))
     }
 
     pub fn decode_program_data_logs(

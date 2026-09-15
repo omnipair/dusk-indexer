@@ -5,6 +5,39 @@ use {
     std::ops::Range,
 };
 
+#[derive(Default)]
+pub struct Pagination {
+    previous_oldest: Option<u64>,
+    seen: std::collections::HashSet<String>,
+}
+impl Pagination {
+    pub fn select(
+        &mut self,
+        page: &[(&str, u64)],
+        window: DeploymentWindow,
+    ) -> Result<PageSelection> {
+        if page.is_empty() {
+            bail!("history lower boundary unavailable; an empty or pruned page cannot establish coverage");
+        }
+        if self
+            .previous_oldest
+            .is_some_and(|oldest| page[0].1 > oldest)
+        {
+            bail!("FINALIZED_INVARIANT: signature pages moved forward while backfilling");
+        }
+        for (signature, _) in page {
+            if !self.seen.insert((*signature).to_owned()) {
+                bail!("FINALIZED_INVARIANT: repeated signature in history pagination");
+            }
+        }
+        self.previous_oldest = page.last().map(|entry| entry.1);
+        select_page(
+            &page.iter().map(|entry| entry.1).collect::<Vec<_>>(),
+            window,
+        )
+    }
+}
+
 pub struct PageSelection {
     pub range: Range<usize>,
     pub reached_start: bool,
@@ -30,6 +63,42 @@ pub fn select_page(slots: &[u64], window: DeploymentWindow) -> Result<PageSelect
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn requires_explicit_lower_boundary_across_short_and_same_slot_pages() {
+        let window = DeploymentWindow {
+            first_slot: 20,
+            through_slot: 30,
+        };
+        let mut pages = Pagination::default();
+        assert!(
+            !pages
+                .select(&[("a", 31), ("b", 25)], window)
+                .unwrap()
+                .reached_start
+        );
+        assert!(!pages.select(&[("c", 25)], window).unwrap().reached_start);
+        assert!(pages.select(&[], window).is_err());
+        assert!(!pages.select(&[("d", 20)], window).unwrap().reached_start);
+        assert!(
+            pages
+                .select(&[("e", 20), ("f", 19)], window)
+                .unwrap()
+                .reached_start
+        );
+    }
+    #[test]
+    fn rejects_duplicate_future_signatures_and_backwards_pagination() {
+        let window = DeploymentWindow {
+            first_slot: 20,
+            through_slot: 30,
+        };
+        let mut pages = Pagination::default();
+        pages.select(&[("future", 31)], window).unwrap();
+        assert!(pages.select(&[("future", 31)], window).is_err());
+        let mut pages = Pagination::default();
+        pages.select(&[("a", 25)], window).unwrap();
+        assert!(pages.select(&[("b", 26)], window).is_err());
+    }
     #[test]
     fn history_excludes_old_release_and_defers_newer_unattested_slots() {
         let window = DeploymentWindow {
