@@ -34,6 +34,7 @@ import { listDuskLpOwnership } from '../../services/duskLpOwnership';
 import { listYieldClaims } from '../../services/duskYieldClaims';
 import { listYieldCheckpoints } from '../../services/duskYieldCheckpoints';
 import { listDuskPriceHistory } from '../../services/duskPrices';
+import { listYieldRates } from '../../services/duskYieldRates';
 import { listMarketActivity } from '../../services/duskMarketActivity';
 import { listOrderHistory } from '../../services/duskOrderHistory';
 import { listEventHistory } from '../../services/duskEventHistory';
@@ -91,8 +92,12 @@ router.get('/history/events', asyncRoute(async (req, res) => {
   };
   const until = stringParameter('until') ?? new Date().toISOString();
   const limit = req.query.limit === undefined ? 100 : Number(stringParameter('limit'));
+  const category = stringParameter('category');
+  if (category !== undefined && category !== 'leverage-close')
+    throw Object.assign(new Error('Invalid event history category'), {status:400});
   res.json(await withDeploymentRead(async deployment => {
     const data = await listEventHistory({ market: stringParameter('market'), since: stringParameter('since'), until,
+      owner: stringParameter('owner'), category,
       cursor: stringParameter('cursor'), limit, deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
     const sourceSlot = data.events.reduce((highest, row) => Math.max(highest, Number(row.slot)), 0);
     if (!Number.isSafeInteger(sourceSlot)) throw new Error('Invalid event-history source slot');
@@ -276,6 +281,24 @@ router.get(
     }));
   }),
 );
+
+router.get('/analytics/yield-rates',asyncRoute(async (req,res) => {
+  const parameter = (name: string,fallback?: string) => {
+    const value = req.query[name] ?? fallback;
+    if (typeof value !== 'string' || !value.trim()) throw Object.assign(new Error(`Invalid ${name}`),{ status: 400 });
+    return value;
+  };
+  const since = parameter('since'),until = parameter('until',new Date().toISOString());
+  let market: string | undefined;
+  if (req.query.market !== undefined) {
+    try { market = new PublicKey(parameter('market')).toBase58(); }
+    catch { throw Object.assign(new Error('Invalid yield market'),{ status: 400 }); }
+  }
+  res.json(await withDeploymentRead(async deployment => {
+    const data = await listYieldRates({ since,until,market,deployment,deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
+    return { data,sourceSlot: data.coverage.sourceSlot };
+  }));
+}));
 
 router.get('/analytics/activity',asyncRoute(async (req,res) => {
   const timestamp = (value: unknown): string | undefined => {

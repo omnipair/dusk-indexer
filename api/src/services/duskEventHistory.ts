@@ -10,8 +10,11 @@ export const HISTORY_EVENTS = [
   'BorrowPositionLiquidated', 'LeveragePositionOpened', 'LeveragePositionUpdated',
   'LeveragePositionClosed', 'LeveragePositionLiquidated',
 ] as const;
+export const LEVERAGE_CLOSE_EVENTS = ['LeveragePositionClosed', 'LeveragePositionLiquidated'] as const;
 
 export interface EventHistoryQuery {
+  owner?: string;
+  category?: 'leverage-close';
   market?: string;
   since?: string;
   until: string;
@@ -40,11 +43,16 @@ export function eventHistorySelection(query: EventHistoryQuery) {
     || !/^[0-9a-f]{64}$/.test(query.deploymentIdentitySha256)
     || !Number.isFinite(Date.parse(query.until)) || Date.parse(query.until) > Date.now()
     || query.since !== undefined && (!Number.isFinite(Date.parse(query.since)) || Date.parse(query.since) > Date.parse(query.until))) invalid();
-  if (query.market !== undefined) {
-    try { if (new PublicKey(query.market).toBase58() !== query.market) invalid(); } catch { invalid(); }
+  if ((query.owner !== undefined) !== (query.category !== undefined)
+    || query.category !== undefined && query.category !== 'leverage-close') invalid();
+  for (const address of [query.market, query.owner]) {
+    if (address !== undefined) {
+      try { if (new PublicKey(address).toBase58() !== address) invalid(); } catch { invalid(); }
+    }
   }
   const identity = [pin.cluster, pin.dusk.programId, pin.dusk.idlCanonicalSha256, pin.revision];
-  const window = { market: query.market ?? null, since: query.since ? new Date(query.since).toISOString() : null, until: new Date(query.until).toISOString() };
+  const window = { market: query.market ?? null, since: query.since ? new Date(query.since).toISOString() : null, until: new Date(query.until).toISOString(),
+    ...(query.owner ? { owner: query.owner, category: query.category } : {}) };
   const scope = createHash('sha256').update(JSON.stringify([identity, query.deploymentIdentitySha256, window, HISTORY_EVENTS])).digest('hex');
   let cursor: Cursor | null = null;
   if (query.cursor !== undefined) {
@@ -94,8 +102,9 @@ export async function readEventHistory(client: PoolClient, query: EventHistoryQu
       AND ($8::timestamptz IS NULL OR history.block_time>=$8 OR history.block_time IS NULL)
       AND (history.block_time<=$9 OR history.block_time IS NULL)
       AND ($10::bigint IS NULL OR (o.slot,c.event_key)<($10::bigint,$11::text))
+      AND ($13::text IS NULL OR o.decoded_payload->>'owner'=$13)
     ORDER BY o.slot DESC,c.event_key DESC LIMIT $12`,
-    [...identity, watermark, HISTORY_EVENTS, window.market, window.since, window.until, cursor?.slot ?? null, cursor?.key ?? null, query.limit + 1]);
+    [...identity, watermark, query.category === 'leverage-close' ? LEVERAGE_CLOSE_EVENTS : HISTORY_EVENTS, window.market, window.since, window.until, cursor?.slot ?? null, cursor?.key ?? null, query.limit + 1, query.owner ?? null]);
   for (const row of rows.rows) {
     if (row.stream_count !== '1' || row.matching_count !== '1' || !(row.block_time instanceof Date)
       || !Number.isFinite(row.block_time.getTime()) || BigInt(row.slot) < BigInt(pin.historyFirstSlot))

@@ -6,7 +6,7 @@ test('history selection rejects malformed ranges, addresses and cursors', () => 
   const query = { until: '2026-09-01T00:00:00Z', limit: 100, deploymentIdentitySha256: 'a'.repeat(64) };
   assert.equal(eventHistorySelection(query).window.market,null);
   for (const patch of [{limit:0},{limit:501},{limit:1.5},{market:'not-a-key'},{since:'2026-09-02T00:00:00Z'},
-    {until:'bad'},{cursor:'bad'},{cursor:'A'.repeat(2049)},{deploymentIdentitySha256:'x'}])
+    {owner:'not-a-key',category:'leverage-close' as const},{owner:'So11111111111111111111111111111111111111112'},{category:'leverage-close' as const},{until:'bad'},{cursor:'bad'},{cursor:'A'.repeat(2049)},{deploymentIdentitySha256:'x'}])
     assert.throws(() => eventHistorySelection({...query,...patch}),/query or cursor/);
 });
 

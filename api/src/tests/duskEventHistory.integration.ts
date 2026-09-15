@@ -19,25 +19,26 @@ async function transaction(work: (client: PoolClient) => Promise<void>) {
   try { await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ'); await work(client); }
   finally { await client.query('ROLLBACK'); client.release(); }
 }
-async function source(client: PoolClient, offset: number, options: { commitment?: string; revision?: string; omitStream?: boolean } = {}) {
+async function source(client: PoolClient, offset: number, options: { commitment?: string; revision?: string; omitStream?: boolean; eventName?: string; owner?: string; liquidator?: string } = {}) {
   const active = [...identity.slice(0,3),options.revision ?? identity[3]], commitment = options.commitment ?? 'finalized';
   const signature = '2'.repeat(88), path = [0, ++nextPath];
   const key = [...active, signature, path.join('.'), '0'].join('|');
-  const payload = { market,trader: fixtureKey(121).toBase58(),asset_in_side:'0',amount_in:'9007199254740993',amount_out:'4' };
+  const eventName = options.eventName ?? 'SwapExecuted';
+  const payload = { market, owner: options.owner, liquidator: options.liquidator, trader: fixtureKey(121).toBase58(),asset_in_side:'0',amount_in:'9007199254740993',amount_out:'4' };
   await client.query(`INSERT INTO dusk_ingestion.protocol_identities(cluster,program_id,idl_hash,protocol_revision)
     VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,active);
   const inserted = await client.query(`INSERT INTO dusk_ingestion.event_observations
     (cluster,program_id,idl_hash,protocol_revision,event_key,transaction_signature,instruction_path,event_ordinal,
       slot,blockhash,commitment,event_name,payload_hash,decoded_payload,source)
-    VALUES($1,$2,$3,$4,$5,$6,$12,0,$7,$8,$9,'SwapExecuted',$10,$11,'disposable-history-fixture') RETURNING observation_id`,
-    [...active,key,signature,slot+offset,fixtureKey(130).toBase58(),commitment,createHash('sha256').update(JSON.stringify(payload)).digest('hex'),JSON.stringify(payload),path]);
+    VALUES($1,$2,$3,$4,$5,$6,$12,0,$7,$8,$9,$13,$10,$11,'disposable-history-fixture') RETURNING observation_id`,
+    [...active,key,signature,slot+offset,fixtureKey(130).toBase58(),commitment,createHash('sha256').update(JSON.stringify(payload)).digest('hex'),JSON.stringify(payload),path,eventName]);
   await client.query(`INSERT INTO dusk_ingestion.canonical_events
     (cluster,program_id,idl_hash,protocol_revision,event_key,observation_id,commitment) VALUES($1,$2,$3,$4,$5,$6,$7)`,
     [...active,key,inserted.rows[0].observation_id,commitment]);
   if (!options.omitStream) await client.query(`INSERT INTO dusk_ingestion.event_stream
     (time,cluster,program_id,event_name,market,transaction_signature,event_key,slot,payload,idl_hash,protocol_revision)
-    VALUES('2026-09-01T00:00:10Z',$1,$2,'SwapExecuted',$3,$4,$5,$6,$7,$8,$9)`,
-    [active[0],active[1],market,signature,key,slot+offset,JSON.stringify(payload),active[2],active[3]]);
+    VALUES('2026-09-01T00:00:10Z',$1,$2,$10,$3,$4,$5,$6,$7,$8,$9)`,
+    [active[0],active[1],market,signature,key,slot+offset,JSON.stringify(payload),active[2],active[3],eventName]);
   return key;
 }
 test('native history paginates same-slot CPI events without signature deduplication or late-backfill shifts', () => transaction(async client => {
@@ -69,4 +70,25 @@ test('contradictory event-time records halt the selected page', () => transactio
     SELECT time+interval '1 second',cluster,program_id,event_name,market,transaction_signature,event_key,slot,payload,idl_hash,protocol_revision
     FROM dusk_ingestion.event_stream WHERE event_key=$1`,[key]);
   await assert.rejects(readEventHistory(client,query),/FINALIZED_INVARIANT/);
+}));
+
+test('closed positions filter the owner, not the liquidator, before pagination and bind cursors to that owner', () => transaction(async client => {
+  const owner = fixtureKey(121).toBase58(), other = fixtureKey(122).toBase58();
+  const scoped = { ...query, owner, category: 'leverage-close' as const, limit: 1 };
+  await source(client,5,{ eventName:'LeveragePositionClosed',owner:other });
+  await source(client,4,{ eventName:'LeveragePositionUpdated',owner });
+  const liquidated = await source(client,3,{ eventName:'LeveragePositionLiquidated',owner,liquidator:other });
+  const closed = await source(client,2,{ eventName:'LeveragePositionClosed',owner });
+  await source(client,1,{ eventName:'LeveragePositionLiquidated',owner:other,liquidator:owner });
+  const first = await readEventHistory(client,scoped);
+  assert.equal(first.events[0].eventKey,liquidated);
+  assert.equal(first.window.owner,owner);
+  assert.equal(first.window.category,'leverage-close');
+  assert.equal(first.pagination.hasMore,true);
+  const last = await readEventHistory(client,{ ...scoped,cursor:first.pagination.nextCursor! });
+  assert.deepEqual(last.events.map(event => event.eventKey),[closed]);
+  assert.equal(last.pagination.hasMore,false);
+  await assert.rejects(readEventHistory(client,{ ...scoped,owner:other,cursor:first.pagination.nextCursor! }),/query or cursor/);
+  assert.equal((await readEventHistory(client,{ ...scoped,owner:fixtureKey(123).toBase58() })).events.length,0);
+  assert.equal((await readEventHistory(client,{ ...scoped,market:fixtureKey(124).toBase58() })).events.length,0);
 }));
