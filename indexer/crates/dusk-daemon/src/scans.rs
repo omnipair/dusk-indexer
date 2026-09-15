@@ -137,4 +137,3 @@ mod tests {
         assert!(validate_transaction(&listing, &transaction).is_err());
     }
 }
-
