@@ -35,6 +35,7 @@ import { listYieldClaims } from '../../services/duskYieldClaims';
 import { listYieldCheckpoints } from '../../services/duskYieldCheckpoints';
 import { listDuskPriceHistory } from '../../services/duskPrices';
 import { listMarketActivity } from '../../services/duskMarketActivity';
+import { listOrderHistory } from '../../services/duskOrderHistory';
 import { listEventHistory } from '../../services/duskEventHistory';
 import { listQuoteHistory } from '../../services/duskQuoteHistory';
 import { openDuskChangeStream } from '../../services/duskChangeStream';
@@ -62,6 +63,22 @@ router.get('/history/quotes/:market', asyncRoute(async (req,res) => {
     const sourceSlot = Number(data.coverage.lastSourceSlot ?? 0);
     if (!Number.isSafeInteger(sourceSlot)) throw new Error('Invalid quote-history source slot');
     return { data,sourceSlot };
+  }));
+}));
+
+router.get('/history/orders', asyncRoute(async (req,res) => {
+  const parameter = (name: string, fallback?: string) => {
+    const value=req.query[name]??fallback;
+    if(value!==undefined&&typeof value!=='string') throw Object.assign(new Error(`Invalid ${name}`),{status:400});
+    return value as string | undefined;
+  };
+  const owner=parameter('owner');
+  if(!owner) throw Object.assign(new Error('Order history requires an owner'),{status:400});
+  res.json(await withDeploymentRead(async deployment => {
+    const data=await listOrderHistory({owner,market:parameter('market'),until:parameter('until',new Date().toISOString())!,limit:Number(parameter('limit','50')),cursor:parameter('cursor'),deploymentIdentitySha256:deployment.deploymentIdentitySha256});
+    const sourceSlot=Math.max(Number(data.coverage.throughSlot),...data.orders.map(row=>Number(row.slot)));
+    if(!Number.isSafeInteger(sourceSlot)) throw new Error('Invalid order history slot');
+    return {data,sourceSlot};
   }));
 }));
 
