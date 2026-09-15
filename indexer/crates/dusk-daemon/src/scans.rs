@@ -97,6 +97,18 @@ pub async fn record(
     Ok(())
 }
 
+fn stream(orders: bool) -> (&'static str, &'static str, &'static str) {
+    if orders {
+        (
+            "order_history_scans",
+            LEVERAGE_DELEGATE_PROGRAM_ID,
+            LEVERAGE_DELEGATE_IDL_SHA256,
+        )
+    } else {
+        ("history_scans", DUSK_PROGRAM_ID, DUSK_IDL_SHA256)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use {super::*, serde_json::json};
@@ -126,14 +138,3 @@ mod tests {
     }
 }
 
-fn stream(orders: bool) -> (&'static str, &'static str, &'static str) {
-    if orders {
-        (
-            "order_history_scans",
-            LEVERAGE_DELEGATE_PROGRAM_ID,
-            LEVERAGE_DELEGATE_IDL_SHA256,
-        )
-    } else {
-        ("history_scans", DUSK_PROGRAM_ID, DUSK_IDL_SHA256)
-    }
-}
