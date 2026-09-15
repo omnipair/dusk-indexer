@@ -11,9 +11,9 @@ mod projections;
 
 use {
     crate::{
-        sha256_hex, verify_vendored_protocol, CanonicalEventKey, Commitment, EventObservation,
-        FoundationError, ProtocolIdentity, DUSK_IDL, DUSK_PROGRAM_ID, LEVERAGE_DELEGATE_IDL,
-        LEVERAGE_DELEGATE_PROGRAM_ID,
+        CanonicalEventKey, Commitment, DUSK_IDL, DUSK_PROGRAM_ID, EventObservation,
+        FoundationError, LEVERAGE_DELEGATE_IDL, LEVERAGE_DELEGATE_PROGRAM_ID, ProtocolIdentity,
+        sha256_hex, verify_vendored_protocol,
     },
     borsh::{DecodeLimits, TypeRegistry},
     serde::{Deserialize, Serialize},
