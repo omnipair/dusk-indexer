@@ -16,8 +16,17 @@ const identity = () => {
 };
 const protocolRoot = () => process.env.DUSK_PROTOCOL_DIR?.trim() || resolve(__dirname,'../../../protocol');
 function idl(): Idl {
-  loadPinnedProtocol();
-  return JSON.parse(readFileSync(resolve(protocolRoot(),'idl/dusk.json'),'utf8')) as Idl;
+  const pin = loadPinnedProtocol();
+  const raw = readFileSync(resolve(protocolRoot(),'idl/dusk.json'),'utf8');
+  if (sha256(raw) !== pin.dusk.idlRawSha256) throw new Error('Price decoder IDL differs from the active protocol pin');
+  return JSON.parse(raw) as Idl;
+}
+// The checked IDL is immutable for this process, just like loadPinnedProtocol.
+// Reuse only decoding layouts: every observation is still hashed, decoded and
+// verified against its saved source on every read. No prices/results are cached.
+let decoder: BorshCoder | undefined;
+function priceDecoder(): BorshCoder {
+  return decoder ??= new BorshCoder(idl());
 }
 export interface PriceCaptureSource {
   market: string; slot: number; marketSlot: number; blockhash: string; blockTime: string; observedAt: string;
@@ -83,9 +92,9 @@ export function verifyStoredPriceCapture(row: StoredPriceCapture) {
     || source.marketStateBasis === 'simulation-post-state' && source.slot !== source.marketSlot
     || Date.parse(source.observedAt)<Date.parse(source.blockTime) || hashSource(source) !== row.content_hash
     || sha256(row.raw_preview) !== row.preview_hash) throw new Error('FINALIZED_INVARIANT: saved price source hash mismatch');
-  const decoder = new BorshCoder(idl());
-  const projected = projectMarketPrices({ pin: loadPinnedProtocol(),marketAddress: source.market,market: decoder.accounts.decode('Market',row.raw_market),
-    preview: decoder.types.decode('MarketPreview',row.raw_preview),slot: source.slot,blockTime: source.blockTime,references: source.references });
+  const coder = priceDecoder();
+  const projected = projectMarketPrices({ pin: loadPinnedProtocol(),marketAddress: source.market,market: coder.accounts.decode('Market',row.raw_market),
+    preview: coder.types.decode('MarketPreview',row.raw_preview),slot: source.slot,blockTime: source.blockTime,references: source.references });
   return { source,projected };
 }
 
