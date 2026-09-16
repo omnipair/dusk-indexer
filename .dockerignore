@@ -71,6 +71,7 @@ database/
 !database/migrations/038_dusk_capture_deployments.sql
 !database/migrations/039_dusk_history_scans.sql
 !database/migrations/040_dusk_order_history.sql
+!database/migrations/041_dusk_quote_series.sql
 !database/dusk-migrations.txt
 
 # Other language artifacts
