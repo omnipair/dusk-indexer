@@ -44,10 +44,12 @@ const protocolIdentity = () => {
   const pin = loadPinnedProtocol();
   return [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
 };
-export async function quoteHistoryState(client: PoolClient) {
+export async function quoteHistoryState(client: PoolClient,market: string) {
   const state = await client.query<{ revision: string; conflicted: boolean }>(
-    `SELECT revision::text,conflicted FROM dusk_ingestion.quote_history_state
-     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4`,protocolIdentity());
+    `SELECT COALESCE((SELECT max(revision) FROM dusk_ingestion.quote_history_changes
+       WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND market=$5),0)::text AS revision,
+       conflicted FROM dusk_ingestion.quote_history_state
+     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4`,[...protocolIdentity(),market]);
   if (state.rows[0]?.conflicted) throw Object.assign(new Error('FINALIZED_INVARIANT: contradictory finalized market price previews'),{ status:503 });
   return state.rows[0]?.revision ?? '0';
 }
@@ -64,7 +66,7 @@ async function verifyWitness(row: StoredPriceCapture) {
 export async function readQuoteHistory(client: PoolClient, query: QuoteHistoryQuery, context?: { revision: string; deployments: string[] }) {
   const window = quoteHistorySelection(query),pin = loadPinnedProtocol();
   const identity = [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
-  const revision = context?.revision ?? await quoteHistoryState(client);
+  const revision = context?.revision ?? await quoteHistoryState(client,query.market);
   const deployments = context?.deployments ?? await historyDeploymentIdentities(client,query);
   const values = [...identity,deployments,query.market,window.since,window.until,pin.historyFirstSlot,query.resolutionSeconds];
   const column = query.side === 'base' ? 'base_spot_price_nad' : 'quote_spot_price_nad';
@@ -158,7 +160,7 @@ export async function readQuoteHistoryRequest(client: PoolClient,query: QuoteHis
     || !Number.isFinite(Date.parse(refresh.afterUntil)) || Date.parse(refresh.afterUntil)<=Date.parse(requested.since)
     || Date.parse(refresh.afterUntil)>Date.parse(requested.until))) invalid();
   {
-    const revision = await quoteHistoryState(client);
+    const revision = await quoteHistoryState(client,query.market);
     const deployments = await historyDeploymentIdentities(client,query);
     let since = requested.since;
     if (refresh) {

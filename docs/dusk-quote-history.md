@@ -89,7 +89,7 @@ market/window. Before-insert locking uses the price worker's existing lock order
 
 Completed candle computations have a bounded 32-entry, 15-second process cache,
 with in-flight coalescing. Keys include the full response deployment identity,
-registered historical identities, committed revision, market, side, interval and
+registered historical identities, committed market revision, market, side, interval and
 resolution. Each request reads its revision inside a repeatable-read transaction,
 so a missed NOTIFY cannot retain an older projection. Responses still pass the
 fresh RPC deployment bracket; deployment envelopes are never response-cached.
@@ -103,7 +103,9 @@ The response is `dusk-quote-history-update.v1` containing `request`,
 when only the live tail needs refreshing. Delayed projections, out-of-order
 backfills and registration of an older compatible deployment widen that suffix.
 The minute change journal is transactional; capture ID allocation is not used as
-a commit cursor. A future/regressed revision returns HTTP 409.
+a commit cursor. Revision allocation is serialized by protocol, while each
+market uses its latest committed revision so unrelated markets cannot evict its
+cached candles. A future/regressed revision returns HTTP 409.
 
 Consumers validate the response scope, cursor, complete suffix and deployment
 before replacing that suffix of their displayed history. They retain prior
