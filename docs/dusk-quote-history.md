@@ -56,8 +56,10 @@ Each open/high/low/close includes an exact decimal price, capture ID, source
 slot, actual observation timestamp, and saved source hash. Line charts can use
 these timestamps when several samples share one candle bucket. The API rebuilds
 each selected candle witness from its immutable, hashed Borsh bytes and checks
-the materialized quote and mint bindings before
-returning it. NAD quotes are already normalized for mint decimals. Dividing by
+the materialized quote and mint bindings before returning it. Verified decoding
+is memoized by a digest of **all** saved bytes, timestamps, identity and projection
+fields, with a bounded ten-minute process cache; a claimed source hash alone
+cannot produce a hit. NAD quotes are already normalized for mint decimals. Dividing by
 1e9 is the only scale conversion; clients must not multiply by a token-decimal
 difference. Prices remain decimal strings, preserving the full u64 range.
 
@@ -68,6 +70,47 @@ Zero quotes do not create zero-price candles, and empty buckets are not filled.
 `projectionComplete` only describes replay of saved captures; it says nothing
 about uncaptured historical banks. The response also includes a SHA-256 digest
 of the normalized selection, output, and coverage.
+
+## Time-series reads and incremental refresh
+
+Apply migration `041_dusk_quote_series.sql` before deploying this API version.
+It adds `dusk_ingestion.quote_series`, a seven-day Timescale hypertable when
+the extension is installed (ordinary PostgreSQL remains supported for local
+tests). It backfills the compact source coordinates/quote projection and installs
+transactional triggers, so existing price-worker builds populate it immediately.
+Immutable capture bytes remain in the original evidence tables. Pending captures
+remain visible in the time-series projection and coverage.
+
+The candle query selects one bounded time-series range for coverage, unique-bank
+counts and OHLC witness selection; Timescale uses `time_bucket`. A serialized
+protocol-scoped revision and conflict flag replace the per-request full-table
+conflict scan. A contradiction stays a halt condition even outside the selected
+market/window. Before-insert locking uses the price worker's existing lock order.
+
+Completed candle computations have a bounded 32-entry, 15-second process cache,
+with in-flight coalescing. Keys include the full response deployment identity,
+registered historical identities, committed revision, market, side, interval and
+resolution. Each request reads its revision inside a repeatable-read transaction,
+so a missed NOTIFY cannot retain an older projection. Responses still pass the
+fresh RPC deployment bracket; deployment envelopes are never response-cached.
+
+Full responses retain `dusk-quote-history.v1` and add `revision` (decimal string).
+For subsequent refreshes send both `afterRevision` and `afterUntil` from the
+previous accepted response, with the original `since` and a later `until`.
+The response is `dusk-quote-history-update.v1` containing `request`,
+`afterRevision`, `afterUntil`, `revision`, and `history` (a normal v1 history).
+`history.window.since` is the oldest changed bucket, or the previous last bucket
+when only the live tail needs refreshing. Delayed projections, out-of-order
+backfills and registration of an older compatible deployment widen that suffix.
+The minute change journal is transactional; capture ID allocation is not used as
+a commit cursor. A future/regressed revision returns HTTP 409.
+
+Consumers validate the response scope, cursor, complete suffix and deployment
+before replacing that suffix of their displayed history. They retain prior
+candles only through a successful refresh and the normal freshness deadline.
+An expired base, incomplete projection, side/resolution change or missing cursor
+requires a full read. Notifications trigger the same refresh path as the bounded
+polling fallback, preserving recovery when a stream disconnects.
 
 Consumers must label these as sampled program prices, retain missing-history
 states, and bind caches to the entire deployment identity. The latest historical
