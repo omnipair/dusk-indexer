@@ -20,3 +20,4 @@
 038_dusk_capture_deployments.sql
 039_dusk_history_scans.sql
 040_dusk_order_history.sql
+041_dusk_quote_series.sql

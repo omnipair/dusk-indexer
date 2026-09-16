@@ -1,0 +1,15 @@
+{
+  "migration": "041_dusk_quote_series.sql",
+  "applied": true,
+  "sha256": "60bb2c1dfc0e34e63002cded5aafb1450a9d2e7b876fe522c098167bdd284a51",
+  "hypertables": [
+    {
+      "hypertable_name": "quote_series",
+      "num_chunks": "1"
+    }
+  ],
+  "counts": {
+    "captures": "12742",
+    "series": "12742"
+  }
+}

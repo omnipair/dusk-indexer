@@ -4,7 +4,7 @@ import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
 import { projectPriceCapture, projectPriceCaptureBatch, storePriceCapture } from '../services/duskPrices';
-import { readQuoteHistory } from '../services/duskQuoteHistory';
+import { readQuoteHistory, readQuoteHistoryRequest } from '../services/duskQuoteHistory';
 import { priceFixture } from './duskPriceFixtures';
 import { storeCaptureDeployment } from '../services/duskHistoryDeployment';
 import { historyDeploymentFixture } from './duskHistoryDeploymentFixtures';
@@ -135,4 +135,53 @@ test('a forged materialized candle witness is rejected against its saved Borsh p
     VALUES($1,$2,$3,9,6,1,0)`,[id,f.baseMint,f.quoteMint]);
   await assert.rejects(readQuoteHistory(client,query),/FINALIZED_INVARIANT/);
   await assert.rejects(projectPriceCapture(client,id),/FINALIZED_INVARIANT/);
+}));
+
+test('incremental refresh reads the live suffix and widens for late backfills and pending projections',() => transaction(async client => {
+  await source(client,1,10,2_500_000_000n);
+  await source(client,4,125,3_000_000_000n);
+  const first = await readQuoteHistory(client,query);
+  const refresh = { afterRevision:first.revision,afterUntil:query.until };
+  const next = { ...query,until:'2026-09-02T00:04:00Z' };
+  const recent = await readQuoteHistoryRequest(client,next,refresh);
+  assert.ok('history' in recent);
+  assert.equal(recent.history.window.since,'2026-09-02T00:02:00.000Z');
+  assert.equal(recent.history.candles.length,1);
+  const late = await source(client,2,20,4_000_000_000n,{ project:false });
+  const pending = await readQuoteHistoryRequest(client,next,refresh);
+  assert.ok('history' in pending);
+  assert.equal(pending.history.window.since,new Date(query.since).toISOString());
+  assert.equal(pending.history.coverage.pendingCaptures,'1');
+  await projectPriceCapture(client,late);
+  const corrected = await readQuoteHistoryRequest(client,next,{ afterRevision:pending.revision,afterUntil:next.until });
+  assert.ok('history' in corrected);
+  assert.equal(corrected.history.candles[0].high.price,'4');
+  assert.ok(BigInt(corrected.revision)>BigInt(pending.revision));
+  await assert.rejects(readQuoteHistoryRequest(client,next,{ ...refresh,afterRevision:'999999999' }),/regressed/);
+}));
+
+test('registering an older compatible deployment invalidates incremental history',() => transaction(async client => {
+  const older = historyDeploymentFixture('old-series-api'),deployment = historyDeploymentFixture('current-series-api');
+  await source(client,1,10,2_500_000_000n,{ identity:older.deploymentIdentitySha256 });
+  const selection = { ...query,deployment,deploymentIdentitySha256:deployment.deploymentIdentitySha256 };
+  const before = await readQuoteHistory(client,selection);
+  assert.equal(before.candles.length,0);
+  await storeCaptureDeployment(client,older);
+  const result = await readQuoteHistoryRequest(client,selection,{ afterRevision:before.revision,afterUntil:query.until });
+  assert.ok('history' in result);
+  assert.equal(result.history.candles[0].close.price,'2.5');
+}));
+
+test('cached history is invalidated by revision even if notifications are missed',() => transaction(async client => {
+  await source(client,1,10,2_500_000_000n);
+  const before = await readQuoteHistoryRequest(client,query,undefined,true);
+  assert.ok(!('history' in before));
+  const hit = await readQuoteHistoryRequest(client,query,undefined,true);
+  assert.strictEqual(hit,before);
+  await source(client,2,20,4_000_000_000n);
+  const updated = await readQuoteHistoryRequest(client,query,undefined,true);
+  assert.ok(!('history' in updated));
+  assert.equal(updated.candles[0].high.price,'4');
+  await source(client,2,20,5_000_000_000n,{ project:false });
+  await assert.rejects(readQuoteHistoryRequest(client,query,undefined,true),/FINALIZED_INVARIANT/);
 }));

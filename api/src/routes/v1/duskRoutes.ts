@@ -38,7 +38,7 @@ import { listYieldRates } from '../../services/duskYieldRates';
 import { listMarketActivity } from '../../services/duskMarketActivity';
 import { listOrderHistory } from '../../services/duskOrderHistory';
 import { listEventHistory } from '../../services/duskEventHistory';
-import { listQuoteHistory } from '../../services/duskQuoteHistory';
+import { clearQuoteHistoryCache, listQuoteHistory } from '../../services/duskQuoteHistory';
 import { openDuskChangeStream } from '../../services/duskChangeStream';
 import { listPortfolioHistory, portfolioSampleSeconds } from '../../services/duskPortfolioSnapshots';
 import { provenance, renderMetrics } from '../../utils/metrics';
@@ -59,12 +59,17 @@ router.get('/history/quotes/:market', asyncRoute(async (req,res) => {
   if (side !== 'base' && side !== 'quote') throw Object.assign(new Error('Invalid quote side'),{ status: 400 });
   const selection = { market: req.params.market,side,since: parameter('since'),until: parameter('until',new Date().toISOString()),
     resolutionSeconds: Number(parameter('resolutionSeconds','60')) };
-  res.json(await withDeploymentRead(async deployment => {
-    const data = await listQuoteHistory({ ...selection,side,deployment,deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
-    const sourceSlot = Number(data.coverage.lastSourceSlot ?? 0);
-    if (!Number.isSafeInteger(sourceSlot)) throw new Error('Invalid quote-history source slot');
-    return { data,sourceSlot };
-  }));
+  const refresh = req.query.afterRevision === undefined && req.query.afterUntil === undefined ? undefined
+    : { afterRevision:parameter('afterRevision'),afterUntil:parameter('afterUntil') };
+  try {
+    res.json(await withDeploymentRead(async deployment => {
+      const data = await listQuoteHistory({ ...selection,side,deployment,deploymentIdentitySha256: deployment.deploymentIdentitySha256 },refresh);
+      const history = 'history' in data ? data.history : data;
+      const sourceSlot = Number(history.coverage.lastSourceSlot ?? 0);
+      if (!Number.isSafeInteger(sourceSlot)) throw new Error('Invalid quote-history source slot');
+      return { data,sourceSlot };
+    }));
+  } catch (error) { clearQuoteHistoryCache(); throw error; }
 }));
 
 router.get('/history/orders', asyncRoute(async (req,res) => {

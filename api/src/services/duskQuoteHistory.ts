@@ -2,7 +2,8 @@ import { PublicKey } from '@solana/web3.js';
 import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { canonicalJson, loadPinnedProtocol, sha256 } from '../config/duskProtocol';
-import { assertNoPriceConflict, StoredPriceCapture, verifyStoredPriceCapture } from './duskPrices';
+import { StoredPriceCapture, verifyStoredPriceCapture } from './duskPrices';
+import { QuoteCache } from './duskQuoteCache';
 import { HistoryDeploymentQuery, historyDeploymentIdentities } from './duskHistoryDeployment';
 
 export interface QuoteHistoryQuery extends HistoryDeploymentQuery {
@@ -39,44 +40,69 @@ type Bucket = {
   open_id: string; close_id: string; high_id: string; low_id: string;
 };
 
+const protocolIdentity = () => {
+  const pin = loadPinnedProtocol();
+  return [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
+};
+export async function quoteHistoryState(client: PoolClient,market: string) {
+  const state = await client.query<{ revision: string; conflicted: boolean }>(
+    `SELECT COALESCE((SELECT max(revision) FROM dusk_ingestion.quote_history_changes
+       WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND market=$5),0)::text AS revision,
+       conflicted FROM dusk_ingestion.quote_history_state
+     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4`,[...protocolIdentity(),market]);
+  if (state.rows[0]?.conflicted) throw Object.assign(new Error('FINALIZED_INVARIANT: contradictory finalized market price previews'),{ status:503 });
+  return state.rows[0]?.revision ?? '0';
+}
+const verifiedSources = new QuoteCache<ReturnType<typeof verifyStoredPriceCapture>>(4096,10*60_000);
+// Key all stored bytes and metadata, not merely the claimed content hash.
+// A forged materialized projection must still match the verified decoded quote.
+async function verifyWitness(row: StoredPriceCapture) {
+  const key = sha256(canonicalJson({ ...row,block_time:row.block_time.toISOString(),
+    observed_at:row.observed_at.toISOString(),raw_market:row.raw_market.toString('base64'),raw_preview:row.raw_preview.toString('base64') }));
+  return verifiedSources.get(key,async () => verifyStoredPriceCapture(row));
+}
+
 /** Sampled program spot quotes, not trades. Never fill gaps or infer prices from reserves. */
-export async function readQuoteHistory(client: PoolClient, query: QuoteHistoryQuery) {
+export async function readQuoteHistory(client: PoolClient, query: QuoteHistoryQuery, context?: { revision: string; deployments: string[] }) {
   const window = quoteHistorySelection(query),pin = loadPinnedProtocol();
   const identity = [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
-  await assertNoPriceConflict(client);
-  const deployments = await historyDeploymentIdentities(client,query);
-  const values = [...identity,deployments,query.market,window.since,window.until,pin.historyFirstSlot];
-  const selected = `FROM dusk_ingestion.price_capture_observations o
-    LEFT JOIN dusk_ingestion.market_quote_projections q USING(capture_id)
-    WHERE o.cluster=$1 AND o.program_id=$2 AND o.idl_hash=$3 AND o.protocol_revision=$4
-      AND o.deployment_identity_sha256=ANY($5::text[]) AND o.market=$6 AND o.block_time>=$7::timestamptz AND o.block_time<$8::timestamptz
-      AND o.slot>=$9`;
-  // The selection and its coverage share the caller's repeatable-read snapshot.
-  const coverageRead = await client.query(`SELECT count(*)::text AS captures,count(q.capture_id)::text AS projected,
-      min(o.slot)::text AS first_slot,max(o.slot)::text AS last_slot,
-      min(o.block_time) AS first_time,max(o.block_time) AS last_time,
-      COALESCE(max(o.capture_id),0)::text AS watermark,
-      count(DISTINCT (q.base_mint,q.quote_mint,q.base_decimals,q.quote_decimals)) FILTER(WHERE q.capture_id IS NOT NULL)::int AS bindings
-    ${selected}`,values);
-  const coverage = coverageRead.rows[0];
-  if (coverage.bindings>1) throw new Error('FINALIZED_INVARIANT: market quote bindings changed');
+  const revision = context?.revision ?? await quoteHistoryState(client,query.market);
+  const deployments = context?.deployments ?? await historyDeploymentIdentities(client,query);
+  const values = [...identity,deployments,query.market,window.since,window.until,pin.historyFirstSlot,query.resolutionSeconds];
   const column = query.side === 'base' ? 'base_spot_price_nad' : 'quote_spot_price_nad';
-  // Changing a USD reference can produce another capture of the same bank.
-  // Such a capture is one price sample, not an extra tick or a volume count.
-  const samplesCte = `WITH samples AS (
-    SELECT DISTINCT ON(o.slot) o.capture_id,o.slot,o.block_time,q.${column} AS price
-    ${selected} AND q.capture_id IS NOT NULL ORDER BY o.slot,o.capture_id
-  )`;
-  const counts = await client.query(`${samplesCte} SELECT count(*)::text AS samples,
-    count(*) FILTER(WHERE price=0)::text AS unavailable FROM samples`,values);
-  const buckets = await client.query<Bucket>(`${samplesCte}
-    SELECT (floor(extract(epoch FROM block_time)/$10::int)*$10::int)::bigint AS time,
+  // One bounded scan of the compact hypertable serves coverage, deduplication
+  // and OHLC selection. Binary evidence is fetched only for the chosen witnesses.
+  const selection = await client.query(`WITH selected AS MATERIALIZED (
+    SELECT *,time AS block_time,${column} AS price FROM dusk_ingestion.quote_series
+    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
+      AND deployment_identity_sha256=ANY($5::text[]) AND market=$6
+      AND time>=$7::timestamptz AND time<$8::timestamptz AND slot>=$9
+  ), coverage AS (
+    SELECT count(*)::text AS captures,count(base_mint)::text AS projected,
+      min(slot)::text AS first_slot,max(slot)::text AS last_slot,
+      min(block_time) AS first_time,max(block_time) AS last_time,
+      COALESCE(max(capture_id),0)::text AS watermark,
+      count(DISTINCT(base_mint,quote_mint,base_decimals,quote_decimals)) FILTER(WHERE base_mint IS NOT NULL)::int AS bindings
+    FROM selected
+  ), samples AS MATERIALIZED (
+    SELECT DISTINCT ON(slot) capture_id,slot,block_time,price FROM selected
+    WHERE base_mint IS NOT NULL ORDER BY slot,capture_id
+  ), counts AS (
+    SELECT count(*)::text AS samples,count(*) FILTER(WHERE price=0)::text AS unavailable FROM samples
+  ), buckets AS (
+    SELECT extract(epoch FROM dusk_ingestion.quote_bucket(block_time,$10::int))::bigint AS time,
       count(*)::text AS samples,min(slot)::text AS first_slot,max(slot)::text AS last_slot,
       (array_agg(capture_id ORDER BY block_time,slot))[1]::text AS open_id,
       (array_agg(capture_id ORDER BY block_time DESC,slot DESC))[1]::text AS close_id,
       (array_agg(capture_id ORDER BY price DESC,block_time,slot))[1]::text AS high_id,
       (array_agg(capture_id ORDER BY price,block_time,slot))[1]::text AS low_id
-    FROM samples WHERE price>0 GROUP BY 1 ORDER BY 1`,[...values,query.resolutionSeconds]);
+    FROM samples WHERE price>0 GROUP BY 1
+  ) SELECT row_to_json(coverage) AS coverage,row_to_json(counts) AS counts,
+      COALESCE((SELECT json_agg(buckets ORDER BY time) FROM buckets),'[]'::json) AS buckets
+    FROM coverage CROSS JOIN counts`,values);
+  const { coverage,counts } = selection.rows[0];
+  const buckets: { rows: Bucket[] } = { rows: selection.rows[0].buckets };
+  if (coverage.bindings>1) throw new Error('FINALIZED_INVARIANT: market quote bindings changed');
   // Return prices rebuilt from saved, hashed Borsh bytes. SQL selects the four
   // witnesses for each bar; the response never trusts a selected materialized
   // price without checking its source and market bindings.
@@ -88,7 +114,7 @@ export async function readQuoteHistory(client: PoolClient, query: QuoteHistoryQu
   const verified = new Map<string,{ nad: string; sourceHash: string; time: string; sourceSlot: string }>();
   let binding: { baseMint: string; quoteMint: string; baseDecimals: number; quoteDecimals: number } | null = null;
   for (const row of witnesses.rows) {
-    const { source,projected } = verifyStoredPriceCapture(row),bound = projected.bound;
+    const { source,projected } = await verifyWitness(row),bound = projected.bound;
     if (source.market !== query.market || !deployments.includes(source.deploymentIdentitySha256)
       || source.slot<pin.historyFirstSlot || source.blockTime<window.since || source.blockTime>=window.until
       || row.base_mint !== bound.baseMint || row.quote_mint !== bound.quoteMint
@@ -110,26 +136,64 @@ export async function readQuoteHistory(client: PoolClient, query: QuoteHistoryQu
     open: witness(row.open_id),high: witness(row.high_id),low: witness(row.low_id),close: witness(row.close_id) }));
   const pending = (BigInt(coverage.captures)-BigInt(coverage.projected)).toString();
   const data = {
-    schemaVersion: 'dusk-quote-history.v1',window,binding,candles,
+    schemaVersion: 'dusk-quote-history.v1',window,binding,candles,revision,
     coverage: { cluster: pin.cluster,programId: pin.dusk.programId,idlSha256: pin.dusk.idlCanonicalSha256,
       protocolRevision: pin.revision,deploymentIdentitySha256: query.deploymentIdentitySha256,commitment: 'finalized',
       basis: 'sampled-program-spot-quotes.v1',priceScale: 'decimal-normalized-nad',historyRangeComplete: false,
       tradeOhlcAvailable: false,gapsFilled: false,projectionComplete: pending==='0',
       captures: coverage.captures,projectedCaptures: coverage.projected,pendingCaptures: pending,
-      samples: counts.rows[0].samples,unavailableSamples: counts.rows[0].unavailable,watermark: coverage.watermark,
+      samples: counts.samples,unavailableSamples: counts.unavailable,watermark: coverage.watermark,
       firstSourceSlot: coverage.first_slot,lastSourceSlot: coverage.last_slot,
-      firstCaptureAt: coverage.first_time?.toISOString() ?? null,lastCaptureAt: coverage.last_time?.toISOString() ?? null },
+      firstCaptureAt: coverage.first_time ? new Date(coverage.first_time).toISOString() : null,lastCaptureAt: coverage.last_time ? new Date(coverage.last_time).toISOString() : null },
   };
   return { ...data,selectionHash: sha256(canonicalJson(data)) };
 }
 
-export async function listQuoteHistory(query: QuoteHistoryQuery) {
+type QuoteHistory = Awaited<ReturnType<typeof readQuoteHistory>>;
+const historyCache = new QuoteCache<QuoteHistory>(32,15_000);
+export function clearQuoteHistoryCache() { historyCache.clear(); verifiedSources.clear(); }
+
+export interface QuoteHistoryRefresh { afterRevision: string; afterUntil: string }
+export async function readQuoteHistoryRequest(client: PoolClient,query: QuoteHistoryQuery,refresh?: QuoteHistoryRefresh,useCache=false) {
+  const requested = quoteHistorySelection(query);
+  if (refresh && (!/^(0|[1-9]\d{0,18})$/.test(refresh.afterRevision)
+    || !Number.isFinite(Date.parse(refresh.afterUntil)) || Date.parse(refresh.afterUntil)<=Date.parse(requested.since)
+    || Date.parse(refresh.afterUntil)>Date.parse(requested.until))) invalid();
+  {
+    const revision = await quoteHistoryState(client,query.market);
+    const deployments = await historyDeploymentIdentities(client,query);
+    let since = requested.since;
+    if (refresh) {
+      if (BigInt(refresh.afterRevision)>BigInt(revision)) throw Object.assign(new Error('Quote history revision regressed'),{ status:409 });
+      const changes = await client.query<{ earliest: Date | null }>(`
+        SELECT min(minute) AS earliest FROM dusk_ingestion.quote_history_changes
+        WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
+          AND market=$5 AND revision>$6 AND minute<$8::timestamptz
+          AND minute+interval '1 minute'>$7::timestamptz`,
+        [...protocolIdentity(),query.market,refresh.afterRevision,requested.since,requested.until]);
+      // Always include the previously partial last bucket. This covers samples
+      // already ingested beyond the previous exclusive `until`, even with no
+      // revision change. Late backfills widen this suffix to their oldest bucket.
+      const earliest = Math.min(Date.parse(refresh.afterUntil)-1,changes.rows[0].earliest?.getTime() ?? Infinity);
+      since = new Date(Math.max(Date.parse(requested.since),
+        Math.floor(earliest/1000/query.resolutionSeconds)*query.resolutionSeconds*1000)).toISOString();
+    }
+    const selection = { ...query,since };
+    const key = canonicalJson([query.deploymentIdentitySha256,deployments.slice().sort(),revision,quoteHistorySelection(selection)]);
+    const load = () => readQuoteHistory(client,selection,{ revision,deployments });
+    const data = useCache ? await historyCache.get(key,load) : await load();
+    return refresh ? { schemaVersion:'dusk-quote-history-update.v1',request:requested,
+      afterRevision:refresh.afterRevision,afterUntil:new Date(refresh.afterUntil).toISOString(),revision,history:data } : data;
+  }
+}
+
+export async function listQuoteHistory(query: QuoteHistoryQuery,refresh?: QuoteHistoryRefresh) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-    const data = await readQuoteHistory(client,query);
+    const data = await readQuoteHistoryRequest(client,query,refresh,true);
     await client.query('COMMIT');
     return data;
-  } catch (error) { await client.query('ROLLBACK'); throw error; }
+  } catch (error) { clearQuoteHistoryCache(); await client.query('ROLLBACK'); throw error; }
   finally { client.release(); }
 }
