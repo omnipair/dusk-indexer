@@ -42,3 +42,27 @@ measurements after deployment are recorded separately.
   banks, both quote directions, same-bank deduplication, replay and historical
   deployment boundaries.
 - No migration, worker reconfiguration or signed transaction is required.
+
+## Deployed verification
+
+Commit `13f44252b2b6a1976829309982615812697ac135` is deployed to the `dusk-api`
+service in Railway project `dusk-devnet` (deployment
+`4204da3c-bb38-4c96-8372-a32f17e5e164`). Railway calls this devnet project's
+environment `production`; both `DUSK_CLUSTER` and the live deployment envelope
+confirm devnet, with genesis `EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG`.
+The live envelope reported the new build revision at 2026-09-16T10:31:13Z.
+
+`deployed-app-read.jsonl` runs the webapp's actual history adapter and strict
+SDK/RPC read boundary from the developer machine against the public API:
+
+| Read | History HTTP | Full chart read | Candles |
+| --- | ---: | ---: | ---: |
+| 1 | 0.510s | 1.855s | 206 |
+| 2 | 1.101s | 2.548s | 207 |
+| 3 | 1.073s | 2.467s | 207 |
+
+Before this fix, the same three-day query took 4.3–10.8s at the HTTP boundary
+and 5.9–12.3s through the app adapter. These are observed samples, not a latency
+SLA; cold program attestation and RPC/network delays can still add latency.
+No protocol or keeper deployment changed. PR #9 retains the API fix for merging
+into main; the devnet service was deployed from the reviewed feature commit.
