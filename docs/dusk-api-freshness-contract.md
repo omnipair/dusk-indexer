@@ -9,7 +9,7 @@ Every request is evaluated against one exact identity:
 
 ```json
 {
-  "cluster": "surfpool-mainnet-fork",
+  "cluster": "devnet",
   "program_id": "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv",
   "idl_hash": "5e67579b6dbec5620a5578844cd56c44458a3167095d8db2e85fd76643d5473f",
   "protocol_revision": "local-snapshot-0"
@@ -37,7 +37,7 @@ Response headers mirror the envelope:
 {
   "meta": {
     "identity": {
-      "cluster": "surfpool-mainnet-fork",
+      "cluster": "devnet",
       "program_id": "358bjJKXWxeAXAzteX1xTgyd9JNnjtzW8fnwCS8Da1mv",
       "idl_hash": "5e67579b6dbec5620a5578844cd56c44458a3167095d8db2e85fd76643d5473f",
       "protocol_revision": "local-snapshot-0"

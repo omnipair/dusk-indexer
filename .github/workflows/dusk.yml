@@ -1,0 +1,86 @@
+name: Dusk native integration
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: dusk-native-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: dusk_test
+          POSTGRES_DB: dusk_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U dusk_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://dusk_test@localhost:5432/dusk_test?sslmode=disable
+      DUSK_ALLOW_DISPOSABLE_DB_TESTS: 'true'
+      RUSTUP_TOOLCHAIN: nightly-2025-09-28
+      DUSK_CLUSTER: devnet
+      DUSK_RPC_URL: https://api.devnet.solana.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+      - run: rustup toolchain install nightly-2025-09-28 --profile minimal --component rustfmt --component clippy
+      - run: cargo fmt -p dusk-indexer-foundation -p dusk-indexer-daemon --check
+      - run: cargo clippy --locked -p dusk-indexer-foundation -p dusk-indexer-daemon --all-targets -- -D warnings
+      - run: cargo test --locked -p dusk-indexer-foundation -p dusk-indexer-daemon
+      - name: Apply and verify the canonical migration manifest
+        run: |
+          DUSK_MIGRATE_ONLY=true bash scripts/dusk-indexer-entrypoint.sh
+          DUSK_MIGRATE_ONLY=true bash scripts/dusk-indexer-entrypoint.sh
+          psql "$DATABASE_URL" -X -f database/tests/native-account-projections.sql
+          psql "$DATABASE_URL" -X -f database/tests/lp-ownership.sql
+      - run: npm ci
+        working-directory: api
+      - run: npm run test:unit
+        working-directory: api
+      - name: Rollback-only database integration
+        working-directory: api
+        run: |
+          tests=()
+          for test in dist/tests/*.integration.js; do
+            if [[ "$test" != "dist/tests/duskNative.integration.js" ]]; then
+              tests+=("$test")
+            fi
+          done
+          node --test "${tests[@]}"
+      - name: Capture the attested devnet discovery fixtures
+        env:
+          DUSK_RPC_URL: ${{ secrets.DUSK_DEVNET_RPC_URL }}
+        run: |
+          if [ -z "$DUSK_RPC_URL" ]; then
+            echo 'DUSK_DEVNET_RPC_URL must provide devnet RPC with Token-2022 getProgramAccounts support.' >&2
+            exit 1
+          fi
+          cargo run --locked -p dusk-indexer-daemon -- --scan-accounts-once
+          node api/dist/scripts/duskLpOwnershipWorker.js --once
+      - name: Native database integration
+        working-directory: api
+        run: node --test dist/tests/duskNative.integration.js
+  containers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --file Dockerfile.dusk-indexer --tag dusk-indexer:test .
+      - run: docker build --file Dockerfile.dusk-api --tag dusk-api:test .
+      - name: Verify pinned artifacts and migrations in the actual images
+        run: |
+          docker run --rm --network none --entrypoint sh dusk-indexer:test -c 'while read name; do if ! test -f "/app/migrations/$name"; then echo "Missing packaged migration: $name" >&2; exit 1; fi; done < /app/dusk-migrations.txt'
+          docker run --rm --network none --entrypoint node dusk-api:test -e 'const pin=require("./dist/config/duskProtocol").loadPinnedProtocol(); if(pin.cluster!=="devnet")process.exit(1); console.log(pin.revision)'

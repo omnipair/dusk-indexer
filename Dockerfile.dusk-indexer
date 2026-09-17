@@ -24,7 +24,7 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 COPY . .
-RUN cargo build --release -p dusk-indexer-daemon
+RUN cargo build --locked --release -p dusk-indexer-daemon
 
 FROM debian:bookworm-slim
 
@@ -35,12 +35,8 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 COPY --from=builder /app/target/release/dusk-indexer-daemon /usr/local/bin/dusk-indexer-daemon
-COPY database/migrations/018_dusk_ingestion_foundation.sql /app/migrations/018_dusk_ingestion_foundation.sql
-COPY database/migrations/019_dusk_event_stream.sql /app/migrations/019_dusk_event_stream.sql
-COPY database/migrations/020_dusk_v1_compatibility.sql /app/migrations/020_dusk_v1_compatibility.sql
-COPY database/migrations/021_dusk_valuation_and_positions.sql /app/migrations/021_dusk_valuation_and_positions.sql
-COPY database/migrations/022_dusk_retention.sql /app/migrations/022_dusk_retention.sql
-COPY database/migrations/023_dusk_swap_notify_trigger.sql /app/migrations/023_dusk_swap_notify_trigger.sql
+COPY database/migrations/ /app/migrations/
+COPY database/dusk-migrations.txt /app/dusk-migrations.txt
 COPY scripts/dusk-indexer-entrypoint.sh /usr/local/bin/dusk-indexer-entrypoint.sh
 RUN chmod +x /usr/local/bin/dusk-indexer-entrypoint.sh
 

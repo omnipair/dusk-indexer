@@ -1,9 +1,9 @@
 use {
     super::{
-        projections::build_product_projections, AccountProjections, DecoderError, PinnedIdlDecoder,
-        PinnedProgram,
+        AccountProjections, DecoderError, PinnedIdlDecoder, PinnedProgram,
+        projections::build_product_projections,
     },
-    crate::{sha256_hex, Commitment, ProtocolIdentity},
+    crate::{Commitment, ProtocolIdentity, sha256_hex},
     serde::{Deserialize, Serialize},
     serde_json::Value,
     solana_pubkey::Pubkey,

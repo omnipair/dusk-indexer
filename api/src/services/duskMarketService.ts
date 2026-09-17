@@ -1,11 +1,8 @@
 /**
  * Market state, read from chain through the pinned IDL.
  *
- * Markets are discovered rather than declared: the fork lab knew its two
- * bootstrapped markets from a manifest it wrote itself, but a real cluster has
- * whatever markets people created, so this enumerates the program's Market
- * accounts and derives every associated address from the account and its
- * mints.
+ * Markets are discovered from the configured devnet program. Each market
+ * carries its own mints, decimals and associated account addresses.
  *
  * Health values (effective debt, debt health) are not stored on the account —
  * they come from simulating the program's `preview_market` instruction, which
@@ -14,22 +11,23 @@
 
 import * as anchor from '@coral-xyz/anchor';
 import {
-  ComputeBudgetProgram,
   Connection,
   PublicKey,
-  TransactionMessage,
-  VersionedTransaction,
 } from '@solana/web3.js';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
-import pool from '../config/database';
+import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, unpackMint } from '@solana/spl-token';
 import {
   DUSK_DEPLOYMENT_COMMITMENT,
-  duskApiConfig,
+  duskApiConfig, loadPinnedProtocol,
 } from '../config/duskProtocol';
 import { deploymentEnvelope } from './duskDeploymentService';
 import { cache } from '../utils/cache';
+import { captureLiveMarketSimulation, duskRawIdl, LiveMarketSimulationSnapshot } from './duskMarketSimulation';
+import { indexedPortfolioDebt } from './duskPortfolioMath';
+import { parsePriceReferences, projectMarketPrices } from './duskPriceMath';
+import { leverageCollateralAddress, snapshotCollateralAmount, snapshotTokenMetadata, tokenMetadataAddress } from './duskMarketExtras';
 
 const NAD = 1_000_000_000n;
 
@@ -111,95 +109,22 @@ function initializeRuntime(): Runtime {
   return runtime;
 }
 
-/**
- * Simulation needs a fee payer that exists on chain but never signs. The
- * program's upgrade authority is guaranteed to exist for an upgradeable
- * deployment; an immutable program needs DUSK_PREVIEW_PAYER set explicitly.
- */
-async function resolvePreviewPayer(): Promise<PublicKey> {
-  const configured = process.env.DUSK_PREVIEW_PAYER?.trim();
-  if (configured) return new PublicKey(configured);
-  const envelope = await deploymentEnvelope();
-  if (!envelope.programUpgradeAuthority) {
-    throw new Error(
-      'DUSK_PREVIEW_PAYER must be set: the program is immutable, so it has no upgrade authority to borrow as a simulation fee payer',
-    );
-  }
-  return new PublicKey(envelope.programUpgradeAuthority);
-}
-
-/**
- * Live market health, per market, cached briefly.
- *
- * This is the expensive call in the whole API: a `preview_market` simulation
- * against the cluster, five RPC round trips deep once the blockhash and payer
- * are counted. Keyed per market and cached for five seconds, mirroring the
- * `pair_state_<address>` layer omnipair settled on — short enough that a trade
- * shows up promptly, long enough that a page load costs one simulation rather
- * than one per market per request. `getOrSet` also coalesces concurrent
- * callers, so a burst of requests shares a single simulation.
- */
-async function currentMarketHealth(market: PublicKey) {
-  return cache.getOrSet(`dusk:market_health:${market.toBase58()}`, 5_000, () =>
-    uncachedMarketHealth(market),
-  );
-}
-
-async function uncachedMarketHealth(market: PublicKey) {
-  const { connection, program } = initializeRuntime();
-  const previewPayer = await resolvePreviewPayer();
-  const instruction = await program.methods
-    .previewMarket()
-    .accounts({ market })
-    .instruction();
-  // A blockhash we fetch ourselves can be unknown to whichever node runs the
-  // simulation -- a public endpoint is many machines behind one address --
-  // and the simulation then fails with BlockhashNotFound rather than telling
-  // us anything about the market. Roughly a quarter of calls failed that way,
-  // which reads as an outage on the market page. `replaceRecentBlockhash`
-  // makes the node substitute its own, so the class cannot occur; a
-  // placeholder is supplied only because the message requires one.
-  const message = new TransactionMessage({
-    payerKey: previewPayer,
-    recentBlockhash: PublicKey.default.toBase58(),
-    instructions: [
-      ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }),
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
-      instruction,
-    ],
-  }).compileToV0Message();
-
-  const simulation = await connection.simulateTransaction(
-    new VersionedTransaction(message),
-    {
-      commitment: DUSK_DEPLOYMENT_COMMITMENT,
-      replaceRecentBlockhash: true,
-      sigVerify: false,
-    },
-  );
-  if (simulation.value.err) {
-    throw new Error(
-      `preview_market simulation failed: ${JSON.stringify(simulation.value.err)}`,
-    );
-  }
-  const returnData = simulation.value.returnData;
-  if (!returnData || returnData.programId !== program.programId.toBase58()) {
-    throw new Error('preview_market simulation returned no Dusk data');
-  }
-  const preview = program.coder.types.decode(
-    'marketPreview',
-    Buffer.from(returnData.data[0], returnData.data[1] as BufferEncoding),
-  );
-  return {
-    health: field<Record<string, unknown>>(preview, 'health'),
-    // The per-side preview carries the live borrow APR, utilization and EMA
-    // price. Those exist nowhere on the account -- the program derives them
-    // -- so discarding them here is why the borrow surface had no rate to
-    // show and had to report 0%.
-    base: field<Record<string, unknown>>(preview, 'base'),
-    quote: field<Record<string, unknown>>(preview, 'quote'),
-    sourceSlot: simulation.context.slot,
-  };
+/** Cached complete snapshots may only satisfy reads at or after their floor. */
+export async function currentMarketSnapshot(market: PublicKey, discovery: unknown, minSlot: number, identity: string,
+  capture: typeof captureLiveMarketSimulation = captureLiveMarketSimulation): Promise<LiveMarketSimulationSnapshot> {
+  const key = `dusk:market_snapshot:${identity}:${market.toBase58()}`;
+  const previous = cache.get(key) as LiveMarketSimulationSnapshot | null;
+  if (previous && previous.slot>=minSlot) return previous;
+  const mints = ['base','quote'].map((side) => stringValue(field(field(discovery,`${side}Side`,`${side}_side`),'assetMint','asset_mint')));
+  const collateral = ['base','quote'].map((side) => stringValue(field(field(discovery,`${side}Side`,`${side}_side`),'collateralVault','collateral_vault')));
+  const reserves = ['base','quote'].map((side) => stringValue(field(field(discovery,`${side}Side`,`${side}_side`),'reserveVault','reserve_vault')));
+  const extras = [...mints,...collateral,...reserves,...mints.map((mint) => leverageCollateralAddress(market.toBase58(),mint)),...mints.map(tokenMetadataAddress)];
+  const snapshot = await cache.getOrSet(`${key}:floor:${minSlot}`,0,() => capture(market.toBase58(),minSlot,extras));
+  if (snapshot.commitment !== 'confirmed' || snapshot.slot<minSlot || snapshot.market !== market.toBase58()
+    || snapshot.deploymentIdentitySha256 !== identity) throw new Error('Live market snapshot identity or slot mismatch');
+  const current = cache.get(key) as LiveMarketSimulationSnapshot | null;
+  if (!current || current.slot<snapshot.slot) cache.set(key,snapshot,5000);
+  return snapshot;
 }
 
 function marketConfigPayload(marketAccount: unknown): Record<string, unknown> {
@@ -331,12 +256,12 @@ function pda(seeds: (Buffer | Uint8Array)[], programId: PublicKey): string {
  * insurance and HLP/YLP vaults, whose seeds come from the IDL. The token
  * programs are the mints' owners, which is the one thing that has to be read.
  */
-async function associatedAddresses(
+function associatedAddresses(
   market: PublicKey,
   marketAccount: unknown,
-): Promise<DuskMarketAssociatedAddresses> {
-  const { connection, program } = initializeRuntime();
-  const programId = program.programId;
+  snapshot: LiveMarketSimulationSnapshot,
+): DuskMarketAssociatedAddresses {
+  const programId = new PublicKey(loadPinnedProtocol().dusk.programId);
   const baseSide = field<Record<string, unknown>>(marketAccount, 'baseSide', 'base_side');
   const quoteSide = field<Record<string, unknown>>(marketAccount, 'quoteSide', 'quote_side');
 
@@ -346,23 +271,18 @@ async function associatedAddresses(
   const quoteHlpMint = stringValue(field(quoteSide, 'hlpMint', 'hlp_mint'));
   const ylpMint = stringValue(field(marketAccount, 'ylpMint', 'ylp_mint'));
 
-  const [baseMintInfo, quoteMintInfo] = await connection.getMultipleAccountsInfo(
-    [baseMint, quoteMint],
-    DUSK_DEPLOYMENT_COMMITMENT,
-  );
-  if (!baseMintInfo || !quoteMintInfo) {
-    throw new Error(`market ${market.toBase58()} references a missing mint`);
-  }
-
-  const baseDecimals = numberValue(field(baseSide, 'assetDecimals', 'asset_decimals'));
-  const quoteDecimals = numberValue(field(quoteSide, 'assetDecimals', 'asset_decimals'));
-  // Decimals are needed to turn raw reserves into value, and the mint accounts
-  // are the only place they live. This is the one point where the API already
-  // has them, so it records them for the valuation views.
-  void recordTokenMetadata([
-    { mint: baseMint.toBase58(), decimals: baseDecimals, tokenProgram: baseMintInfo.owner.toBase58() },
-    { mint: quoteMint.toBase58(), decimals: quoteDecimals, tokenProgram: quoteMintInfo.owner.toBase58() },
-  ]);
+  const readMint = (mint: PublicKey,decimals: number) => {
+    const account = snapshot.accounts.find((entry) => entry.address === mint.toBase58())?.account;
+    if (!account || account.executable) throw new Error('Market snapshot omits a mint');
+    const owner = new PublicKey(account.owner);
+    if (!owner.equals(TOKEN_PROGRAM_ID) && !owner.equals(TOKEN_2022_PROGRAM_ID)) throw new Error('Market mint has an invalid token program');
+    const decoded = unpackMint(mint,{ owner,executable: false,data: Buffer.from(account.data,'base64'),lamports: 0 },owner);
+    if (!decoded.isInitialized || decoded.decimals !== decimals) throw new Error('Market mint decimals or initialization mismatch');
+    return { owner };
+  };
+  const baseDecimals = numberValue(field(baseSide,'assetDecimals','asset_decimals'));
+  const quoteDecimals = numberValue(field(quoteSide,'assetDecimals','asset_decimals'));
+  const baseMintInfo = readMint(baseMint,baseDecimals),quoteMintInfo = readMint(quoteMint,quoteDecimals);
 
   const marketBytes = market.toBuffer();
   const seed = (text: string) => Buffer.from(text, 'utf8');
@@ -404,27 +324,28 @@ export async function marketPayload(
   market: PublicKey,
   marketAccount: unknown,
   sourceSlot: number,
+  deploymentIdentity?: string,
 ): Promise<Record<string, unknown>> {
-  const { connection } = initializeRuntime();
-  const healthObservation = await currentMarketHealth(market);
-  const health = healthObservation.health;
+  const identity = deploymentIdentity ?? (await deploymentEnvelope()).deploymentIdentitySha256;
+  const snapshot = await currentMarketSnapshot(market,marketAccount,sourceSlot,identity);
+  return projectMarketSnapshot(snapshot);
+}
 
-  // A slot's block time never changes once it exists, so this is cached for
-  // an hour rather than seconds. Two round trips per market per request
-  // otherwise, for a value that is immutable by construction.
-  const blockTime = (slot: number) =>
-    cache.getOrSet(`dusk:block_time:${slot}`, 60 * 60 * 1000, async () =>
-      connection.getBlockTime(slot).catch(() => null),
-    );
-  const [sourceBlockTime, healthBlockTime] = await Promise.all([
-    blockTime(sourceSlot),
-    blockTime(healthObservation.sourceSlot),
-  ]);
-  const iso = (seconds: number | null) =>
-    seconds === null ? null : new Date(seconds * 1_000).toISOString();
-
+/** One bank supplies the updated market, its preview, and both mint accounts. */
+export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, referencesInput?: unknown): Record<string, unknown> {
+  const market = new PublicKey(snapshot.market),sourceSlot = snapshot.slot,decoder = new anchor.BorshCoder(duskRawIdl());
+  const marketAccount = decoder.accounts.decode('Market',Buffer.from(snapshot.marketAccount.data,'base64'));
+  const preview = snapshot.preview === null ? null : decoder.types.decode('MarketPreview',Buffer.from(snapshot.preview,'base64'));
+  const health = field(preview,'health');
+  const healthValue = (camel: string,snake: string) => preview === null ? null : stringValue(field(health,camel,snake));
+  const previewValue = (side: 'base' | 'quote',camel: string,snake: string) => preview === null ? null : stringValue(field(field(preview,side),camel,snake));
   const config = marketConfigPayload(marketAccount);
-  const addresses = await associatedAddresses(market, marketAccount);
+  const addresses = associatedAddresses(market,marketAccount,snapshot);
+  const pin = loadPinnedProtocol();
+  const references = parsePriceReferences(referencesInput ?? JSON.parse(readFileSync(process.env.DUSK_PRICE_REFERENCES_FILE?.trim()
+    || resolve(process.env.DUSK_PROTOCOL_DIR?.trim() || resolve(__dirname,'../../../protocol'),'devnet-price-references.json'),'utf8')),pin);
+  const priceProjection = preview === null ? null : projectMarketPrices({ pin,marketAddress: snapshot.market,market: marketAccount,
+    preview,slot: sourceSlot,blockTime: snapshot.blockTime,references });
 
   const baseSide = field<Record<string, unknown>>(marketAccount, 'baseSide', 'base_side');
   const quoteSide = field<Record<string, unknown>>(marketAccount, 'quoteSide', 'quote_side');
@@ -436,6 +357,15 @@ export async function marketPayload(
   const quoteBucket = field(quoteSide, 'dailyBorrowBucket', 'daily_borrow_bucket');
   const debt = field(marketAccount, 'debt');
   const insurance = field(marketAccount, 'insurance');
+  const insuranceWindow = (side: 'base' | 'quote') => {
+    const window = field(insurance, `${side}DrawWindow`, `${side}_draw_window`);
+    return {
+      startSlot: stringValue(field(window, 'startSlot', 'start_slot')),
+      openingAvailable: stringValue(field(window, 'openingAvailable', 'opening_available')),
+      credited: stringValue(field(window, 'credited')),
+      drawn: stringValue(field(window, 'drawn')),
+    };
+  };
 
   const fixedBaseShares = toBigInt(field(debt, 'fixedBaseShares', 'fixed_base_shares'));
   const fixedQuoteShares = toBigInt(field(debt, 'fixedQuoteShares', 'fixed_quote_shares'));
@@ -451,9 +381,24 @@ export async function marketPayload(
     marketKind: marketKindFromConfig(config),
     marketAddress: market.toBase58(),
     ...addresses,
+    tokenMetadata: { schemaVersion: 'dusk-token-labels.v1',sourceSlot,
+      base: snapshotTokenMetadata(snapshot,addresses.baseMint),quote: snapshotTokenMetadata(snapshot,addresses.quoteMint) },
+    deposits: { schemaVersion: 'dusk-market-deposits.v1',sourceSlot,basis: 'reserve-and-collateral-custody.v1',
+      baseReserveAmount: snapshotCollateralAmount(snapshot,addresses.baseReserveVault,addresses.baseMint,addresses.baseTokenProgram),
+      quoteReserveAmount: snapshotCollateralAmount(snapshot,addresses.quoteReserveVault,addresses.quoteMint,addresses.quoteTokenProgram),
+      baseCollateralAmount: snapshotCollateralAmount(snapshot,addresses.baseCollateralVault,addresses.baseMint,addresses.baseTokenProgram),
+      quoteCollateralAmount: snapshotCollateralAmount(snapshot,addresses.quoteCollateralVault,addresses.quoteMint,addresses.quoteTokenProgram),
+      baseLeverageAmount: snapshotCollateralAmount(snapshot,leverageCollateralAddress(snapshot.market,addresses.baseMint),addresses.baseMint,addresses.baseTokenProgram,true),
+      quoteLeverageAmount: snapshotCollateralAmount(snapshot,leverageCollateralAddress(snapshot.market,addresses.quoteMint),addresses.quoteMint,addresses.quoteTokenProgram,true) },
     targetHlpLeverageBps: config.targetHlpLeverageBps,
     swapFeeBps: config.swapFeeBps,
     config,
+    insurance: {
+      perEventDrawBps: numberValue(field(insurance, 'perEventDrawBps', 'per_event_draw_bps')),
+      perDayDrawBps: numberValue(field(insurance, 'perDayDrawBps', 'per_day_draw_bps')),
+      baseWindow: insuranceWindow('base'),
+      quoteWindow: insuranceWindow('quote'),
+    },
     governanceLockedYlp: stringValue(
       field(marketAccount, 'governanceLockedYlp', 'governance_locked_ylp'),
     ),
@@ -470,9 +415,12 @@ export async function marketPayload(
     createdSlot: null,
     createdAt: null,
     updatedAt: null,
-    observedAt: iso(sourceBlockTime),
+    observedAt: snapshot.blockTime,
     swapCount: 0,
     lastSwapAt: null,
+    displayPrices: { schemaVersion: 'dusk-market-prices.v1',protocolRevision: pin.revision,sourceSlot,
+      observedAt: snapshot.blockTime,referenceEffectiveFrom: references.effectiveFrom,
+      referenceHash: priceProjection?.referenceHash ?? null,prices: priceProjection?.prices ?? [] },
     state: {
       baseLiveReserve: stringValue(field(baseReserves, 'liveReserve', 'live_reserve')),
       quoteLiveReserve: stringValue(field(quoteReserves, 'liveReserve', 'live_reserve')),
@@ -486,8 +434,8 @@ export async function marketPayload(
       ),
       fixedBaseShares: fixedBaseShares.toString(),
       fixedQuoteShares: fixedQuoteShares.toString(),
-      fixedBaseDebt: ((fixedBaseShares * baseBorrowIndexNad) / NAD).toString(),
-      fixedQuoteDebt: ((fixedQuoteShares * quoteBorrowIndexNad) / NAD).toString(),
+      fixedBaseDebt: indexedPortfolioDebt(fixedBaseShares,baseBorrowIndexNad).toString(),
+      fixedQuoteDebt: indexedPortfolioDebt(fixedQuoteShares,quoteBorrowIndexNad).toString(),
       fixedBasePrincipal: stringValue(field(debt, 'fixedBasePrincipal', 'fixed_base_principal')),
       fixedQuotePrincipal: stringValue(field(debt, 'fixedQuotePrincipal', 'fixed_quote_principal')),
       baseBorrowIndexNad: baseBorrowIndexNad.toString(),
@@ -580,72 +528,33 @@ export async function marketPayload(
           'global_health_quote_contribution_for_base_debt',
         ),
       ),
-      effectiveBaseDebtNad: stringValue(
-        field(health, 'effectiveBaseDebtNad', 'effective_base_debt_nad'),
-      ),
-      effectiveQuoteDebtNad: stringValue(
-        field(health, 'effectiveQuoteDebtNad', 'effective_quote_debt_nad'),
-      ),
-      baseDebtHealthBps: stringValue(
-        field(health, 'baseDebtHealthBps', 'base_debt_health_bps'),
-      ),
-      quoteDebtHealthBps: stringValue(
-        field(health, 'quoteDebtHealthBps', 'quote_debt_health_bps'),
-      ),
-      baseBorrowAprNad: stringValue(
-        field(healthObservation.base, 'borrowAprNad', 'borrow_apr_nad'),
-      ),
-      quoteBorrowAprNad: stringValue(
-        field(healthObservation.quote, 'borrowAprNad', 'borrow_apr_nad'),
-      ),
-      baseUtilizationBps: stringValue(
-        field(healthObservation.base, 'utilizationBps', 'utilization_bps'),
-      ),
-      quoteUtilizationBps: stringValue(
-        field(healthObservation.quote, 'utilizationBps', 'utilization_bps'),
-      ),
-      basePriceEmaNad: stringValue(
-        field(healthObservation.base, 'priceEmaNad', 'price_ema_nad'),
-      ),
-      quotePriceEmaNad: stringValue(
-        field(healthObservation.quote, 'priceEmaNad', 'price_ema_nad'),
-      ),
-      healthSourceSlot: healthObservation.sourceSlot,
-      healthObservedAt: iso(healthBlockTime),
+      effectiveBaseDebtNad: healthValue('effectiveBaseDebtNad','effective_base_debt_nad'),
+      effectiveQuoteDebtNad: healthValue('effectiveQuoteDebtNad','effective_quote_debt_nad'),
+      baseDebtHealthBps: healthValue('baseDebtHealthBps','base_debt_health_bps'),
+      quoteDebtHealthBps: healthValue('quoteDebtHealthBps','quote_debt_health_bps'),
+      baseBorrowAprNad: previewValue('base','borrowAprNad','borrow_apr_nad'),
+      quoteBorrowAprNad: previewValue('quote','borrowAprNad','borrow_apr_nad'),
+      baseUtilizationBps: previewValue('base','utilizationBps','utilization_bps'),
+      quoteUtilizationBps: previewValue('quote','utilizationBps','utilization_bps'),
+      basePriceEmaNad: previewValue('base','priceEmaNad','price_ema_nad'),
+      quotePriceEmaNad: previewValue('quote','priceEmaNad','price_ema_nad'),
+      baseSpotPriceNad: previewValue('base','spotPriceNad','spot_price_nad'),
+      quoteSpotPriceNad: previewValue('quote','spotPriceNad','spot_price_nad'),
+      baseTotalDebt: previewValue('base','totalDebt','total_debt'),
+      quoteTotalDebt: previewValue('quote','totalDebt','total_debt'),
+      baseIsolatedDebt: previewValue('base','isolatedDebt','isolated_debt'),
+      quoteIsolatedDebt: previewValue('quote','isolatedDebt','isolated_debt'),
+      baseHlpFundingDebt: previewValue('base','hlpFundingDebt','hlp_funding_debt'),
+      quoteHlpFundingDebt: previewValue('quote','hlpFundingDebt','hlp_funding_debt'),
+      stateBasis: snapshot.basis,
+      previewStatus: preview === null ? 'unavailable' : 'available',
+      healthSourceSlot: preview === null ? null : sourceSlot,
+      healthObservedAt: preview === null ? null : snapshot.blockTime,
       sourceTxSig: null,
       sourceSlot,
-      observedAt: iso(sourceBlockTime),
+      observedAt: snapshot.blockTime,
     },
   };
-}
-
-/**
- * Persist mint decimals for the valuation views. Best effort on purpose: a
- * market read must not fail because a bookkeeping write did, and the views
- * degrade to no prices rather than wrong ones when a mint is missing.
- */
-async function recordTokenMetadata(
-  tokens: { mint: string; decimals: number; tokenProgram: string }[],
-): Promise<void> {
-  try {
-    for (const token of tokens) {
-      if (!Number.isInteger(token.decimals) || token.decimals < 0) continue;
-      await pool.query(
-        `INSERT INTO dusk_ingestion.token_metadata (mint, decimals, token_program)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (mint) DO UPDATE
-           SET decimals = EXCLUDED.decimals,
-               token_program = EXCLUDED.token_program,
-               updated_at = now()`,
-        [token.mint, token.decimals, token.tokenProgram],
-      );
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!/does not exist/i.test(message)) {
-      console.warn(`Recording token metadata failed: ${message}`);
-    }
-  }
 }
 
 export interface DiscoveredMarket {
@@ -659,26 +568,17 @@ export async function discoverMarkets(): Promise<{
   sourceSlot: number;
 }> {
   const { connection, program } = initializeRuntime();
-  const slot = await connection.getSlot(DUSK_DEPLOYMENT_COMMITMENT);
-  // The IDL is loaded at runtime, so Anchor's account namespace is untyped
-  // here; the decoded shape is validated by the read boundary downstream.
-  const namespace = program.account as unknown as Record<
-    string,
-    {
-      all(): Promise<{ publicKey: PublicKey; account: unknown }[]>;
-      fetchAndContext(
-        address: PublicKey,
-        commitment: string,
-      ): Promise<{ data: unknown; context: { slot: number } }>;
-    }
-  >;
-  const accounts = await namespace.market.all();
+  const observation = await connection.getProgramAccounts(program.programId, {
+    commitment: DUSK_DEPLOYMENT_COMMITMENT,
+    withContext: true,
+    filters: [{ memcmp: program.coder.accounts.memcmp('market') }],
+  });
   return {
-    markets: accounts.map((entry) => ({
-      address: entry.publicKey,
-      account: entry.account,
-    })),
-    sourceSlot: slot,
+    markets: observation.value.map((entry) => {
+      if (!entry.account.owner.equals(program.programId)) throw new Error('Market account owner mismatch');
+      return { address: entry.pubkey, account: program.coder.accounts.decode('market', entry.account.data) };
+    }),
+    sourceSlot: observation.context.slot,
   };
 }
 
