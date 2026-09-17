@@ -1,15 +1,15 @@
 {
   "$schema": "./protocol/schemas/protocol-lock.schema.json",
   "schemaVersion": 1,
-  "revision": "devnet-2026-09-18-1fa72d3",
+  "revision": "devnet-2026-09-13-9973dea",
   "status": "deployed",
-  "generatedAt": "2026-09-17T17:53:25.690Z",
+  "generatedAt": "2026-09-13T17:53:36.038668+00:00",
   "source": {
     "repository": "https://github.com/omnipair/dusk",
     "branch": "main",
-    "gitCommit": "1fa72d35973efedd47a157775cdd0d1ef3ae90d9",
-    "worktreeFingerprintSha256": "b97c5e66b9d0bcb0c927738ba16f7a9bd5ff011b70f6072aafbcfe8be90bbf0f",
-    "note": "Merged PR #30 adds the existing-position capacity preview. Finalized read-back verifies Dusk; the unchanged delegate keeps its existing deployment. Public release evidence is in docs/evidence/devnet-1fa72d3/. Historical observations retain their original identities."
+    "gitCommit": "9973deaf871e6616ffc613120f6d307c08ab8af5",
+    "worktreeFingerprintSha256": "af846de17c1f070b5f443a94a74ef83c6bac0f5c07082c7fe393e50b4ae14fac",
+    "note": "Devnet upgrade from tested artifact source a45b788402821f06574ee92d29e5e6b318700a67; its tree ac00b122ae9139613e462098286bec5f06979dd3 exactly equals merged main. ProgramData bytes, deploy slots and authorities were read back at finalized commitment. Evidence is in dusk-keepers/artifacts/releases/devnet-9973dea/. worktreeFingerprintSha256 covers tracked programs/ files. IDLs and SDK 2.7.0 are unchanged from the reviewed candidate."
   },
   "cluster": {
     "name": "devnet",
@@ -21,16 +21,16 @@
       "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
       "binary": {
         "path": "on-chain (devnet)",
-        "sha256": "9aad6a5a10811ee819f568916461be30c2ac9448fe45e4b116252883b58dd98e"
+        "sha256": "1ff5027354f5cf74e4c3373850453221c63ef96098d2eaf9f144785bb2937728"
       },
       "idl": {
         "path": "protocol/idl/dusk.json",
-        "sha256": "9923075f97e6faf5734a0b832d333910f024ecf585800dcfc13817e952eabaef",
-        "canonicalSha256": "848ebcdc20ad3cc0fa7e433b3a3ec3a9a62bc981b1a50567f8d670127e0492d9"
+        "sha256": "df6ae43c56d73a1a4bc51fef69a0a398aa0adadd06018a84b632f71d7df8c9be",
+        "canonicalSha256": "ecac9a2649c80312abae58c36f88304ca517badfd01fc3774e45ffd990e03e96"
       },
       "deployment": {
         "programData": "FH3oEMmx2n7YMeEsrLM8dzr7FxuZLQgMacwQF6ZHdWk",
-        "deploySlot": 499930981,
+        "deploySlot": 497831403,
         "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
         "allocatedBinaryBytes": 2581712
       }
@@ -57,7 +57,7 @@
   ],
   "sdk": {
     "package": "@omnipair/dusk-sdk",
-    "version": "2.8.0",
-    "sha256": "1d3002feb842f6aed549911ce249cf21d36d3b8b53da017d8d958ea8e3fa93f7"
+    "version": "2.7.0",
+    "sha256": "0d3cd44cc4b870c0de2927617c0360087f30dbe20911a06d49aed092694f97c5"
   }
 }
