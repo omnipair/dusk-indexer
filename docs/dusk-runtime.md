@@ -251,3 +251,18 @@ The calculation preserves the program's single internal yLP denominator, collate
 `npm run test:portfolio-integration --prefix api` uses the disposable database opt-in. Tests cover stable replay, older backfill, equal timestamps, LP authority changes, closed-account zeros, missing prices, malformed-batch rollback, immutable rows, source guards and finalized conflicts. `test:native-integration` additionally checks discovery against populated native scans and the confirmed-versus-finalized boundary. A read-only devnet capture produced three owner snapshots from 51 accounts across three markets at slots 497815394–497815425, with no replay backlog. The owner HTTP route passed envelope/provenance, invalid-address, future/reversed-time and missing-owner checks. No transactions were submitted. This establishes capture onward; historical coverage and webapp integration remain separate work.
 
 The standalone portfolio `--once` command also captured 51 accounts for three owners at slots 497818252–497818276 after native/LP discovery was refreshed. `--replay-only` completed with no backlog. Discovery freshness is a required runtime dependency, not a reason to reuse outdated ownership silently.
+
+## Archived chart observations across the September 18 upgrade
+
+The chart history route accepts `archivedRevision=devnet-2026-09-13-9973dea`
+only while the active pin is `devnet-2026-09-18-1fa72d3`. This is a separate,
+explicit historical display scope. The outer `dusk-deployment.v2` envelope
+still verifies the live deployment before/after the query. The nested archive
+contains its original deployment envelope and original protocol tuple. Archived
+IDL files and the checked release lock are packaged under `protocol/archive`.
+Saved Borsh bytes, hashes, market bindings and quote witnesses are verified using
+that release's decoder; the SQL selection excludes slots at/after its replacement.
+No observations are copied, rewritten or labelled as the active release. The
+ordinary history route, live prices, ingestion cursors and all write boundaries
+continue to reject a different protocol identity. Unknown archive/release pairs
+are rejected. Frontends may combine validated segments for chart display only.

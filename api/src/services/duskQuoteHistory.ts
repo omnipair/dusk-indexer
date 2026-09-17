@@ -1,7 +1,7 @@
 import { PublicKey } from '@solana/web3.js';
 import { PoolClient } from 'pg';
 import pool from '../config/database';
-import { canonicalJson, loadPinnedProtocol, sha256 } from '../config/duskProtocol';
+import { canonicalJson, DuskPinnedProtocol, loadPinnedProtocol, sha256 } from '../config/duskProtocol';
 import { StoredPriceCapture, verifyStoredPriceCapture } from './duskPrices';
 import { QuoteCache } from './duskQuoteCache';
 import { HistoryDeploymentQuery, historyDeploymentIdentities } from './duskHistoryDeployment';
@@ -40,16 +40,15 @@ type Bucket = {
   open_id: string; close_id: string; high_id: string; low_id: string;
 };
 
-const protocolIdentity = () => {
-  const pin = loadPinnedProtocol();
+const protocolIdentity = (pin = loadPinnedProtocol()) => {
   return [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
 };
-export async function quoteHistoryState(client: PoolClient,market: string) {
+export async function quoteHistoryState(client: PoolClient,market: string,pin = loadPinnedProtocol()) {
   const state = await client.query<{ revision: string; conflicted: boolean }>(
     `SELECT COALESCE((SELECT max(revision) FROM dusk_ingestion.quote_history_changes
        WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND market=$5),0)::text AS revision,
        conflicted FROM dusk_ingestion.quote_history_state
-     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4`,[...protocolIdentity(),market]);
+     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4`,[...protocolIdentity(pin),market]);
   if (state.rows[0]?.conflicted) throw Object.assign(new Error('FINALIZED_INVARIANT: contradictory finalized market price previews'),{ status:503 });
   return state.rows[0]?.revision ?? '0';
 }
@@ -63,12 +62,12 @@ async function verifyWitness(row: StoredPriceCapture) {
 }
 
 /** Sampled program spot quotes, not trades. Never fill gaps or infer prices from reserves. */
-export async function readQuoteHistory(client: PoolClient, query: QuoteHistoryQuery, context?: { revision: string; deployments: string[] }) {
-  const window = quoteHistorySelection(query),pin = loadPinnedProtocol();
+export async function readQuoteHistory(client: PoolClient, query: QuoteHistoryQuery, context?: { revision: string; deployments: string[]; archive?: {pin: DuskPinnedProtocol; lastSlot: number; verify: typeof verifyStoredPriceCapture} }) {
+  const window = quoteHistorySelection(query),pin = context?.archive?.pin ?? loadPinnedProtocol();
   const identity = [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
   const revision = context?.revision ?? await quoteHistoryState(client,query.market);
   const deployments = context?.deployments ?? await historyDeploymentIdentities(client,query);
-  const values = [...identity,deployments,query.market,window.since,window.until,pin.historyFirstSlot,query.resolutionSeconds];
+  const values = [...identity,deployments,query.market,window.since,window.until,pin.historyFirstSlot,query.resolutionSeconds,context?.archive?.lastSlot ?? Number.MAX_SAFE_INTEGER];
   const column = query.side === 'base' ? 'base_spot_price_nad' : 'quote_spot_price_nad';
   // One bounded scan of the compact hypertable serves coverage, deduplication
   // and OHLC selection. Binary evidence is fetched only for the chosen witnesses.
@@ -76,7 +75,7 @@ export async function readQuoteHistory(client: PoolClient, query: QuoteHistoryQu
     SELECT *,time AS block_time,${column} AS price FROM dusk_ingestion.quote_series
     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
       AND deployment_identity_sha256=ANY($5::text[]) AND market=$6
-      AND time>=$7::timestamptz AND time<$8::timestamptz AND slot>=$9
+      AND time>=$7::timestamptz AND time<$8::timestamptz AND slot>=$9 AND slot<=$11
   ), coverage AS (
     SELECT count(*)::text AS captures,count(base_mint)::text AS projected,
       min(slot)::text AS first_slot,max(slot)::text AS last_slot,
@@ -114,9 +113,9 @@ export async function readQuoteHistory(client: PoolClient, query: QuoteHistoryQu
   const verified = new Map<string,{ nad: string; sourceHash: string; time: string; sourceSlot: string }>();
   let binding: { baseMint: string; quoteMint: string; baseDecimals: number; quoteDecimals: number } | null = null;
   for (const row of witnesses.rows) {
-    const { source,projected } = await verifyWitness(row),bound = projected.bound;
+    const { source,projected } = context?.archive ? context.archive.verify(row) : await verifyWitness(row),bound = projected.bound;
     if (source.market !== query.market || !deployments.includes(source.deploymentIdentitySha256)
-      || source.slot<pin.historyFirstSlot || source.blockTime<window.since || source.blockTime>=window.until
+      || source.slot<pin.historyFirstSlot || source.slot>(context?.archive?.lastSlot ?? Number.MAX_SAFE_INTEGER) || source.blockTime<window.since || source.blockTime>=window.until
       || row.base_mint !== bound.baseMint || row.quote_mint !== bound.quoteMint
       || row.base_decimals !== bound.baseDecimals || row.quote_decimals !== bound.quoteDecimals
       || row.base_spot_price_nad !== projected.spotPrices.base || row.quote_spot_price_nad !== projected.spotPrices.quote

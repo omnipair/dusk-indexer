@@ -4,14 +4,13 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PoolClient } from 'pg';
 import pool from '../config/database';
-import { canonicalJson, duskApiConfig, loadPinnedProtocol, sha256 } from '../config/duskProtocol';
+import { canonicalJson, DuskPinnedProtocol, duskApiConfig, loadPinnedProtocol, sha256 } from '../config/duskProtocol';
 import { deploymentEnvelope } from './duskDeploymentService';
 import { parsePriceReferences, priceMarketBindings, projectMarketPrices } from './duskPriceMath';
 import { captureMarketSimulation } from './duskMarketSimulation';
 import { storeCaptureDeployment } from './duskHistoryDeployment';
 
-const identity = () => {
-  const pin = loadPinnedProtocol();
+const identity = (pin = loadPinnedProtocol()) => {
   return [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
 };
 const protocolRoot = () => process.env.DUSK_PROTOCOL_DIR?.trim() || resolve(__dirname,'../../../protocol');
@@ -33,10 +32,10 @@ export interface PriceCaptureSource {
   deploymentIdentitySha256: string; rawMarket: string; rawPreview: string; references: unknown;
   marketStateBasis?: 'simulation-post-state';
 }
-function hashSource(source: PriceCaptureSource): string {
+function hashSource(source: PriceCaptureSource,pin = loadPinnedProtocol()): string {
   // Repeat observations of identical bank bytes retain their first capture.
   const { observedAt: _observedAt,...durable } = source;
-  return sha256(canonicalJson([identity(),durable]));
+  return sha256(canonicalJson([identity(pin),durable]));
 }
 function bytes(value: string): Buffer {
   const result = Buffer.from(value,'base64');
@@ -81,8 +80,9 @@ export interface StoredPriceCapture {
 }
 
 /** Rebuild historical price evidence from its immutable saved bytes/policy. */
-export function verifyStoredPriceCapture(row: StoredPriceCapture) {
-  if (JSON.stringify([row.cluster,row.program_id,row.idl_hash,row.protocol_revision]) !== JSON.stringify(identity())
+export function verifyStoredPriceCapture(row: StoredPriceCapture,release?: {pin: DuskPinnedProtocol; coder: BorshCoder}) {
+  const pin = release?.pin ?? loadPinnedProtocol();
+  if (JSON.stringify([row.cluster,row.program_id,row.idl_hash,row.protocol_revision]) !== JSON.stringify(identity(pin))
     || !['rpc-account','simulation-post-state'].includes(row.market_state_basis)) throw new Error('Price capture differs from the active protocol identity');
   const source: PriceCaptureSource = { market: row.market,slot: Number(row.slot),marketSlot: Number(row.market_slot),blockhash: row.blockhash,
     blockTime: row.block_time.toISOString(),observedAt: row.observed_at.toISOString(),deploymentIdentitySha256: row.deployment_identity_sha256,
@@ -90,10 +90,10 @@ export function verifyStoredPriceCapture(row: StoredPriceCapture) {
     ...(row.market_state_basis === 'simulation-post-state' ? { marketStateBasis: 'simulation-post-state' as const } : {}) };
   if (!Number.isSafeInteger(source.slot) || !Number.isSafeInteger(source.marketSlot) || source.marketSlot<0 || source.slot<source.marketSlot
     || source.marketStateBasis === 'simulation-post-state' && source.slot !== source.marketSlot
-    || Date.parse(source.observedAt)<Date.parse(source.blockTime) || hashSource(source) !== row.content_hash
+    || Date.parse(source.observedAt)<Date.parse(source.blockTime) || hashSource(source,pin) !== row.content_hash
     || sha256(row.raw_preview) !== row.preview_hash) throw new Error('FINALIZED_INVARIANT: saved price source hash mismatch');
-  const coder = priceDecoder();
-  const projected = projectMarketPrices({ pin: loadPinnedProtocol(),marketAddress: source.market,market: coder.accounts.decode('Market',row.raw_market),
+  const coder = release?.coder ?? priceDecoder();
+  const projected = projectMarketPrices({ pin,marketAddress: source.market,market: coder.accounts.decode('Market',row.raw_market),
     preview: coder.types.decode('MarketPreview',row.raw_preview),slot: source.slot,blockTime: source.blockTime,references: source.references });
   return { source,projected };
 }

@@ -39,6 +39,7 @@ import { listMarketActivity } from '../../services/duskMarketActivity';
 import { listOrderHistory } from '../../services/duskOrderHistory';
 import { listEventHistory } from '../../services/duskEventHistory';
 import { clearQuoteHistoryCache, listQuoteHistory } from '../../services/duskQuoteHistory';
+import { listArchivedQuoteHistory } from '../../services/duskArchivedQuoteHistory';
 import { openDuskChangeStream } from '../../services/duskChangeStream';
 import { listPortfolioHistory, portfolioSampleSeconds } from '../../services/duskPortfolioSnapshots';
 import { provenance, renderMetrics } from '../../utils/metrics';
@@ -62,7 +63,12 @@ router.get('/history/quotes/:market', asyncRoute(async (req,res) => {
   const refresh = req.query.afterRevision === undefined && req.query.afterUntil === undefined ? undefined
     : { afterRevision:parameter('afterRevision'),afterUntil:parameter('afterUntil') };
   try {
-    res.json(await withDeploymentRead(async deployment => {
+    res.json(await withDeploymentRead<unknown>(async deployment => {
+      if (req.query.archivedRevision !== undefined) {
+        if (refresh) throw Object.assign(new Error('Archive reads do not accept a live cursor'),{status:400});
+        const data = await listArchivedQuoteHistory({...selection,side,deployment,deploymentIdentitySha256:deployment.deploymentIdentitySha256},parameter('archivedRevision'));
+        return {data,sourceSlot:Number(data.history.coverage.lastSourceSlot ?? 0)};
+      }
       const data = await listQuoteHistory({ ...selection,side,deployment,deploymentIdentitySha256: deployment.deploymentIdentitySha256 },refresh);
       const history = 'history' in data ? data.history : data;
       const sourceSlot = Number(history.coverage.lastSourceSlot ?? 0);

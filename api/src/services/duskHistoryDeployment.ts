@@ -1,17 +1,15 @@
 import { PoolClient } from 'pg';
-import { DUSK_DEPLOYMENT_COMMITMENT, DUSK_DEPLOYMENT_SCHEMA_VERSION, loadPinnedProtocol } from '../config/duskProtocol';
+import { DUSK_DEPLOYMENT_COMMITMENT, DUSK_DEPLOYMENT_SCHEMA_VERSION, DuskPinnedProtocol, loadPinnedProtocol } from '../config/duskProtocol';
 import { DuskDeploymentEnvelope, deploymentIdentityFingerprint } from './duskDeploymentService';
 
-const identity = () => {
-  const pin = loadPinnedProtocol();
+const identity = (pin = loadPinnedProtocol()) => {
   return [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
 };
 
 /** Verify the complete saved identity against the active pin, including both
  * loader slots, authorities, binaries and IDLs. Only buildRevision may differ.
  * Live reads/writes continue to compare the original full envelope hash. */
-export function assertPinnedHistoryDeployment(envelope: DuskDeploymentEnvelope) {
-  const pin = loadPinnedProtocol();
+export function assertPinnedHistoryDeployment(envelope: DuskDeploymentEnvelope,pin: DuskPinnedProtocol = loadPinnedProtocol()) {
   const expected = {
     ...envelope,schemaVersion: DUSK_DEPLOYMENT_SCHEMA_VERSION,network: pin.cluster,genesisHash: pin.genesisHash,
     programId: pin.dusk.programId,programDataAddress: pin.dusk.deployment.programData,
@@ -48,17 +46,17 @@ export interface HistoryDeploymentQuery {
   /** Only the route's verified envelope can broaden an exact-hash selection. */
   deployment?: DuskDeploymentEnvelope;
 }
-export async function historyDeploymentIdentities(client: PoolClient,query: HistoryDeploymentQuery): Promise<string[]> {
+export async function historyDeploymentIdentities(client: PoolClient,query: HistoryDeploymentQuery,pin: DuskPinnedProtocol = loadPinnedProtocol()): Promise<string[]> {
   if (!query.deployment) return [query.deploymentIdentitySha256];
-  assertPinnedHistoryDeployment(query.deployment);
+  assertPinnedHistoryDeployment(query.deployment,pin);
   if (query.deployment.deploymentIdentitySha256 !== query.deploymentIdentitySha256)
     throw new Error('Historical query differs from its verified deployment');
   const rows = await client.query<{ deployment_identity_sha256: string; envelope: DuskDeploymentEnvelope }>(`
     SELECT deployment_identity_sha256,envelope FROM dusk_ingestion.capture_deployments
-    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4`,identity());
+    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4`,identity(pin));
   const hashes = new Set([query.deploymentIdentitySha256]);
   for (const row of rows.rows) {
-    assertPinnedHistoryDeployment(row.envelope);
+    assertPinnedHistoryDeployment(row.envelope,pin);
     if (row.envelope.deploymentIdentitySha256 !== row.deployment_identity_sha256)
       throw new Error('FINALIZED_INVARIANT: historical deployment registration changed');
     hashes.add(row.deployment_identity_sha256);
