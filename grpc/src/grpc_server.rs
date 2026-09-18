@@ -1,12 +1,12 @@
-use http;
-use std::time::Duration;
-use tokio::signal;
-use tokio::sync::broadcast;
-use tokio_stream::wrappers::BroadcastStream;
-use tokio_stream::StreamExt;
-use tonic::{Request, Response, Status};
-use tonic_health::server::health_reporter;
-use tower_http::cors::{AllowOrigin, CorsLayer};
+use {
+    http,
+    std::time::Duration,
+    tokio::{signal, sync::broadcast},
+    tokio_stream::{StreamExt, wrappers::BroadcastStream},
+    tonic::{Request, Response, Status},
+    tonic_health::server::health_reporter,
+    tower_http::cors::{AllowOrigin, CorsLayer},
+};
 
 pub mod stream {
     tonic::include_proto!("omnipair.stream");
@@ -14,11 +14,13 @@ pub mod stream {
 
 pub const FILE_DESCRIPTOR_SET: &[u8] = tonic::include_file_descriptor_set!("stream_descriptor");
 
-use stream::{
-    stream_service_server::{StreamService, StreamServiceServer},
-    SwapsRequest, SwapsUpdate,
+use {
+    stream::{
+        DuskChange, DuskChangesRequest, SwapsRequest, SwapsUpdate,
+        stream_service_server::{StreamService, StreamServiceServer},
+    },
+    tonic_web::GrpcWebLayer,
 };
-use tonic_web::GrpcWebLayer;
 
 /// Does `origin` match one of the configured CORS patterns?
 ///
@@ -29,15 +31,17 @@ use tonic_web::GrpcWebLayer;
 /// subdomain below it, and not a host that merely ends with the same text.
 /// Patterns without a `*` compare exactly.
 fn origin_allowed(patterns: &[String], origin: &str) -> bool {
-    patterns.iter().any(|pattern| match pattern.split_once('*') {
-        None => pattern == origin,
-        Some((prefix, suffix)) => {
-            origin.len() >= prefix.len() + suffix.len()
-                && origin.starts_with(prefix)
-                && origin.ends_with(suffix)
-                && !origin[prefix.len()..origin.len() - suffix.len()].contains('.')
-        }
-    })
+    patterns
+        .iter()
+        .any(|pattern| match pattern.split_once('*') {
+            None => pattern == origin,
+            Some((prefix, suffix)) => {
+                origin.len() >= prefix.len() + suffix.len()
+                    && origin.starts_with(prefix)
+                    && origin.ends_with(suffix)
+                    && !origin[prefix.len()..origin.len() - suffix.len()].contains('.')
+            }
+        })
 }
 
 #[cfg(test)]
@@ -55,7 +59,10 @@ mod tests {
     #[test]
     fn exact_patterns_match_only_themselves() {
         assert!(origin_allowed(&patterns(), "http://localhost:3009"));
-        assert!(origin_allowed(&patterns(), "https://dusk-webapp.vercel.app"));
+        assert!(origin_allowed(
+            &patterns(),
+            "https://dusk-webapp.vercel.app"
+        ));
         assert!(!origin_allowed(&patterns(), "http://localhost:3000"));
     }
 
@@ -99,11 +106,18 @@ mod tests {
 
 pub struct SwapStreamServer {
     broadcast_tx: broadcast::Sender<SwapsUpdate>,
+    native: Option<crate::dusk_stream::DuskStream>,
 }
 
 impl SwapStreamServer {
-    pub fn new(broadcast_tx: broadcast::Sender<SwapsUpdate>) -> Self {
-        Self { broadcast_tx }
+    pub fn new(
+        broadcast_tx: broadcast::Sender<SwapsUpdate>,
+        native: Option<crate::dusk_stream::DuskStream>,
+    ) -> Self {
+        Self {
+            broadcast_tx,
+            native,
+        }
     }
 
     pub fn into_service(self) -> StreamServiceServer<Self> {
@@ -113,6 +127,20 @@ impl SwapStreamServer {
 
 #[tonic::async_trait]
 impl StreamService for SwapStreamServer {
+    type StreamDuskChangesStream = std::pin::Pin<
+        Box<dyn tokio_stream::Stream<Item = Result<DuskChange, Status>> + Send + 'static>,
+    >;
+    async fn stream_dusk_changes(
+        &self,
+        _request: Request<DuskChangesRequest>,
+    ) -> Result<Response<Self::StreamDuskChangesStream>, Status> {
+        let native = self
+            .native
+            .as_ref()
+            .ok_or_else(|| Status::unavailable("Native Dusk streaming is not configured"))?;
+        Ok(Response::new(native.subscribe()?))
+    }
+
     type StreamSwapsUpdatesStream = std::pin::Pin<
         Box<dyn tokio_stream::Stream<Item = Result<SwapsUpdate, Status>> + Send + 'static>,
     >;
@@ -197,10 +225,11 @@ async fn shutdown_signal() {
 
 pub async fn start_grpc_server(
     broadcast_tx: broadcast::Sender<SwapsUpdate>,
+    native: Option<crate::dusk_stream::DuskStream>,
     port: u16,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let addr = format!("0.0.0.0:{}", port).parse()?;
-    let server = SwapStreamServer::new(broadcast_tx);
+    let server = SwapStreamServer::new(broadcast_tx, native);
 
     let is_production = std::env::var("NODE_ENV")
         .map(|env| env.to_lowercase() == "production")

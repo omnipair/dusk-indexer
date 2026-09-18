@@ -4,6 +4,8 @@ package omnipair.stream;
 
 service StreamService {
   rpc StreamSwapsUpdates(SwapsRequest) returns (stream SwapsUpdate);
+  // Native Dusk notifications; never decode them as legacy reserve-ratio swaps.
+  rpc StreamDuskChanges(DuskChangesRequest) returns (stream DuskChange);
 }
 
 message SwapsRequest {}
@@ -25,4 +27,11 @@ message SwapsUpdate {
   string ema_price = 14;
   float price = 15;
   string volume_usd = 16;
+}
+
+
+message DuskChangesRequest {}
+message DuskChange {
+  // Exact dusk-read-change.v1 success envelope, checked by the native client.
+  string envelope_json = 1;
 }

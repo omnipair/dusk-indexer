@@ -241,9 +241,18 @@ function asyncRoute(
 /** The deployment identity on its own, plus what this API is pinned to. */
 router.get(
   '/deployment',
-  asyncRoute(async (_req, res) => {
+  asyncRoute(async (req, res) => {
     const pinned = loadPinnedProtocol();
     const config = duskApiConfig();
+    // The native gRPC producer brackets every notice with this observation.
+    if (req.query.minimumSourceSlot !== undefined) {
+      const raw = req.query.minimumSourceSlot;
+      if (typeof raw !== 'string' || !/^(0|[1-9][0-9]*)$/.test(raw) || !Number.isSafeInteger(Number(raw)))
+        throw Object.assign(new Error('Invalid minimum source slot'), { status: 400 });
+      res.set('Cache-Control', 'no-store').json({ success: true, data: null,
+        deployment: await deploymentEnvelope(Number(raw), { fresh: true }) });
+      return;
+    }
     res.json(
       await withDeployment({
         network: config.network,

@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import type { Request, Response } from 'express';
 import { loadPinnedProtocol } from '../config/duskProtocol';
 import { parseDuskReadChange, publishDuskReadChange, subscribeDuskReadChanges, DuskReadChange } from '../services/duskChangeBus';
-import { openDuskChangeStream, DUSK_CHANGE_STREAM_OBSERVATION_TIMEOUT_MS } from '../services/duskChangeStream';
+import { openDuskChangeStream, DUSK_CHANGE_STREAM_BATCH_MS, DUSK_CHANGE_STREAM_OBSERVATION_TIMEOUT_MS } from '../services/duskChangeStream';
 import type { DuskDeploymentEnvelope } from '../services/duskDeploymentService';
 
 const pin = loadPinnedProtocol();
@@ -70,12 +70,13 @@ test('a connection starts with resync and heartbeats retain monotonic sequence',
   assert.equal(h.res.frames[1].data.streamId, h.res.frames[0].data.streamId);
 });
 
-test('notification bursts coalesce with their highest source-slot floor', async t => {
+test('notification bursts reach clients within 250ms with their highest source-slot floor', async t => {
+  assert.ok(DUSK_CHANGE_STREAM_BATCH_MS <= 250);
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: 100_000 });
   const h = harness(); t.after(h.close); await h.open();
   h.emit({ kind: 'change', sourceSlot: pin.historyFirstSlot + 1 });
   h.emit({ kind: 'change', sourceSlot: pin.historyFirstSlot + 9 });
-  t.mock.timers.tick(4999); await flush(); assert.equal(h.res.frames.length, 1);
+  t.mock.timers.tick(DUSK_CHANGE_STREAM_BATCH_MS - 1); await flush(); assert.equal(h.res.frames.length, 1);
   t.mock.timers.tick(1); await flush();
   assert.equal(h.res.frames.length, 2);
   assert.equal(h.res.frames[1].data.sourceSlot, pin.historyFirstSlot + 9);
@@ -92,7 +93,7 @@ test('an upgrade never emits a frame under the previous connection identity', as
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: 100_000 });
   const h = harness(); t.after(h.close); await h.open(); h.upgrade();
   h.emit({ kind: 'change', sourceSlot: pin.historyFirstSlot });
-  t.mock.timers.tick(5000); await flush();
+  t.mock.timers.tick(DUSK_CHANGE_STREAM_BATCH_MS); await flush();
   assert.equal(h.res.frames.length, 1); assert.equal(h.res.writableEnded, true);
 });
 
@@ -129,4 +130,28 @@ test('a timed-out heartbeat closes the stream and ignores its late observation',
   assert.equal(h.res.writableEnded, true); assert.equal(h.subscribed(), false);
   release(h.res.frames[0].deployment); await flush();
   assert.equal(h.res.frames.length, 1);
+});
+
+
+test('a slow observation retains the latest burst without concurrent reads or lost changes', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: 100_000 });
+  const h = harness(); t.after(h.close); await h.open();
+  let release!: (value: DuskDeploymentEnvelope) => void;
+  const envelope = h.deps.envelope;
+  let calls = 0;
+  h.deps.envelope = (slot: number) => {
+    calls++;
+    if (calls === 1) return new Promise(resolve => { release = resolve; });
+    return envelope(slot);
+  };
+  h.emit({ kind: 'change', sourceSlot: pin.historyFirstSlot + 1 });
+  t.mock.timers.tick(DUSK_CHANGE_STREAM_BATCH_MS); await flush();
+  for (let i = 2; i <= 10; i++) h.emit({ kind: 'change', sourceSlot: pin.historyFirstSlot + i });
+  t.mock.timers.tick(1_000); await flush();
+  assert.equal(calls, 1);
+  release(await envelope(pin.historyFirstSlot + 1)); await flush();
+  t.mock.timers.tick(DUSK_CHANGE_STREAM_BATCH_MS); await flush();
+  assert.equal(calls, 2);
+  assert.deepEqual(h.res.frames.map(f => f.data.sequence), [1, 2, 3]);
+  assert.equal(h.res.frames[2].data.sourceSlot, pin.historyFirstSlot + 10);
 });
