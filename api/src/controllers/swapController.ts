@@ -73,6 +73,82 @@ export function parseSwapHistoryRange(query: Request['query']): {
   return { from, to, cursor: decodeSwapHistoryCursor(query.cursor) };
 }
 
+/**
+ * OHLC buckets for one market over `[from, to)`.
+ *
+ * `locf` carries the last close forward across empty buckets, but on its own
+ * it only knows about trades inside the window. A market that has not traded
+ * for a day therefore produced no candles at all -- every bucket was NULL,
+ * `trimmed` dropped them, and the chart said "No price history yet" for a
+ * market whose price was perfectly well known. `prev` seeds the carry with the
+ * last close before the window, so a quiet day draws a flat line at the real
+ * price instead of nothing. The reference indexer has the same gap; mainnet
+ * never sat still long enough to show it.
+ *
+ * Parameters: $1 bucket interval, $2 pair address, $3 from, $4 to (epoch secs).
+ */
+export function buildCandlesQuery(): string {
+  return `
+          WITH priced AS (
+            SELECT
+              timestamp,
+              reserve1::numeric / NULLIF(reserve0::numeric, 0) AS price,
+              volume_usd
+            FROM swaps
+            WHERE pair = $2
+              AND timestamp >= to_timestamp($3::bigint)
+              AND timestamp < to_timestamp($4::bigint)
+              AND reserve0 > 0
+              AND reserve1 IS NOT NULL
+          ),
+          filled AS (
+            SELECT
+              time_bucket_gapfill(
+                $1::interval,
+                timestamp,
+                to_timestamp($3::bigint),
+                to_timestamp($4::bigint)
+              ) AS bucket,
+              locf(
+                last(price, timestamp),
+                prev := (
+                  SELECT reserve1::numeric / NULLIF(reserve0::numeric, 0)
+                  FROM swaps
+                  WHERE pair = $2
+                    AND timestamp < to_timestamp($3::bigint)
+                    AND reserve0 > 0
+                    AND reserve1 IS NOT NULL
+                  ORDER BY timestamp DESC
+                  LIMIT 1
+                )
+              ) AS filled_close,
+              MAX(price) AS high_raw,
+              MIN(price) AS low_raw,
+              SUM(volume_usd) AS volume_raw
+            FROM priced
+            GROUP BY bucket
+          ),
+          trimmed AS (
+            SELECT * FROM filled WHERE filled_close IS NOT NULL
+          )
+          SELECT
+            EXTRACT(EPOCH FROM bucket)::bigint AS time,
+            COALESCE(LAG(filled_close) OVER (ORDER BY bucket), filled_close) AS open,
+            GREATEST(
+              COALESCE(high_raw, filled_close),
+              COALESCE(LAG(filled_close) OVER (ORDER BY bucket), filled_close)
+            ) AS high,
+            LEAST(
+              COALESCE(low_raw, filled_close),
+              COALESCE(LAG(filled_close) OVER (ORDER BY bucket), filled_close)
+            ) AS low,
+            filled_close AS close,
+            COALESCE(volume_raw, 0) AS volume
+          FROM trimmed
+          ORDER BY bucket
+        `;
+}
+
 export function buildSwapHistoryQuery(input: SwapHistoryQueryInput): {
   query: string;
   params: any[];
@@ -339,53 +415,8 @@ export class SwapController {
       const cacheKey = `candles_${pairAddress}_${resolution}_${from}_${to}`;
 
       const data = await cache.getOrSet(cacheKey, 1000, async () => {
-        const result = await pool.query(`
-          WITH priced AS (
-            SELECT
-              timestamp,
-              reserve1::numeric / NULLIF(reserve0::numeric, 0) AS price,
-              volume_usd
-            FROM swaps
-            WHERE pair = $2
-              AND timestamp >= to_timestamp($3::bigint)
-              AND timestamp < to_timestamp($4::bigint)
-              AND reserve0 > 0
-              AND reserve1 IS NOT NULL
-          ),
-          filled AS (
-            SELECT
-              time_bucket_gapfill(
-                $1::interval,
-                timestamp,
-                to_timestamp($3::bigint),
-                to_timestamp($4::bigint)
-              ) AS bucket,
-              locf(last(price, timestamp)) AS filled_close,
-              MAX(price) AS high_raw,
-              MIN(price) AS low_raw,
-              SUM(volume_usd) AS volume_raw
-            FROM priced
-            GROUP BY bucket
-          ),
-          trimmed AS (
-            SELECT * FROM filled WHERE filled_close IS NOT NULL
-          )
-          SELECT
-            EXTRACT(EPOCH FROM bucket)::bigint AS time,
-            COALESCE(LAG(filled_close) OVER (ORDER BY bucket), filled_close) AS open,
-            GREATEST(
-              COALESCE(high_raw, filled_close),
-              COALESCE(LAG(filled_close) OVER (ORDER BY bucket), filled_close)
-            ) AS high,
-            LEAST(
-              COALESCE(low_raw, filled_close),
-              COALESCE(LAG(filled_close) OVER (ORDER BY bucket), filled_close)
-            ) AS low,
-            filled_close AS close,
-            COALESCE(volume_raw, 0) AS volume
-          FROM trimmed
-          ORDER BY bucket
-        `, [bucketInterval, pairAddress, from, to]);
+        const candlesQuery = buildCandlesQuery();
+        const result = await pool.query(candlesQuery, [bucketInterval, pairAddress, from, to]);
 
         return {
           candles: result.rows.map((r: any) => ({

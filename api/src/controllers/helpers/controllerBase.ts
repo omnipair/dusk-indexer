@@ -23,7 +23,7 @@ export async function initializePairStateService(): Promise<PairStateService> {
     return pairStateService;
   }
 
-  const rpcUrl = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+  const rpcUrl = process.env.SOLANA_RPC_URL || process.env.DUSK_RPC_URL || 'https://api.mainnet-beta.solana.com';
   const service = new PairStateService(rpcUrl);
 
   try {
