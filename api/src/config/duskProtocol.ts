@@ -153,7 +153,11 @@ let cached: DuskPinnedProtocol | undefined;
 export function loadPinnedProtocol(): DuskPinnedProtocol {
   if (cached) return cached;
 
-  const root = protocolDir();
+  return cached = loadProtocolAt(protocolDir());
+}
+
+/** Load a checked, explicit release; never selects a network or revision implicitly. */
+export function loadProtocolAt(root: string): DuskPinnedProtocol {
   const lockPath = resolve(root, 'protocol.lock.json');
   const lock = JSON.parse(readFileSync(lockPath, 'utf8')) as {
     revision?: unknown;
@@ -179,7 +183,7 @@ export function loadPinnedProtocol(): DuskPinnedProtocol {
   const dusk=loadProgram(duskEntry,root),leverageDelegate=loadProgram(delegateEntry,root);
   if (lock.cluster?.name!=='devnet' || lock.cluster.genesisHash!=='EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG')
     throw new Error('Protocol lock must identify Solana devnet');
-  cached = {
+  const pin = {
     revision: requireString(lock.revision, 'revision'),
     cluster: requireString(lock.cluster?.name, 'cluster.name'),
     genesisHash: requireString(lock.cluster?.genesisHash, 'cluster.genesisHash'),
@@ -187,7 +191,7 @@ export function loadPinnedProtocol(): DuskPinnedProtocol {
     leverageDelegate,
     historyFirstSlot:Math.max(dusk.deployment.deploySlot,leverageDelegate.deployment.deploySlot)+1,
   };
-  return cached;
+  return pin;
 }
 
 export interface DuskApiConfig {
