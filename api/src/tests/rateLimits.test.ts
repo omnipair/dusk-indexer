@@ -49,3 +49,27 @@ test('invalid request budgets fail startup', () => {
     assert.throws(() => createApiRateLimits({ RATE_LIMIT_IDENTITY_MAX: value }));
   }
 });
+
+// Capacity contract: two sessions, 13 active read families and 30 server ticks
+// per minute, including RPC-only families' identity brackets, plus cold loads.
+test('default limits accommodate two complete realtime sessions and startup', async () => {
+  const app = express();
+  app.use(...createApiRateLimits({}));
+  app.use((_req, res) => res.json({ ok: true }));
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const base = `http://127.0.0.1:${address.port}`;
+  try {
+    for (const [path, minimum] of [['markets/state', 2 * 13 * 30 + 100], ['deployment', 2 * 2 * 13 * 30 + 200]] as const) {
+      const response = await fetch(`${base}/api/dusk/v1/${path}`);
+      assert.equal(response.status, 200);
+      assert.ok(Number(response.headers.get('ratelimit-limit')) >= minimum);
+      await response.text();
+    }
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+});

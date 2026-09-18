@@ -100,7 +100,7 @@ Migrations 030 through 032 add immutable market-preview evidence, bounded replay
 npm run start:prices-worker --prefix api -- --once
 ```
 
-Omit `--once` to capture every minute; `DUSK_PRICE_INTERVAL_MS` sets the interval (minimum 1000). `--replay-only` projects saved captures without contacting RPC. `railway.prices.toml` defines the worker. Its permissions are read-only on devnet and write access to the projection database; it never signs or submits transactions.
+Omit `--once` to capture on a five-second start-to-start cadence (slow captures do not overlap); `DUSK_PRICE_INTERVAL_MS` sets the interval (minimum 1000). `--replay-only` projects saved captures without contacting RPC. `railway.prices.toml` defines the worker. Its permissions are read-only on devnet and write access to the projection database; it never signs or submits transactions.
 
 `protocol/devnet-price-references.json` carries the existing webapp's three explicit devnet display references, with a full protocol identity, effective date and source notes. They are configured demo valuations, not external market prices. Override the path with `DUSK_PRICE_REFERENCES_FILE` when using another reviewed policy. A program/IDL/revision change requires deliberately updating this policy's identity. Each capture saves the complete dated policy and its hash, so changing the file later cannot reprice saved captures. Values are not inferred from token symbols or a token's position as a market's quote asset.
 

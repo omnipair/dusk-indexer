@@ -26,8 +26,6 @@ app.use(cors({
   exposedHeaders: ['Retry-After', 'x-request-id']
 }));
 
-app.use(...createApiRateLimits());
-
 /**
  * Structured request logging and metrics.
  *
@@ -64,6 +62,9 @@ app.use((req, res, next) => {
   });
   next();
 });
+
+// Count and log rejected reads too; rate limiting must be visible in metrics.
+app.use(...createApiRateLimits());
 
 //safety for future proofing
 app.use(express.json({ limit: '100kb' }));

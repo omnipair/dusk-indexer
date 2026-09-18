@@ -322,8 +322,8 @@ NODE_ENV=production
 DATABASE_URL=postgresql://user:pass@host/db
 
 # Rate limiting (requests per client per 60 seconds)
-RATE_LIMIT_MAX=100
-RATE_LIMIT_IDENTITY_MAX=600
+RATE_LIMIT_MAX=1200
+RATE_LIMIT_IDENTITY_MAX=3600
 
 # CORS
 CORS_ORIGIN=https://yourdomain.com
