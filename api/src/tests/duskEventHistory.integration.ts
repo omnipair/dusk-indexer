@@ -21,7 +21,7 @@ async function transaction(work: (client: PoolClient) => Promise<void>) {
   try { await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ'); await work(client); }
   finally { await client.query('ROLLBACK'); client.release(); }
 }
-async function source(client: PoolClient, offset: number, options: { commitment?: string; revision?: string; omitStream?: boolean; eventName?: string; owner?: string; liquidator?: string; borrower?: string; trader?: string } = {}) {
+async function source(client: PoolClient, offset: number, options: { commitment?: string; revision?: string; omitStream?: boolean; eventName?: string; owner?: string; liquidator?: string; borrower?: string; trader?: string; time?: string } = {}) {
   const active = [...identity.slice(0,3),options.revision ?? identity[3]], commitment = options.commitment ?? 'finalized';
   const signature = '2'.repeat(88), path = [0, ++nextPath];
   const key = [...active, signature, path.join('.'), '0'].join('|');
@@ -39,8 +39,8 @@ async function source(client: PoolClient, offset: number, options: { commitment?
     [...active,key,inserted.rows[0].observation_id,commitment]);
   if (!options.omitStream) await client.query(`INSERT INTO dusk_ingestion.event_stream
     (time,cluster,program_id,event_name,market,transaction_signature,event_key,slot,payload,idl_hash,protocol_revision)
-    VALUES('2026-09-01T00:00:10Z',$1,$2,$10,$3,$4,$5,$6,$7,$8,$9)`,
-    [active[0],active[1],market,signature,key,slot+offset,JSON.stringify(payload),active[2],active[3],eventName]);
+    VALUES($11::timestamptz,$1,$2,$10,$3,$4,$5,$6,$7,$8,$9)`,
+    [active[0],active[1],market,signature,key,slot+offset,JSON.stringify(payload),active[2],active[3],eventName,options.time ?? '2026-09-01T00:00:10Z']);
   return key;
 }
 test('native history paginates same-slot CPI events without signature deduplication or late-backfill shifts', () => transaction(async client => {
@@ -247,8 +247,7 @@ test('role limits are applied after time and canonical filters, so excluded rece
   const expected=[await source(client,2,{eventName:'HlpOpened',owner}),
     await source(client,1,{eventName:'LeveragePositionLiquidated',owner:other,liquidator:owner})];
   for(let i=3;i<9;i++) {
-    const key=await source(client,i,{eventName:'LeveragePositionLiquidated',owner,liquidator:other});
-    await client.query(`UPDATE dusk_ingestion.event_stream SET time='2026-09-03T00:00:00Z' WHERE event_key=$1`,[key]);
+    await source(client,i,{eventName:'LeveragePositionLiquidated',owner,liquidator:other,time:'2026-09-03T00:00:00Z'});
     const uncanonical=await source(client,i+10,{eventName:'HlpOpened',owner,commitment:'confirmed'});
     await client.query(`UPDATE dusk_ingestion.event_observations SET commitment='finalized' WHERE event_key=$1`,[uncanonical]);
   }
