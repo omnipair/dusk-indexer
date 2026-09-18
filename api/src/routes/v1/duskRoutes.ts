@@ -37,7 +37,7 @@ import { listDuskPriceHistory } from '../../services/duskPrices';
 import { listYieldRates } from '../../services/duskYieldRates';
 import { listMarketActivity } from '../../services/duskMarketActivity';
 import { listOrderHistory } from '../../services/duskOrderHistory';
-import { listEventHistory } from '../../services/duskEventHistory';
+import { clearEventHistoryCache, listEventHistory } from '../../services/duskEventHistory';
 import { clearQuoteHistoryCache, listQuoteHistory } from '../../services/duskQuoteHistory';
 import { listArchivedQuoteHistory } from '../../services/duskArchivedQuoteHistory';
 import { openDuskChangeStream } from '../../services/duskChangeStream';
@@ -102,18 +102,23 @@ router.get('/history/events', asyncRoute(async (req, res) => {
     return value as string | undefined;
   };
   const until = stringParameter('until') ?? new Date().toISOString();
+  const version = stringParameter('version') ?? '1';
+  if (version !== '1' && version !== '2')
+    throw Object.assign(new Error('Invalid event history version'), {status:400});
   const limit = req.query.limit === undefined ? 100 : Number(stringParameter('limit'));
   const category = stringParameter('category');
-  if (category !== undefined && category !== 'leverage-close')
+  if (category !== undefined && category !== 'leverage-close' && category !== 'activity')
     throw Object.assign(new Error('Invalid event history category'), {status:400});
-  res.json(await withDeploymentRead(async deployment => {
-    const data = await listEventHistory({ market: stringParameter('market'), since: stringParameter('since'), until,
-      owner: stringParameter('owner'), category,
-      cursor: stringParameter('cursor'), limit, deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
-    const sourceSlot = data.events.reduce((highest, row) => Math.max(highest, Number(row.slot)), 0);
-    if (!Number.isSafeInteger(sourceSlot)) throw new Error('Invalid event-history source slot');
-    return { data, sourceSlot };
-  }));
+  try {
+    res.json(await withDeploymentRead(async deployment => {
+      const data = await listEventHistory({ market: stringParameter('market'), since: stringParameter('since'), until,
+        owner: stringParameter('owner'), category, version: version === '2' ? 2 : 1,
+        cursor: stringParameter('cursor'), limit, deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
+      const sourceSlot = data.events.reduce((highest, row) => Math.max(highest, Number(row.slot)), 0);
+      if (!Number.isSafeInteger(sourceSlot)) throw new Error('Invalid event-history source slot');
+      return { data, sourceSlot };
+    }));
+  } catch (error) { clearEventHistoryCache(); throw error; }
 }));
 
 /**

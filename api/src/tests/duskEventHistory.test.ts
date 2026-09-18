@@ -2,6 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { eventHistorySelection } from '../services/duskEventHistory';
 
+test('v2 includes native hLP and yield receipts without changing v1 cursor scope', () => {
+  const query = { until: '2026-09-01T00:00:00Z', limit: 100, deploymentIdentitySha256: 'a'.repeat(64) };
+  const original = eventHistorySelection(query), extended = eventHistorySelection({...query,version:2});
+  assert.equal(eventHistorySelection({...query,version:1}).scope,original.scope);
+  assert.notEqual(extended.scope,original.scope);
+  assert.deepEqual(extended.supportedEvents.slice(-3),['HlpOpened','HlpClosed','YieldClaimed']);
+  assert.equal(original.supportedEvents.length,11);
+  const cursor = Buffer.from(JSON.stringify({scope:original.scope,watermark:'10',slot:String(original.pin.historyFirstSlot+1),
+    key:[...original.identity,'2'.repeat(88),'0.1','0'].join('|')})).toString('base64url');
+  assert.throws(() => eventHistorySelection({...query,version:2,cursor}),/query or cursor/);
+  assert.throws(() => eventHistorySelection({...query,version:3 as 2}),/query or cursor/);
+});
+
 test('history selection rejects malformed ranges, addresses and cursors', () => {
   const query = { until: '2026-09-01T00:00:00Z', limit: 100, deploymentIdentitySha256: 'a'.repeat(64) };
   assert.equal(eventHistorySelection(query).window.market,null);

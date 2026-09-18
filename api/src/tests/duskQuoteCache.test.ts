@@ -15,3 +15,18 @@ test('quote cache coalesces concurrent reads but never retains failures or inval
   await assert.rejects(cache.get('failed',async()=>{ throw new Error('unavailable'); }));
   assert.equal(await cache.get('failed',async()=>3),3);
 });
+
+
+test('history cache reports hit/miss/shared outcomes and evicts expired entries', async () => {
+  const cache = new QuoteCache<number>(1,10_000);
+  let resolve!: (value:number)=>void;
+  const first = cache.getWithMeta('a',()=>new Promise<number>(done=>{resolve=done;}));
+  const shared = cache.getWithMeta('a',async()=>99);
+  resolve(1);
+  assert.equal((await first).cacheStatus,'miss');
+  assert.equal((await shared).cacheStatus,'coalesced');
+  assert.equal((await cache.getWithMeta('a',async()=>99)).cacheStatus,'hit');
+  await cache.getWithMeta('b',async()=>2,0);
+  assert.equal((await cache.getWithMeta('b',async()=>3)).data,3);
+  assert.equal((await cache.getWithMeta('a',async()=>4)).cacheStatus,'miss');
+});
