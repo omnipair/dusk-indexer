@@ -55,7 +55,7 @@ PostgreSQL 16 image, and asserts that the event stream is an actual hypertable.
 
 ## Validation
 
-- TypeScript build and 153 unit tests pass.
+- TypeScript build and 156 unit tests pass after incorporating current `main`.
 - Full rollback-only PostgreSQL integration suite: 90 tests pass, including
   14 native-history tests. These cover CPI pagination, owner/version/identity
   separation, duplicate participant roles, out-of-window rows, late replay,
