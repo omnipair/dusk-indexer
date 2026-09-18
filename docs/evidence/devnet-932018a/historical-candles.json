@@ -1,0 +1,51 @@
+{
+  "checkedAt": "2026-09-18T11:35:29.688Z",
+  "deployment": {
+    "schemaVersion": "dusk-deployment.v2",
+    "network": "devnet",
+    "genesisHash": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+    "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
+    "programDataAddress": "FH3oEMmx2n7YMeEsrLM8dzr7FxuZLQgMacwQF6ZHdWk",
+    "programDataSlot": "500313561",
+    "programUpgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+    "leverageDelegateProgramId": "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv",
+    "leverageDelegateProgramDataAddress": "8y1gTuEN5t417sBWNbeerGFQ5v49MpRmxVBgVDatnJjv",
+    "leverageDelegateProgramDataSlot": "497831834",
+    "leverageDelegateUpgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+    "idlSha256": "f913d04e43342f7936665d0736a958315f3e57a8633c19fa88a920217f7ad542",
+    "idlRawSha256": "84c781342dec1684c3d1562295a9cea6046c44eadcab350d39becaf2b0c5256e",
+    "leverageDelegateIdlSha256": "d9caaebbe1839263ad91dab2eab43ff628f612bc25c02e0746b33a8a32631f27",
+    "leverageDelegateIdlRawSha256": "b2d39d3575f72ad334a0f853784bdb5909ddead5e0ebf3dc84ccd5253eccdce3",
+    "commitment": "confirmed",
+    "sourceSlot": 500316888,
+    "observedAt": "2026-09-18T11:35:21.983Z",
+    "apiStartedAt": "2026-09-18T11:31:54.425Z",
+    "buildRevision": "de82516",
+    "programBinarySha256": "6183b7a393bad1a8a6cafada81c9e572b99d423ce27c098c2213112fa460741c",
+    "leverageDelegateBinarySha256": "7903449634d559bba246d779a993b2afd27050e48692702d6714ac6f3a713858",
+    "deploymentIdentitySha256": "d883c9c08d8a7e6d2fe8a88c3394f6824d53b0c2dbccaa2beec91b839e087b0b"
+  },
+  "results": [
+    {
+      "side": "base",
+      "candles": 101,
+      "currentCandles": 1,
+      "historicalCandles": 101,
+      "firstSourceSlot": 498123847,
+      "lastSourceSlot": 500316692,
+      "firstTime": "2026-09-14T07:11:06.000Z",
+      "lastTime": "2026-09-18T11:34:49.000Z"
+    },
+    {
+      "side": "quote",
+      "candles": 101,
+      "currentCandles": 1,
+      "historicalCandles": 101,
+      "firstSourceSlot": 498123847,
+      "lastSourceSlot": 500316692,
+      "firstTime": "2026-09-14T07:11:06.000Z",
+      "lastTime": "2026-09-18T11:34:49.000Z"
+    }
+  ],
+  "submittedTransactions": 0
+}
