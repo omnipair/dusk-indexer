@@ -49,9 +49,9 @@ all synthetic inserts were rolled back.
 These are database-service measurements, not production end-to-end latency.
 They exclude HTTP transport, RPC deployment verification and network latency.
 The HTTP benchmark is provided but was not run against this new build because
-migration 042 has not been rolled out to devnet. Local Docker is unavailable,
-so direct TimescaleDB runtime validation was not executed; PostgreSQL validation
-and CI remain separate from that gate.
+migration 042 has not been rolled out to devnet. Local Docker is unavailable. The `history-timescale` CI job runs the migration
+and native event/chart integration tests on a digest-pinned official TimescaleDB
+PostgreSQL 16 image, and asserts that the event stream is an actual hypertable.
 
 ## Validation
 
