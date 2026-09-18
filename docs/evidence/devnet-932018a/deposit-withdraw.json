@@ -1,0 +1,62 @@
+{
+  "owner": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+  "market": "7Rjrf8i81hZihsuFdPfzTaP6SiQ3JEmQs7Hfg7YNjkNm",
+  "deployment": "d883c9c08d8a7e6d2fe8a88c3394f6824d53b0c2dbccaa2beec91b839e087b0b",
+  "checkedAt": "2026-09-18T11:35:02.412Z",
+  "receipts": [
+    {
+      "step": "deposit",
+      "signature": "k2J6kfYRZdPTYqAppdQj14BRxPArxBcXAY6MTZmSmTCEbk7WRwrLkqNUq4xmvqU9ZDaTbpbfxShNkJGFJ7CRE8o",
+      "slot": 500316418,
+      "feeLamports": 5000,
+      "ownerLamportsChange": -5000,
+      "hlpTokenChange": "10000",
+      "quoteTokenChange": "-10000"
+    },
+    {
+      "step": "withdraw",
+      "signature": "4crwDmZiaZXFuqvefe2uYyZApU9mCeEWBFUzdCxygjMrGsBwg7cSEM8zM1LkcSHutbNM15RtCEFUWmPei12pcLg6",
+      "slot": 500316527,
+      "feeLamports": 5000,
+      "ownerLamportsChange": -5000,
+      "hlpTokenChange": "-10000",
+      "quoteTokenChange": "9996"
+    }
+  ],
+  "grossSpentLamports": 10000,
+  "transactionFeesLamports": 10000,
+  "netOwnerLamportsChange": -10000,
+  "netQuoteChange": "-4",
+  "originalHlpRestored": true,
+  "pendingSubmissions": 0,
+  "checks": {
+    "capacity": [
+      {
+        "side": "base",
+        "status": "rebalanceRequired",
+        "fundingLimitGross": "0",
+        "fundingLimitNet": "0",
+        "slot": 500316763,
+        "observedAt": 1789731301883
+      },
+      {
+        "side": "quote",
+        "status": "ready",
+        "fundingLimitGross": "57240154825",
+        "fundingLimitNet": "57240154825",
+        "slot": 500316763,
+        "observedAt": 1789731301877
+      }
+    ],
+    "deposit": {
+      "minted": "10000",
+      "spent": "10000",
+      "slot": 500316432
+    },
+    "withdraw": {
+      "restoredHlp": true,
+      "netQuoteChange": "-4",
+      "slot": 500316538
+    }
+  }
+}

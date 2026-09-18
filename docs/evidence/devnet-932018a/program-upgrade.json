@@ -1,0 +1,53 @@
+{
+  "sourceCommit": "932018addb546e5906d345e3358d7980ddacc742",
+  "artifactSha256": "e014f45ad64ef85a72724cba4ce5ea6de1dbdb84bfa06b5e7334473d53f3ba4b",
+  "before": [
+    {
+      "name": "dusk",
+      "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
+      "programData": "FH3oEMmx2n7YMeEsrLM8dzr7FxuZLQgMacwQF6ZHdWk",
+      "deploySlot": 499930981,
+      "observedSlot": 500313232,
+      "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+      "binarySha256": "9aad6a5a10811ee819f568916461be30c2ac9448fe45e4b116252883b58dd98e",
+      "allocatedBinaryBytes": 2581712
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv",
+      "programData": "8y1gTuEN5t417sBWNbeerGFQ5v49MpRmxVBgVDatnJjv",
+      "deploySlot": 497831834,
+      "observedSlot": 500313243,
+      "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+      "binarySha256": "7903449634d559bba246d779a993b2afd27050e48692702d6714ac6f3a713858",
+      "allocatedBinaryBytes": 901880
+    }
+  ],
+  "after": [
+    {
+      "name": "dusk",
+      "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
+      "programData": "FH3oEMmx2n7YMeEsrLM8dzr7FxuZLQgMacwQF6ZHdWk",
+      "deploySlot": 500313561,
+      "observedSlot": 500313566,
+      "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+      "binarySha256": "6183b7a393bad1a8a6cafada81c9e572b99d423ce27c098c2213112fa460741c",
+      "allocatedBinaryBytes": 2581712
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv",
+      "programData": "8y1gTuEN5t417sBWNbeerGFQ5v49MpRmxVBgVDatnJjv",
+      "deploySlot": 497831834,
+      "observedSlot": 500313576,
+      "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+      "binarySha256": "7903449634d559bba246d779a993b2afd27050e48692702d6714ac6f3a713858",
+      "allocatedBinaryBytes": 901880
+    }
+  ],
+  "transaction": {
+    "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
+    "signature": "3aMs26fDYDHvbwCF8H7ikAZ2wW7eZYrFkdDen37CNCFYxMZzsoRBNBX7caWY3axw569JEh69iYukPwkZNAjJ8B2y"
+  },
+  "verified": true
+}
