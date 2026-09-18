@@ -3386,12 +3386,15 @@ dependencies = [
 name = "omnipair-grpc-server"
 version = "0.2.1"
 dependencies = [
+ "async-stream",
+ "chrono",
  "clap",
  "dotenv",
  "env_logger 0.11.10",
  "http 1.4.2",
  "log",
  "prost",
+ "reqwest",
  "serde",
  "serde_json",
  "sqlx",
@@ -3403,6 +3406,7 @@ dependencies = [
  "tonic-reflection",
  "tonic-web",
  "tower-http",
+ "uuid",
 ]
 
 [[package]]

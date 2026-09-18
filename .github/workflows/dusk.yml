@@ -9,6 +9,15 @@ concurrency:
   group: dusk-native-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  native-grpc:
+    runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: nightly-2025-09-28
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install nightly-2025-09-28 --profile minimal
+      - run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - run: cargo test --locked -p omnipair-grpc-server
   native-integration:
     runs-on: ubuntu-latest
     services:

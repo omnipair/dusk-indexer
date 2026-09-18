@@ -1,7 +1,7 @@
-use clap::Parser;
-use sqlx::PgPool;
+use {clap::Parser, sqlx::PgPool};
 
 mod db_listener;
+mod dusk_stream;
 mod grpc_server;
 
 use grpc_server::stream::SwapsUpdate;
@@ -27,8 +27,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("gRPC port: {}", args.grpc_port);
 
     // Initialize database connection
-    let database_url = std::env::var("DATABASE_URL")
-        .expect("DATABASE_URL environment variable must be set");
+    let database_url =
+        std::env::var("DATABASE_URL").expect("DATABASE_URL environment variable must be set");
 
     log::info!("Connecting to PostgreSQL...");
     let pool = PgPool::connect(&database_url).await?;
@@ -50,9 +50,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // Explicit native configuration; never infer a Dusk deployment from legacy
+    // data.
+    let native = std::env::var("DUSK_API_URL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(|url| dusk_stream::DuskStream::start(pool.clone(), &url))
+        .transpose()?;
+
     // Start gRPC server (blocking)
     log::info!("Starting gRPC server on port {}", args.grpc_port);
-    grpc_server::start_grpc_server(broadcast_tx, args.grpc_port).await?;
+    grpc_server::start_grpc_server(broadcast_tx, native, args.grpc_port).await?;
 
     Ok(())
 }

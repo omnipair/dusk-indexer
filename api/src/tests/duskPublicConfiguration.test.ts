@@ -25,7 +25,7 @@ test('public deployment and configuration routes never serialize the server RPC 
       assert.ok(layer?.route, `${path} route is registered`);
       const handle = layer.route.stack[0].handle;
       const response = await new Promise<any>((resolve, reject) => {
-        handle({} as Request, { json: resolve } as Response, reject);
+        handle({ query: {} } as Request, { json: resolve } as Response, reject);
       });
       assert.equal(response.success, true);
       assert.equal(response.data.network, 'devnet');
@@ -38,4 +38,28 @@ test('public deployment and configuration routes never serialize the server RPC 
   } finally {
     cache.clear();
   }
+});
+
+
+test('native gRPC identity observations are fresh and enforce their requested slot floor', async context => {
+  const calls: unknown[][] = [];
+  context.mock.method(deployment, 'deploymentEnvelope', async (...args: unknown[]) => {
+    calls.push(args); return { sourceSlot: args[0] };
+  });
+  context.mock.method(protocol, 'duskApiConfig', () => ({ network: 'devnet' }));
+  const handle = router.stack.find((entry: any) => entry.route?.path === '/deployment')!.route!.stack[0].handle;
+  let cacheControl: string | undefined;
+  const result = await new Promise<any>((resolve, reject) => {
+    const response = { set: (_header: string, value: string) => { cacheControl = value; return response; }, json: resolve };
+    handle({ query: { minimumSourceSlot: '500000001' } } as unknown as Request, response as unknown as Response, reject);
+  });
+  assert.deepEqual(calls, [[500000001, { fresh: true }]]);
+  assert.equal(result.deployment.sourceSlot, 500000001);
+  assert.equal(cacheControl, 'no-store');
+  for (const value of ['-1', '1.5', '1e5', '9007199254740992', ['1'], {}]) {
+    await assert.rejects(new Promise((resolve, reject) => {
+      handle({ query: { minimumSourceSlot: value } } as unknown as Request, { json: resolve } as Response, reject);
+    }), /Invalid minimum source slot/);
+  }
+  assert.equal(calls.length, 1);
 });
