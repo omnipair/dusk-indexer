@@ -107,7 +107,7 @@ router.get('/history/events', asyncRoute(async (req, res) => {
     throw Object.assign(new Error('Invalid event history version'), {status:400});
   const limit = req.query.limit === undefined ? 100 : Number(stringParameter('limit'));
   const category = stringParameter('category');
-  if (category !== undefined && category !== 'leverage-close')
+  if (category !== undefined && category !== 'leverage-close' && category !== 'activity')
     throw Object.assign(new Error('Invalid event history category'), {status:400});
   res.json(await withDeploymentRead(async deployment => {
     const data = await listEventHistory({ market: stringParameter('market'), since: stringParameter('since'), until,

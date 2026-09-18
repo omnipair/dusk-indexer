@@ -25,3 +25,11 @@ gap-free history. `historyRangeComplete` remains false.
 Validation: API build, 152 unit tests and five disposable PostgreSQL history
 integration tests, including same-slot pagination, late-backfill stability,
 version separation and owner-filter preservation.
+
+Wallet history opts into `version=2&category=activity&owner=<wallet>`. The
+owner/category pair is mandatory. Swaps select `trader`; borrowing liquidations
+select `borrower` or `liquidator`; leverage liquidations select `owner` or
+`liquidator`; the remaining supported receipts select `owner`. Filtering happens
+before keyset pagination. Cursors cannot cross owners, categories or versions.
+This feed provides native token receipts, not historical USD contributions or
+complete lifetime coverage.

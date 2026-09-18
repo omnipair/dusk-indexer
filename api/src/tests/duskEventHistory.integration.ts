@@ -19,12 +19,12 @@ async function transaction(work: (client: PoolClient) => Promise<void>) {
   try { await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ'); await work(client); }
   finally { await client.query('ROLLBACK'); client.release(); }
 }
-async function source(client: PoolClient, offset: number, options: { commitment?: string; revision?: string; omitStream?: boolean; eventName?: string; owner?: string; liquidator?: string } = {}) {
+async function source(client: PoolClient, offset: number, options: { commitment?: string; revision?: string; omitStream?: boolean; eventName?: string; owner?: string; liquidator?: string; borrower?: string; trader?: string } = {}) {
   const active = [...identity.slice(0,3),options.revision ?? identity[3]], commitment = options.commitment ?? 'finalized';
   const signature = '2'.repeat(88), path = [0, ++nextPath];
   const key = [...active, signature, path.join('.'), '0'].join('|');
   const eventName = options.eventName ?? 'SwapExecuted';
-  const payload = { market, owner: options.owner, liquidator: options.liquidator, trader: fixtureKey(121).toBase58(),asset_in_side:'0',amount_in:'9007199254740993',amount_out:'4' };
+  const payload = { market, owner: options.owner, liquidator: options.liquidator, borrower: options.borrower, trader: options.trader ?? fixtureKey(121).toBase58(),asset_in_side:'0',amount_in:'9007199254740993',amount_out:'4' };
   await client.query(`INSERT INTO dusk_ingestion.protocol_identities(cluster,program_id,idl_hash,protocol_revision)
     VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,active);
   const inserted = await client.query(`INSERT INTO dusk_ingestion.event_observations
@@ -110,4 +110,26 @@ test('closed positions filter the owner, not the liquidator, before pagination a
   await assert.rejects(readEventHistory(client,{ ...scoped,owner:other,cursor:first.pagination.nextCursor! }),/query or cursor/);
   assert.equal((await readEventHistory(client,{ ...scoped,owner:fixtureKey(123).toBase58() })).events.length,0);
   assert.equal((await readEventHistory(client,{ ...scoped,market:fixtureKey(124).toBase58() })).events.length,0);
+}));
+
+
+test('wallet activity filters native participants before pagination and preserves distinct CPI receipts', () => transaction(async client => {
+  const owner = fixtureKey(121).toBase58(), other = fixtureKey(122).toBase58();
+  const scoped = {...query, version:2 as const, owner, category:'activity' as const, limit:2};
+  await source(client,9,{eventName:'HlpOpened',owner:other});
+  await source(client,8,{eventName:'SwapExecuted',trader:other,owner}); // unrelated payload owner is not a swap participant
+  const swap = await source(client,7,{eventName:'SwapExecuted',trader:owner});
+  const seized = await source(client,6,{eventName:'BorrowPositionLiquidated',borrower:owner,liquidator:other});
+  const liquidated = await source(client,5,{eventName:'LeveragePositionLiquidated',owner:other,liquidator:owner});
+  const deposit = await source(client,4,{eventName:'HlpOpened',owner});
+  const claim = await source(client,3,{eventName:'YieldClaimed',owner});
+  const first = await readEventHistory(client,scoped);
+  assert.deepEqual(first.events.map(row=>row.eventKey),[swap,seized]);
+  const second = await readEventHistory(client,{...scoped,cursor:first.pagination.nextCursor!});
+  assert.deepEqual(second.events.map(row=>row.eventKey),[liquidated,deposit]);
+  const last = await readEventHistory(client,{...scoped,cursor:second.pagination.nextCursor!});
+  assert.deepEqual(last.events.map(row=>row.eventKey),[claim]);
+  assert.equal(last.pagination.hasMore,false);
+  for (const patch of [{owner:other},{category:'leverage-close' as const},{version:1 as const}])
+    await assert.rejects(readEventHistory(client,{...scoped,...patch,cursor:first.pagination.nextCursor!}),/query or cursor/);
 }));

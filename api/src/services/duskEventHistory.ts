@@ -17,7 +17,7 @@ export const HISTORY_EVENTS_V2 = [...HISTORY_EVENTS, 'HlpOpened', 'HlpClosed', '
 export interface EventHistoryQuery {
   version?: 1 | 2;
   owner?: string;
-  category?: 'leverage-close';
+  category?: 'leverage-close' | 'activity';
   market?: string;
   since?: string;
   until: string;
@@ -49,7 +49,8 @@ export function eventHistorySelection(query: EventHistoryQuery) {
     || !Number.isFinite(Date.parse(query.until)) || Date.parse(query.until) > Date.now()
     || query.since !== undefined && (!Number.isFinite(Date.parse(query.since)) || Date.parse(query.since) > Date.parse(query.until))) invalid();
   if ((query.owner !== undefined) !== (query.category !== undefined)
-    || query.category !== undefined && query.category !== 'leverage-close') invalid();
+    || query.category !== undefined && !['leverage-close', 'activity'].includes(query.category)
+    || query.category === 'activity' && query.version !== 2) invalid();
   for (const address of [query.market, query.owner]) {
     if (address !== undefined) {
       try { if (new PublicKey(address).toBase58() !== address) invalid(); } catch { invalid(); }
@@ -107,9 +108,17 @@ export async function readEventHistory(client: PoolClient, query: EventHistoryQu
       AND ($8::timestamptz IS NULL OR history.block_time>=$8 OR history.block_time IS NULL)
       AND (history.block_time<=$9 OR history.block_time IS NULL)
       AND ($10::bigint IS NULL OR (o.slot,c.event_key)<($10::bigint,$11::text))
-      AND ($13::text IS NULL OR o.decoded_payload->>'owner'=$13)
+      AND ($13::text IS NULL OR
+        CASE WHEN $14::text='activity' THEN
+          CASE o.event_name
+            WHEN 'SwapExecuted' THEN o.decoded_payload->>'trader'=$13
+            WHEN 'BorrowPositionLiquidated' THEN o.decoded_payload->>'borrower'=$13 OR o.decoded_payload->>'liquidator'=$13
+            WHEN 'LeveragePositionLiquidated' THEN o.decoded_payload->>'owner'=$13 OR o.decoded_payload->>'liquidator'=$13
+            ELSE o.decoded_payload->>'owner'=$13
+          END
+        ELSE o.decoded_payload->>'owner'=$13 END)
     ORDER BY o.slot DESC,c.event_key DESC LIMIT $12`,
-    [...identity, watermark, query.category === 'leverage-close' ? LEVERAGE_CLOSE_EVENTS : supportedEvents, window.market, window.since, window.until, cursor?.slot ?? null, cursor?.key ?? null, query.limit + 1, query.owner ?? null]);
+    [...identity, watermark, query.category === 'leverage-close' ? LEVERAGE_CLOSE_EVENTS : supportedEvents, window.market, window.since, window.until, cursor?.slot ?? null, cursor?.key ?? null, query.limit + 1, query.owner ?? null, query.category ?? null]);
   for (const row of rows.rows) {
     if (row.stream_count !== '1' || row.matching_count !== '1' || !(row.block_time instanceof Date)
       || !Number.isFinite(row.block_time.getTime()) || BigInt(row.slot) < BigInt(pin.historyFirstSlot))
