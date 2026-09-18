@@ -11,8 +11,11 @@ export const HISTORY_EVENTS = [
   'LeveragePositionClosed', 'LeveragePositionLiquidated',
 ] as const;
 export const LEVERAGE_CLOSE_EVENTS = ['LeveragePositionClosed', 'LeveragePositionLiquidated'] as const;
+/** Opt-in preserves v1 event coverage and cursor identity during a rolling release. */
+export const HISTORY_EVENTS_V2 = [...HISTORY_EVENTS, 'HlpOpened', 'HlpClosed', 'YieldClaimed'] as const;
 
 export interface EventHistoryQuery {
+  version?: 1 | 2;
   owner?: string;
   category?: 'leverage-close';
   market?: string;
@@ -39,6 +42,8 @@ function canonicalCursorKey(value: unknown, identity: string[]): value is string
 
 export function eventHistorySelection(query: EventHistoryQuery) {
   const pin = loadPinnedProtocol();
+  if (query.version !== undefined && query.version !== 1 && query.version !== 2) invalid();
+  const supportedEvents = query.version === 2 ? HISTORY_EVENTS_V2 : HISTORY_EVENTS;
   if (!Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 500
     || !/^[0-9a-f]{64}$/.test(query.deploymentIdentitySha256)
     || !Number.isFinite(Date.parse(query.until)) || Date.parse(query.until) > Date.now()
@@ -53,7 +58,7 @@ export function eventHistorySelection(query: EventHistoryQuery) {
   const identity = [pin.cluster, pin.dusk.programId, pin.dusk.idlCanonicalSha256, pin.revision];
   const window = { market: query.market ?? null, since: query.since ? new Date(query.since).toISOString() : null, until: new Date(query.until).toISOString(),
     ...(query.owner ? { owner: query.owner, category: query.category } : {}) };
-  const scope = createHash('sha256').update(JSON.stringify([identity, query.deploymentIdentitySha256, window, HISTORY_EVENTS])).digest('hex');
+  const scope = createHash('sha256').update(JSON.stringify([identity, query.deploymentIdentitySha256, window, supportedEvents])).digest('hex');
   let cursor: Cursor | null = null;
   if (query.cursor !== undefined) {
     try {
@@ -63,7 +68,7 @@ export function eventHistorySelection(query: EventHistoryQuery) {
         || BigInt(cursor.slot) < BigInt(pin.historyFirstSlot) || !canonicalCursorKey(cursor.key, identity)) invalid();
     } catch { invalid(); }
   }
-  return { pin, identity, window, scope, cursor };
+  return { pin, identity, window, scope, cursor, supportedEvents };
 }
 
 type Source = {
@@ -74,7 +79,7 @@ type Source = {
 
 /** The caller owns a repeatable-read transaction. Exhausting records is not proof of ingestion coverage. */
 export async function readEventHistory(client: PoolClient, query: EventHistoryQuery) {
-  const { pin, identity, window, scope, cursor } = eventHistorySelection(query);
+  const { pin, identity, window, scope, cursor, supportedEvents } = eventHistorySelection(query);
   const watermarkRead = await client.query<{ watermark: string }>(`SELECT COALESCE(max(observation_id),0)::text AS watermark
     FROM dusk_ingestion.event_observations WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4`, identity);
   const latestWatermark = watermarkRead.rows[0].watermark;
@@ -104,7 +109,7 @@ export async function readEventHistory(client: PoolClient, query: EventHistoryQu
       AND ($10::bigint IS NULL OR (o.slot,c.event_key)<($10::bigint,$11::text))
       AND ($13::text IS NULL OR o.decoded_payload->>'owner'=$13)
     ORDER BY o.slot DESC,c.event_key DESC LIMIT $12`,
-    [...identity, watermark, query.category === 'leverage-close' ? LEVERAGE_CLOSE_EVENTS : HISTORY_EVENTS, window.market, window.since, window.until, cursor?.slot ?? null, cursor?.key ?? null, query.limit + 1, query.owner ?? null]);
+    [...identity, watermark, query.category === 'leverage-close' ? LEVERAGE_CLOSE_EVENTS : supportedEvents, window.market, window.since, window.until, cursor?.slot ?? null, cursor?.key ?? null, query.limit + 1, query.owner ?? null]);
   for (const row of rows.rows) {
     if (row.stream_count !== '1' || row.matching_count !== '1' || !(row.block_time instanceof Date)
       || !Number.isFinite(row.block_time.getTime()) || BigInt(row.slot) < BigInt(pin.historyFirstSlot))
@@ -114,7 +119,7 @@ export async function readEventHistory(client: PoolClient, query: EventHistoryQu
   const hasMore = rows.rows.length > query.limit;
   const nextCursor = hasMore && last ? Buffer.from(JSON.stringify({ scope, watermark, slot: last.slot, key: last.event_key })).toString('base64url') : null;
   return {
-    schemaVersion: 'dusk-event-history.v1', window,
+    schemaVersion: query.version === 2 ? 'dusk-event-history.v2' : 'dusk-event-history.v1', window,
     events: page.map(row => ({ eventKey: row.event_key, observationId: row.observation_id,
       eventName: row.event_name, market: row.payload.market, signature: row.signature,
       slot: row.slot, blockhash: row.blockhash, instructionPath: row.instruction_path,
@@ -123,7 +128,7 @@ export async function readEventHistory(client: PoolClient, query: EventHistoryQu
     coverage: { cluster: pin.cluster, programId: pin.dusk.programId, idlSha256: pin.dusk.idlCanonicalSha256,
       protocolRevision: pin.revision, deploymentIdentitySha256: query.deploymentIdentitySha256,
       commitment: 'finalized', basis: 'canonical-program-events.v1', historyRangeComplete: false,
-      supportedEvents: HISTORY_EVENTS, firstSlot: String(pin.historyFirstSlot) },
+      supportedEvents, firstSlot: String(pin.historyFirstSlot) },
   };
 }
 

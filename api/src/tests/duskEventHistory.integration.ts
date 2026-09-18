@@ -63,6 +63,25 @@ test('a missing event-time record and conflicting stream timestamps fail instead
   await source(client,0,{ omitStream:true });
   await assert.rejects(readEventHistory(client,query),/FINALIZED_INVARIANT/);
 }));
+
+test('v2 reads finalized hLP and yield events while v1 and position-close queries remain unchanged', () => transaction(async client => {
+  const owner = fixtureKey(121).toBase58();
+  await source(client,4,{eventName:'HlpOpened',owner});
+  await source(client,3,{eventName:'HlpClosed',owner});
+  await source(client,2,{eventName:'YieldClaimed',owner});
+  await source(client,1,{eventName:'LiquidityAdded',owner});
+  await source(client,5,{eventName:'HlpOpened',owner,commitment:'confirmed'});
+  const v1 = await readEventHistory(client,{...query,limit:100});
+  assert.deepEqual(v1.events.map(row=>row.eventName),['LiquidityAdded']);
+  assert.equal(v1.schemaVersion,'dusk-event-history.v1');
+  const first = await readEventHistory(client,{...query,version:2});
+  assert.equal(first.schemaVersion,'dusk-event-history.v2');
+  assert.deepEqual(first.events.map(row=>row.eventName),['HlpOpened','HlpClosed']);
+  const next = await readEventHistory(client,{...query,version:2,cursor:first.pagination.nextCursor!});
+  assert.deepEqual(next.events.map(row=>row.eventName),['YieldClaimed','LiquidityAdded']);
+  assert.equal(next.coverage.historyRangeComplete,false);
+  assert.equal((await readEventHistory(client,{...query,version:2,owner,category:'leverage-close'})).events.length,0);
+}));
 test('contradictory event-time records halt the selected page', () => transaction(async client => {
   const key = await source(client,0);
   await client.query(`INSERT INTO dusk_ingestion.event_stream
