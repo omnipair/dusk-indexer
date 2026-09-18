@@ -20,5 +20,6 @@
 038_dusk_capture_deployments.sql
 039_dusk_history_scans.sql
 040_dusk_order_history.sql
+041_dusk_yield_checkpoint_replay_indexes.sql
 041_dusk_quote_series.sql
 042_dusk_event_history_performance.sql
