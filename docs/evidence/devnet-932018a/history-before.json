@@ -1,0 +1,14 @@
+[
+  {
+    "protocol_revision": "devnet-2026-09-13-9973dea",
+    "count": "18423",
+    "min": "498123832",
+    "max": "499930634"
+  },
+  {
+    "protocol_revision": "devnet-2026-09-18-1fa72d3",
+    "count": "3856",
+    "min": "499937838",
+    "max": "500313328"
+  }
+]

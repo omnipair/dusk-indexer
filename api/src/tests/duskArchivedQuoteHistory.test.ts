@@ -28,3 +28,17 @@ test('archive decoding rejects rewritten source identity or bytes',()=>{
     assert.throws(()=>verifyStoredPriceCapture({...row,raw_preview:changed},{pin,coder}),/hash mismatch/);
   }
 });
+
+
+test('the previous hLP release replays original stored observations through its own IDL',()=>{
+  const root=resolve(__dirname,'../../../protocol/archive/devnet-2026-09-18-1fa72d3');
+  const pin=loadProtocolAt(root);
+  const coder=new BorshCoder(JSON.parse(readFileSync(resolve(root,'idl/dusk.json'),'utf8')) as Idl);
+  const captures=JSON.parse(readFileSync(resolve(__dirname,'../../src/tests/fixtures/archived-quote-captures-1fa72d3.json'),'utf8'));
+  assert.equal(captures.length,2);
+  for(const raw of captures) {
+    const row={...raw,slot:String(raw.slot),market_slot:String(raw.market_slot),capture_id:String(raw.capture_id),block_time:new Date(raw.block_time),observed_at:new Date(raw.observed_at),raw_market:Buffer.from(raw.raw_market,'base64'),raw_preview:Buffer.from(raw.raw_preview,'base64')};
+    assert.ok(BigInt(verifyStoredPriceCapture(row,{pin,coder}).projected.spotPrices.base)>0n);
+    assert.throws(()=>verifyStoredPriceCapture(row),/active protocol identity/);
+  }
+});

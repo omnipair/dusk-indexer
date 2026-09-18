@@ -10,13 +10,18 @@ import { verifyStoredPriceCapture } from './duskPrices';
 import { QuoteHistoryQuery, quoteHistoryState, readQuoteHistory } from './duskQuoteHistory';
 
 export const ARCHIVED_QUOTE_REVISION = 'devnet-2026-09-13-9973dea';
-const ACTIVE_REVISION = 'devnet-2026-09-18-1fa72d3';
+export const PREVIOUS_QUOTE_REVISION = 'devnet-2026-09-18-1fa72d3';
+const ACTIVE_REVISION = 'devnet-2026-09-18-932018a';
+const successors: Record<string, string> = {
+  [ARCHIVED_QUOTE_REVISION]: PREVIOUS_QUOTE_REVISION,
+  [PREVIOUS_QUOTE_REVISION]: ACTIVE_REVISION,
+};
 
 /** Historical display only. Each release keeps its original tuple, envelope,
  * IDL decoder and immutable source bytes; no rows are copied or relabelled. */
 export async function readArchivedQuoteHistory(client: PoolClient,query: QuoteHistoryQuery, revision: string) {
   const active = loadPinnedProtocol();
-  if (revision !== ARCHIVED_QUOTE_REVISION || active.revision !== ACTIVE_REVISION)
+  if (!Object.prototype.hasOwnProperty.call(successors, revision) || active.revision !== ACTIVE_REVISION)
     throw Object.assign(new Error('Unsupported quote archive'),{status:400});
   const root = resolve(process.env.DUSK_PROTOCOL_DIR?.trim() || resolve(__dirname,'../../../protocol'),'archive',revision);
   const pin = loadProtocolAt(root);
@@ -24,7 +29,14 @@ export async function readArchivedQuoteHistory(client: PoolClient,query: QuoteHi
     || pin.dusk.programId !== active.dusk.programId || pin.leverageDelegate.programId !== active.leverageDelegate.programId)
     throw new Error('Quote archive is not part of this deployment lineage');
   const coder = new BorshCoder(JSON.parse(readFileSync(resolve(root,'idl/dusk.json'),'utf8')) as Idl);
-  const lastSlot = active.dusk.deployment.deploySlot-1;
+  const successor = successors[revision] === active.revision ? active
+    : loadProtocolAt(resolve(root, '..', successors[revision]));
+  if (successor.revision !== successors[revision] || successor.cluster !== pin.cluster
+    || successor.genesisHash !== pin.genesisHash || successor.dusk.programId !== pin.dusk.programId
+    || successor.leverageDelegate.programId !== pin.leverageDelegate.programId
+    || successor.dusk.deployment.deploySlot <= pin.dusk.deployment.deploySlot)
+    throw new Error('Invalid quote archive successor');
+  const lastSlot = successor.dusk.deployment.deploySlot-1;
 
   const saved = await client.query<{envelope:DuskDeploymentEnvelope}>(`SELECT envelope FROM dusk_ingestion.capture_deployments
     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 ORDER BY deployment_identity_sha256 LIMIT 1`,
