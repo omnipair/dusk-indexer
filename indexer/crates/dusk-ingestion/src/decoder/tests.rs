@@ -252,7 +252,7 @@ fn registry_classifies_every_pinned_event_and_instruction() {
             .event_names(PinnedProgram::LeverageDelegate)
             .is_empty()
     );
-    assert_eq!(decoder.instruction_names(PinnedProgram::Dusk).len(), 61);
+    assert_eq!(decoder.instruction_names(PinnedProgram::Dusk).len(), 62);
     let actual_delegate: BTreeSet<_> = decoder
         .instruction_names(PinnedProgram::LeverageDelegate)
         .into_iter()
@@ -267,7 +267,7 @@ fn anchor_tags_and_every_idl_discriminator_are_cryptographically_verified() {
     assert_eq!(anchor_event_digest, ANCHOR_EVENT_CPI_TAG);
     let decoder = decoder();
     assert_eq!(decoder.dusk.events.len(), 38);
-    assert_eq!(decoder.dusk.instructions.len(), 61);
+    assert_eq!(decoder.dusk.instructions.len(), 62);
     assert_eq!(decoder.delegate.events.len(), 0);
     assert_eq!(decoder.delegate.instructions.len(), 13);
 

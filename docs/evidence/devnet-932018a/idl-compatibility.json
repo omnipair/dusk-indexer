@@ -1,0 +1,8 @@
+{
+  "oldCanonicalIdl": "848ebcdc20ad3cc0fa7e433b3a3ec3a9a62bc981b1a50567f8d670127e0492d9",
+  "newCanonicalIdl": "f913d04e43342f7936665d0736a958315f3e57a8633c19fa88a920217f7ad542",
+  "existingLayoutsUnchanged": true,
+  "addedInstructions": [
+    "preview_hlp_deposit_capacity"
+  ]
+}
