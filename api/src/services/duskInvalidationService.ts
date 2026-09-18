@@ -6,7 +6,7 @@ import { parseDuskReadChange, publishDuskReadChange } from './duskChangeBus';
 
 /** Domain prefixes used by the preserved controllers and native readers. */
 export const DUSK_INVALIDATION_PREFIXES = [
-  'dusk:deployment_surface:', 'dusk:market_health:', 'pools:enriched:',
+  'dusk:deployment_surface:', 'dusk:market_snapshot:', 'dusk:market_health:', 'pools:enriched:',
   'pool_info_', 'pair_state_', 'swaps:', 'liquidity:', 'lending:', 'activity:',
   'portfolio:', 'lp-earnings:', 'positions:', 'liq_positions:',
   'portfolio_snapshots:', 'portfolio_lp_earnings:', 'dusk:history:',

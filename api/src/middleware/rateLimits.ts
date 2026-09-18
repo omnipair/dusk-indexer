@@ -27,16 +27,18 @@ export function createApiRateLimits(env: NodeJS.ProcessEnv = process.env) {
     keyGenerator: apiRateLimitKey,
     message: { success: false, error: 'Too many requests, please try again later.' },
   };
-  // Every native data read brackets its payload with identity checks. Keep
-  // their bounded allowance separate so those checks cannot exhaust the data
-  // budget and make an ordinary connected app appear empty.
+  // A trading session revalidates several active read families on 2s pushes,
+  // with two fresh identity checks per read (including RPC-only previews).
+  // Allow two full trading sessions behind one IP plus startup/recovery bursts.
+  // These are still bounded per-client budgets, independently configurable;
+  // identity checks must not consume the financial-data allowance.
   return [
     rateLimit({ ...shared,
-      limit: positiveLimit(env.RATE_LIMIT_MAX, 100, 'RATE_LIMIT_MAX'),
+      limit: positiveLimit(env.RATE_LIMIT_MAX, 1200, 'RATE_LIMIT_MAX'),
       skip: identityRead,
     }),
     rateLimit({ ...shared,
-      limit: positiveLimit(env.RATE_LIMIT_IDENTITY_MAX, 600, 'RATE_LIMIT_IDENTITY_MAX'),
+      limit: positiveLimit(env.RATE_LIMIT_IDENTITY_MAX, 3600, 'RATE_LIMIT_IDENTITY_MAX'),
       skip: (req) => !identityRead(req),
     }),
   ];
