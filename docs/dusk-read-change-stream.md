@@ -17,8 +17,8 @@ These are cache refresh hints. They contain no reserves, price, balance, swap
 amounts or transaction authority. Consumers reload through their normal native
 API/RPC boundaries and cache by the complete deployment identity. A notice slot
 is a lower bound for the frame's envelope, not proof that every projection is
-complete through that slot. Periodic query refresh remains the fallback for
-projection lag and missed notifications.
+complete through that slot. Server ticks trigger verified revalidation during quiet periods; reconnects
+resynchronize missed notifications.
 
 The existing PostgreSQL listener accepts only notifications matching the active
 cluster/program/IDL/revision and a safe integer slot in the pinned release
@@ -31,7 +31,7 @@ after its transaction commits.
 The first frame is `resync`, sequence 1, with a new UUID. Subsequent frames have
 consecutive sequence numbers. Initial/resume resync and heartbeat frames may
 have slot 0; a change has a nonzero source slot. A heartbeat always has slot 0.
-Change bursts coalesce to the highest slot within a 250 ms batch window. Heartbeats are scheduled every fifteen seconds. Every frame observes
+Change bursts coalesce to the highest slot within a 250 ms batch window. Heartbeats are scheduled every two seconds. Every frame observes
 the configured on-chain deployment and must retain the connection's full
 identity. An upgrade, database-listener failure or observation failure closes
 the connection. A reconnected client receives a resync; `Last-Event-ID` is not a
@@ -64,7 +64,8 @@ a connection. Requests are bounded to ten seconds and 16 KiB. Concurrent
 clients share observations for at most 250 ms without changing their evidence
 timestamps. There are at most 128 native subscribers.
 
-The native gRPC heartbeat is five seconds. A watch channel bounds queued work
+The native gRPC heartbeat uses a fixed two-second server cadence, skipping
+missed ticks when observations are slow. A watch channel bounds queued work
 to the latest notice; per-client frames have consecutive sequence numbers.
 `PgListener::try_recv` makes reconnect gaps explicit: a listener failure or new
 listener generation closes old client streams, and the next connection starts
@@ -77,14 +78,14 @@ falls back to a legacy swap stream or a different deployment. Clients validate
 the complete envelope, age, sequence and source-slot bounds before scheduling
 reads. Reconnects use 1–30 second backoff and a 35-second silence watchdog.
 
-VOB, Depth, entry orders, prices and trade/history queries refresh independently
-on a notice with 250 ms burst coalescing. A slow query cannot hold up another
-feed, and a notification received during a read causes one follow-up read
-without cancelling the request. Book/order/history query polling is disabled
-while connected. Heartbeats revalidate aging observations rather than extending
-their freshness; disconnected streams use bounded fallback reads. Prices retain
-their adaptive source-freshness deadline refresh as an additional guard. Other
-native surfaces retain the existing ten-second refresh coalescing.
+All Leverage feeds use the shared stream: prices, VOB/Depth, market and wallet
+orders, positions, PnL/liquidation previews, entry previews, balances, exposure,
+market statistics and chart/trade/order/closed-position history. A notice schedules
+independent reads with 250 ms burst coalescing. Regular server ticks drive due
+revalidation (two seconds for live financial state, ten for history/aggregates).
+Slow reads finish before queued notices refresh them. Client market-data polling
+is disabled even during disconnects; reconnection/resync restores updates and old
+evidence retains its original expiry. Deployment verification remains independent.
 
 ### Rollout
 

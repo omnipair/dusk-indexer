@@ -64,7 +64,7 @@ test('a connection starts with resync and heartbeats retain monotonic sequence',
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: 100_000 });
   const h = harness(); t.after(h.close); await h.open();
   assert.equal(h.res.frames[0].data.kind, 'resync');
-  t.mock.timers.tick(15_000); await flush(); t.mock.timers.tick(0); await flush();
+  t.mock.timers.tick(2_000); await flush(); t.mock.timers.tick(0); await flush();
   assert.equal(h.res.frames[1].data.kind, 'heartbeat');
   assert.equal(h.res.frames[1].data.sequence, 2);
   assert.equal(h.res.frames[1].data.streamId, h.res.frames[0].data.streamId);
@@ -125,7 +125,7 @@ test('a timed-out heartbeat closes the stream and ignores its late observation',
   const h = harness(); t.after(h.close); await h.open();
   let release!: (value: DuskDeploymentEnvelope) => void;
   h.deps.envelope = () => new Promise(resolve => { release = resolve; });
-  t.mock.timers.tick(15_000); await flush(); t.mock.timers.tick(0); await flush();
+  t.mock.timers.tick(2_000); await flush(); t.mock.timers.tick(0); await flush();
   t.mock.timers.tick(DUSK_CHANGE_STREAM_OBSERVATION_TIMEOUT_MS); await flush();
   assert.equal(h.res.writableEnded, true); assert.equal(h.subscribed(), false);
   release(h.res.frames[0].deployment); await flush();

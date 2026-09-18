@@ -4,7 +4,7 @@ import { deploymentEnvelope, DuskDeploymentEnvelope } from './duskDeploymentServ
 import { subscribeDuskReadChanges, DuskReadChange } from './duskChangeBus';
 import { duskInvalidationListenerReady, startDuskInvalidationListener } from './duskInvalidationService';
 
-export const DUSK_CHANGE_STREAM_HEARTBEAT_MS = 15_000;
+export const DUSK_CHANGE_STREAM_HEARTBEAT_MS = 2_000;
 // Coalesce a burst within a slot without delaying the trading UI by seconds.
 // The existing single-flight observation and backpressure bounds still apply.
 export const DUSK_CHANGE_STREAM_BATCH_MS = 250;

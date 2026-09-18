@@ -12,7 +12,7 @@ use {
 
 const PIN: &str = include_str!("../../protocol/protocol.lock.json");
 const BATCH: Duration = Duration::from_millis(250);
-const HEARTBEAT: Duration = Duration::from_secs(5);
+const HEARTBEAT: Duration = Duration::from_secs(2);
 type Updates = Pin<Box<dyn Stream<Item = Result<DuskChange, Status>> + Send>>;
 #[derive(Clone, Copy, Debug, Default)]
 struct Notice {
@@ -263,6 +263,10 @@ impl DuskStream {
             let mut sequence = 0u64;
             let mut identity = Value::Null;
             let mut kind = "resync";
+            // Fixed server cadence, including quiet markets. Slow observations
+            // skip missed ticks instead of building a catch-up burst.
+            let mut ticks = tokio::time::interval_at(tokio::time::Instant::now() + HEARTBEAT, HEARTBEAT);
+            ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 if kind == "heartbeat" && receiver.has_changed().unwrap_or(true) { kind = "change"; }
                 let notice = *receiver.borrow_and_update();
@@ -279,7 +283,7 @@ impl DuskStream {
                     "sequence": sequence, "kind": kind, "sourceSlot": slot } }).to_string() };
                 kind = tokio::select! {
                     result = receiver.changed() => result.map(|_| "change").map_err(|_| Status::unavailable("Native listener closed")),
-                    _ = tokio::time::sleep(HEARTBEAT) => Ok("heartbeat"),
+                    _ = ticks.tick() => Ok("heartbeat"),
                 }?;
                 // A watch channel coalesces to the highest slot, never buffers unbounded payloads.
                 if kind == "change" { tokio::time::sleep(BATCH).await; }
