@@ -69,7 +69,7 @@ jobs:
               tests+=("$test")
             fi
           done
-          node --test "${tests[@]}"
+          node --test --test-concurrency=1 "${tests[@]}"
       - name: Capture the attested devnet discovery fixtures
         env:
           DUSK_RPC_URL: ${{ secrets.DUSK_DEVNET_RPC_URL }}
@@ -133,7 +133,7 @@ jobs:
       - name: Native history, cache, and chart database regressions
         working-directory: api
         run: >-
-          node --test
+          node --test --test-concurrency=1
           dist/tests/duskEventHistory.integration.js
           dist/tests/duskQuoteHistory.integration.js
           dist/tests/duskArchivedQuoteHistory.integration.js
