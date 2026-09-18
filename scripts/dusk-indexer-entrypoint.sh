@@ -30,7 +30,7 @@ SQL
 while IFS= read -r name; do
   [[ -z "$name" || "$name" == \#* ]] && continue
   if [[ ! "$name" =~ ^[0-9]{3}_[a-zA-Z0-9_]+\.sql$ || ! -f "$migration_dir/$name" ]]; then
-    echo 'Invalid migration manifest entry' >&2; exit 1
+    printf 'Invalid or missing migration manifest entry: %s\n' "$name" >&2; exit 1
   fi
   if command -v sha256sum >/dev/null; then
     checksum=$(sha256sum "$migration_dir/$name" | cut -d ' ' -f 1)

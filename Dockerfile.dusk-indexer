@@ -24,6 +24,11 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 COPY . .
+# Validate the filtered build context before compiling or publishing an image.
+RUN while IFS= read -r name; do \
+      case "$name" in ''|\#*) continue ;; esac; \
+      test -f "database/migrations/$name" || { echo "Missing packaged migration: $name" >&2; exit 1; }; \
+    done < database/dusk-migrations.txt
 RUN cargo build --locked --release -p dusk-indexer-daemon
 
 FROM debian:bookworm-slim
