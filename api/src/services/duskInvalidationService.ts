@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg';
 import pool from '../config/database';
 import { cache } from '../utils/cache';
+import { clearEventHistoryCache } from './duskEventHistory';
 import { parseDuskReadChange, publishDuskReadChange } from './duskChangeBus';
 
 /** Domain prefixes used by the preserved controllers and native readers. */
@@ -14,6 +15,7 @@ export const DUSK_INVALIDATION_PREFIXES = [
 export function invalidateDuskReadCaches(payload: string | undefined): void {
   const notice = parseDuskReadChange(payload);
   if (!notice) return;
+  clearEventHistoryCache();
   for (const prefix of DUSK_INVALIDATION_PREFIXES) cache.deleteByPrefix(prefix);
   publishDuskReadChange(notice);
 }
@@ -34,6 +36,7 @@ async function connect(): Promise<void> {
     released = true;
     if (connection === client) connection = undefined;
     client.release(true);
+    clearEventHistoryCache();
     publishDuskReadChange({ kind: 'unavailable', sourceSlot: 0 });
     scheduleReconnect();
   };
@@ -49,6 +52,7 @@ async function connect(): Promise<void> {
     if (stopped || released) { disconnect(); return; }
     connection = client;
     // Notifications missed during downtime cannot be replayed.
+    clearEventHistoryCache();
     for (const prefix of DUSK_INVALIDATION_PREFIXES) cache.deleteByPrefix(prefix);
     publishDuskReadChange({ kind: 'resync', sourceSlot: 0 });
   } catch (error) { disconnect(); throw error; }

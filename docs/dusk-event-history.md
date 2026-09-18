@@ -22,9 +22,8 @@ amounts and net recipient credit. These events are not swaps and must not be
 counted in trading volume. They do not establish historical cost basis or prove
 gap-free history. `historyRangeComplete` remains false.
 
-Validation: API build, 152 unit tests and five disposable PostgreSQL history
-integration tests, including same-slot pagination, late-backfill stability,
-version separation and owner-filter preservation.
+Validation and reproducible query-plan evidence are recorded in
+[the native-history performance report](evidence/native-history-performance-2026-09-18/README.md).
 
 Wallet history opts into `version=2&category=activity&owner=<wallet>`. The
 owner/category pair is mandatory. Swaps select `trader`; borrowing liquidations
@@ -33,3 +32,27 @@ select `borrower` or `liquidator`; leverage liquidations select `owner` or
 before keyset pagination. Cursors cannot cross owners, categories or versions.
 This feed provides native token receipts, not historical USD contributions or
 complete lifetime coverage.
+
+
+## Performance and deployment
+
+Migration `042_dusk_event_history_performance.sql` must run before the API is
+updated. It adds participant/market/keyset indexes and transactionally maintained
+revision and conflict state. The API checks that state before every cached read,
+including when database notifications are missed. Page queries retain their
+canonical and stream-evidence checks; cache hits still pass the route's fresh
+before/after deployment verification. A conflict remains a halt even outside the
+selected page.
+
+Owner and liquidator branches are separately filtered and bounded before merging.
+The cache is limited to 128 pages, uses 20-second initial-page and 60-second
+cursor-page TTLs, and coalesces identical concurrent reads. Keys include the
+full deployment/selection scope, committed revision, watermark, cursor and limit.
+Notifications and listener reconnects invalidate pages immediately. Failures and
+invalidated in-flight results cannot repopulate the cache. Keep `until` fixed for
+cursor pagination and repeated reads of the same history window.
+
+Shared performance metrics expose named state/page query timings and cache
+hit/miss/coalesced counts. `npm run benchmark:native-activity` measures the native
+HTTP endpoint; the opt-in disposable DB mode also compares the previous reader,
+asserts identical results, and captures sparse/dense-wallet query plans.

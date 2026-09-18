@@ -26,6 +26,7 @@
     "backfill-lp-earnings": "npm run build && node dist/scripts/backfillLpEarnings.js",
     "repair-lp-valuations": "npm run build && node dist/scripts/repairLpValuations.js",
     "backfill-portfolio-snapshots": "npm run build && node dist/scripts/backfillPortfolioSnapshots.js",
+    "benchmark:native-activity": "npm run build && node dist/scripts/benchmarkNativeEventHistory.js",
     "benchmark:activity": "npm run build && node dist/scripts/benchmarkActivityHistory.js",
     "check:portfolio-snapshots": "npm run build && node dist/scripts/checkPortfolioSnapshots.js",
     "generate:cmc-ucids": "node scripts/generate-cmc-unified-cryptoasset-map.mjs",

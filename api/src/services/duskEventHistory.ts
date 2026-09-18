@@ -3,6 +3,9 @@ import { PublicKey } from '@solana/web3.js';
 import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
+import { timedClientQuery } from '../utils/dbQuery';
+import { perfMetrics } from '../utils/perfMetrics';
+import { QuoteCache } from './duskQuoteCache';
 
 export const HISTORY_EVENTS = [
   'SwapExecuted', 'LiquidityAdded', 'LiquidityRemoved',
@@ -78,47 +81,75 @@ type Source = {
   payload: Record<string, unknown>; block_time: Date; stream_count: string; matching_count: string;
 };
 
-/** The caller owns a repeatable-read transaction. Exhausting records is not proof of ingestion coverage. */
-export async function readEventHistory(client: PoolClient, query: EventHistoryQuery) {
-  const { pin, identity, window, scope, cursor, supportedEvents } = eventHistorySelection(query);
-  const watermarkRead = await client.query<{ watermark: string }>(`SELECT COALESCE(max(observation_id),0)::text AS watermark
-    FROM dusk_ingestion.event_observations WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4`, identity);
-  const latestWatermark = watermarkRead.rows[0].watermark;
-  if (cursor && BigInt(cursor.watermark) > BigInt(latestWatermark)) invalid();
-  const watermark = cursor?.watermark ?? latestWatermark;
-  // A finalized contradiction is a halt, even when the contradictory row is
-  // outside the requested page. Never pick a winner from arrival order.
-  const conflict = await client.query(`SELECT 1 FROM dusk_ingestion.event_observations
-    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND commitment='finalized'
-    GROUP BY event_key HAVING count(DISTINCT (blockhash,slot,payload_hash,event_name))>1 LIMIT 1`, identity);
-  if (conflict.rowCount) throw new Error('FINALIZED_INVARIANT: contradictory event-history observations');
-  const rows = await client.query<Source>(`SELECT c.event_key,o.observation_id::text,o.event_name,
-      o.transaction_signature AS signature,o.slot::text,o.blockhash,o.instruction_path,o.event_ordinal,
+export type EventHistoryState = { revision: string; watermark: string; conflicted: boolean };
+
+export async function eventHistoryState(client: PoolClient, identity: string[]): Promise<EventHistoryState> {
+  const result = await timedClientQuery<EventHistoryState>(client, 'dusk.history.events.state',
+    `SELECT revision::text,conflicted,COALESCE((
+      SELECT observation_id FROM dusk_ingestion.event_observations
+      WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
+      ORDER BY observation_id DESC LIMIT 1),0)::text AS watermark
+      FROM dusk_ingestion.event_history_state
+      WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4`, identity);
+  const state = result.rows[0] ?? {revision:'0',watermark:'0',conflicted:false};
+  if (state.conflicted) throw new Error('FINALIZED_INVARIANT: contradictory event-history observations');
+  return state;
+}
+
+/** Indexable actor and liquidator branches; one receipt even when both roles match. */
+export function buildEventHistoryQuery(query: EventHistoryQuery, watermark: string) {
+  const {identity,window,cursor,supportedEvents} = eventHistorySelection(query);
+  const params: unknown[] = [...identity, watermark,
+    query.category === 'leverage-close' ? LEVERAGE_CLOSE_EVENTS : supportedEvents,
+    window.since,window.until,query.limit+1];
+  const bind = (value: unknown) => {params.push(value);return `$${params.length}`;};
+  const conditions = [
+    `o.cluster=$1 AND o.program_id=$2 AND o.idl_hash=$3 AND o.protocol_revision=$4`,
+    `o.commitment='finalized' AND o.observation_id<=$5::bigint AND o.event_name=ANY($6::text[])`,
+  ];
+  if (window.market) conditions.push(`o.decoded_payload->>'market'=${bind(window.market)}`);
+  if (cursor) conditions.push(`(o.slot,o.event_key)<(${bind(cursor.slot)}::bigint,${bind(cursor.key)}::text)`);
+  const actor = 'dusk_ingestion.event_history_actor(o.event_name,o.decoded_payload)';
+  const where = conditions.join(' AND ');
+  const branches = [where];
+  if (query.owner) {
+    const owner = bind(query.owner);
+    branches[0] += ` AND ${actor}=${owner}`;
+    if (query.category === 'activity') branches.push(
+      `${where} AND o.event_name IN ('BorrowPositionLiquidated','LeveragePositionLiquidated')
+        AND o.decoded_payload->>'liquidator'=${owner} AND ${actor} IS DISTINCT FROM o.decoded_payload->>'liquidator'`);
+  }
+  const select = (filter: string) => `SELECT c.event_key,o.observation_id::text,o.event_name,
+      o.transaction_signature AS signature,o.slot::text,o.slot AS sort_slot,o.blockhash,o.instruction_path,o.event_ordinal,
       o.decoded_payload AS payload,history.block_time,history.stream_count,history.matching_count
-    FROM dusk_ingestion.canonical_events c
-    JOIN dusk_ingestion.event_observations o USING(cluster,program_id,idl_hash,protocol_revision,event_key,observation_id)
+    FROM dusk_ingestion.event_observations o
+    JOIN dusk_ingestion.canonical_events c USING(cluster,program_id,idl_hash,protocol_revision,event_key,observation_id)
     LEFT JOIN LATERAL (SELECT min(s.time) AS block_time,count(*)::text AS stream_count,
       count(*) FILTER(WHERE s.event_name=o.event_name AND s.slot=o.slot AND s.transaction_signature=o.transaction_signature
         AND s.market=o.decoded_payload->>'market' AND s.payload=o.decoded_payload)::text AS matching_count
       FROM dusk_ingestion.event_stream s WHERE
         (s.cluster,s.program_id,s.idl_hash,s.protocol_revision,s.event_key)=(c.cluster,c.program_id,c.idl_hash,c.protocol_revision,c.event_key)) history ON true
-    WHERE c.cluster=$1 AND c.program_id=$2 AND c.idl_hash=$3 AND c.protocol_revision=$4
-      AND c.commitment='finalized' AND o.commitment='finalized' AND o.observation_id<=$5::bigint
-      AND o.event_name=ANY($6::text[]) AND ($7::text IS NULL OR o.decoded_payload->>'market'=$7)
-      AND ($8::timestamptz IS NULL OR history.block_time>=$8 OR history.block_time IS NULL)
-      AND (history.block_time<=$9 OR history.block_time IS NULL)
-      AND ($10::bigint IS NULL OR (o.slot,c.event_key)<($10::bigint,$11::text))
-      AND ($13::text IS NULL OR
-        CASE WHEN $14::text='activity' THEN
-          CASE o.event_name
-            WHEN 'SwapExecuted' THEN o.decoded_payload->>'trader'=$13
-            WHEN 'BorrowPositionLiquidated' THEN o.decoded_payload->>'borrower'=$13 OR o.decoded_payload->>'liquidator'=$13
-            WHEN 'LeveragePositionLiquidated' THEN o.decoded_payload->>'owner'=$13 OR o.decoded_payload->>'liquidator'=$13
-            ELSE o.decoded_payload->>'owner'=$13
-          END
-        ELSE o.decoded_payload->>'owner'=$13 END)
-    ORDER BY o.slot DESC,c.event_key DESC LIMIT $12`,
-    [...identity, watermark, query.category === 'leverage-close' ? LEVERAGE_CLOSE_EVENTS : supportedEvents, window.market, window.since, window.until, cursor?.slot ?? null, cursor?.key ?? null, query.limit + 1, query.owner ?? null, query.category ?? null]);
+    WHERE ${filter} AND c.commitment='finalized'
+      AND ($7::timestamptz IS NULL OR history.block_time>=$7 OR history.block_time IS NULL)
+      AND (history.block_time<=$8 OR history.block_time IS NULL)
+    ORDER BY o.slot DESC,o.event_key DESC LIMIT $9`;
+  // Limit only after canonical/time filtering, separately for each indexed role.
+  // The outer merge sorts at most 2*(limit+1) rows, even for very active wallets.
+  return {params,text:branches.length===1 ? select(branches[0]) :
+    `SELECT * FROM (${branches.map(filter=>`(${select(filter)})`).join(' UNION ALL ')}) candidates
+      ORDER BY sort_slot DESC,event_key DESC LIMIT $9`};
+
+}
+
+/** The caller owns a repeatable-read transaction. Exhausting records is not proof of ingestion coverage. */
+export async function readEventHistory(client: PoolClient, query: EventHistoryQuery, state?: EventHistoryState) {
+  const { pin, identity, window, scope, cursor, supportedEvents } = eventHistorySelection(query);
+  const current = state ?? await eventHistoryState(client,identity);
+  if (current.conflicted) throw new Error('FINALIZED_INVARIANT: contradictory event-history observations');
+  if (cursor && BigInt(cursor.watermark) > BigInt(current.watermark)) invalid();
+  const watermark = cursor?.watermark ?? current.watermark;
+  const sql = buildEventHistoryQuery(query,watermark);
+  const rows = await timedClientQuery<Source>(client,'dusk.history.events.page',sql.text,sql.params);
   for (const row of rows.rows) {
     if (row.stream_count !== '1' || row.matching_count !== '1' || !(row.block_time instanceof Date)
       || !Number.isFinite(row.block_time.getTime()) || BigInt(row.slot) < BigInt(pin.historyFirstSlot))
@@ -141,13 +172,34 @@ export async function readEventHistory(client: PoolClient, query: EventHistoryQu
   };
 }
 
+type EventHistory = Awaited<ReturnType<typeof readEventHistory>>;
+const historyCache = new QuoteCache<EventHistory>(128,20_000);
+export function clearEventHistoryCache() { historyCache.clear(); }
+
+/** A DB revision is always checked before a hit, even after a missed NOTIFY.
+ * Only payloads are cached: the route still verifies deployment before/after.
+ * The caller must own a repeatable-read, read-only transaction. */
+export async function readCachedEventHistory(client: PoolClient,query: EventHistoryQuery) {
+  const selection = eventHistorySelection(query);
+  const state = await eventHistoryState(client,selection.identity);
+  const key = JSON.stringify([selection.scope,state.revision,state.watermark,query.limit,query.cursor ?? null]);
+  const {data,cacheStatus} = await historyCache.getWithMeta(key,
+    () => readEventHistory(client,query,state),query.cursor ? 60_000 : 20_000);
+  perfMetrics.recordCacheLookup('dusk.history.events',cacheStatus);
+  return data;
+}
+
 export async function listEventHistory(query: EventHistoryQuery) {
+  eventHistorySelection(query);
   const client = await pool.connect();
   try {
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-    const data = await readEventHistory(client, query);
+    const data = await readCachedEventHistory(client,query);
     await client.query('COMMIT');
     return data;
-  } catch (error) { await client.query('ROLLBACK'); throw error; }
-  finally { client.release(); }
+  } catch (error) {
+    clearEventHistoryCache();
+    await client.query('ROLLBACK');
+    throw error;
+  } finally { client.release(); }
 }

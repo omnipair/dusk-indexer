@@ -21,3 +21,4 @@
 039_dusk_history_scans.sql
 040_dusk_order_history.sql
 041_dusk_quote_series.sql
+042_dusk_event_history_performance.sql

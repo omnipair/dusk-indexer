@@ -4,7 +4,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
-import { readEventHistory } from '../services/duskEventHistory';
+import { clearEventHistoryCache, eventHistoryState, readCachedEventHistory, readEventHistory } from '../services/duskEventHistory';
+import { invalidateDuskReadCaches } from '../services/duskInvalidationService';
 import { fixtureKey } from './duskYieldCheckpointFixtures';
 
 if (process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS !== 'true' || !process.env.DATABASE_URL)
@@ -16,6 +17,7 @@ const query = { market, since: '2026-09-01T00:00:00Z', until: '2026-09-02T00:00:
 let nextPath = 0;
 async function transaction(work: (client: PoolClient) => Promise<void>) {
   const client = await pool.connect();
+  clearEventHistoryCache();
   try { await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ'); await work(client); }
   finally { await client.query('ROLLBACK'); client.release(); }
 }
@@ -132,4 +134,137 @@ test('wallet activity filters native participants before pagination and preserve
   assert.equal(last.pagination.hasMore,false);
   for (const patch of [{owner:other},{category:'leverage-close' as const},{version:1 as const}])
     await assert.rejects(readEventHistory(client,{...scoped,...patch,cursor:first.pagination.nextCursor!}),/query or cursor/);
+}));
+
+
+test('a wallet holding both liquidation roles receives a single receipt', () => transaction(async client => {
+  const owner = fixtureKey(121).toBase58();
+  const borrowed = await source(client,2,{eventName:'BorrowPositionLiquidated',borrower:owner,liquidator:owner});
+  const leveraged = await source(client,1,{eventName:'LeveragePositionLiquidated',owner,liquidator:owner});
+  const data = await readEventHistory(client,{...query,version:2,category:'activity',owner,limit:10});
+  assert.deepEqual(data.events.map(row=>row.eventKey),[borrowed,leveraged]);
+}));
+
+test('cache hits observe late replay and stream corruption without a notification listener', () => transaction(async client => {
+  const key = await source(client,1);
+  const first = await readCachedEventHistory(client,query);
+  assert.equal(await readCachedEventHistory(client,query),first);
+  await source(client,0);
+  const replayed = await readCachedEventHistory(client,query);
+  assert.notEqual(replayed,first);
+  assert.equal(replayed.events.length,2);
+  await client.query(`UPDATE dusk_ingestion.event_stream SET payload=payload||'{"invalid":true}'::jsonb WHERE event_key=$1`,[key]);
+  await assert.rejects(readCachedEventHistory(client,query),/FINALIZED_INVARIANT/);
+}));
+
+test('a conflict outside the requested page invalidates a warm cache and remains a halt', () => transaction(async client => {
+  await source(client,2);
+  const old = await source(client,0);
+  await readCachedEventHistory(client,{...query,limit:1});
+  await client.query(`INSERT INTO dusk_ingestion.event_observations
+    (cluster,program_id,idl_hash,protocol_revision,event_key,transaction_signature,instruction_path,event_ordinal,
+     slot,blockhash,commitment,event_name,payload_hash,decoded_payload,source)
+    SELECT cluster,program_id,idl_hash,protocol_revision,event_key,transaction_signature,instruction_path,event_ordinal,
+     slot,'contradictory-finalized-bank',commitment,event_name,payload_hash,decoded_payload,source
+    FROM dusk_ingestion.event_observations WHERE event_key=$1`,[old]);
+  await assert.rejects(readCachedEventHistory(client,{...query,limit:1}),/FINALIZED_INVARIANT/);
+  await client.query(`DELETE FROM dusk_ingestion.event_observations WHERE event_key=$1 AND blockhash='contradictory-finalized-bank'`,[old]);
+  await assert.rejects(eventHistoryState(client,identity),/FINALIZED_INVARIANT/);
+}));
+
+test('simultaneous identical history reads share the page query but each checks the DB revision', () => transaction(async client => {
+  await source(client,0);
+  let pages=0,states=0;
+  const tracked = new Proxy(client,{get(target,property) {
+    if (property !== 'query') return Reflect.get(target,property);
+    return async (text: string,params: unknown[]) => {
+      if (text.includes('FROM dusk_ingestion.event_history_state')) states++;
+      if (text.includes('history.stream_count')) {
+        pages++;
+        await new Promise(resolve=>setTimeout(resolve,30));
+      }
+      return target.query(text,params);
+    };
+  }});
+  const results = await Promise.all(Array.from({length:12},()=>readCachedEventHistory(tracked,query)));
+  assert.equal(pages,1); assert.equal(states,12);
+  for (const result of results) assert.equal(result,results[0]);
+}));
+
+test('finalizing an existing observation advances the revision and discovers contradictions', () => transaction(async client => {
+  const key = await source(client,0,{commitment:'confirmed'});
+  const before = await eventHistoryState(client,identity);
+  await client.query(`UPDATE dusk_ingestion.event_observations SET commitment='finalized' WHERE event_key=$1`,[key]);
+  const after = await eventHistoryState(client,identity);
+  assert.ok(BigInt(after.revision)>BigInt(before.revision));
+  await client.query(`UPDATE dusk_ingestion.canonical_events SET commitment='finalized' WHERE event_key=$1`,[key]);
+  assert.equal((await readEventHistory(client,query)).events.length,1);
+}));
+
+test('concurrent finalized writers serialize conflict detection before cached reads can accept it', async () => {
+  const concurrentIdentity=[...identity.slice(0,3),'history-race-'+randomUUID()];
+  const key=[...concurrentIdentity,'7'.repeat(88),'0','0'].join('|');
+  const a=await pool.connect(),b=await pool.connect();
+  let second:Promise<unknown>|undefined;
+  const insert=`INSERT INTO dusk_ingestion.event_observations
+    (cluster,program_id,idl_hash,protocol_revision,event_key,transaction_signature,instruction_path,event_ordinal,
+     slot,blockhash,commitment,event_name,payload_hash,decoded_payload,source)
+    VALUES($1,$2,$3,$4,$5,$6,ARRAY[0],0,$7,$8,'finalized','SwapExecuted',$9,'{}','history-conflict-race')`;
+  const values=[...concurrentIdentity,key,'7'.repeat(88),slot];
+  try {
+    await pool.query(`INSERT INTO dusk_ingestion.protocol_identities(cluster,program_id,idl_hash,protocol_revision)
+      VALUES($1,$2,$3,$4)`,concurrentIdentity);
+    await a.query('BEGIN');await b.query('BEGIN');
+    const pid=(await b.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+    await a.query(insert,[...values,'history-race-a','a'.repeat(64)]);
+    second=b.query(insert,[...values,'history-race-b','b'.repeat(64)]);
+    // A real DB lock, rather than a timer-based assumption about scheduling.
+    let blocked=false;
+    for(let i=0;i<100;i++) {
+      blocked=(await pool.query('SELECT cardinality(pg_blocking_pids($1))>0 AS blocked',[pid])).rows[0].blocked;
+      if(blocked) break;
+      await new Promise(resolve=>setTimeout(resolve,10));
+    }
+    assert.equal(blocked,true);
+    await a.query('COMMIT');await second;
+    await assert.rejects(eventHistoryState(b,concurrentIdentity),/FINALIZED_INVARIANT/);
+    await b.query('ROLLBACK');
+    assert.equal((await eventHistoryState(a,concurrentIdentity)).conflicted,false,'Rolled-back writes do not poison committed state');
+  } finally {
+    await a.query('ROLLBACK');
+    await second?.catch(()=>undefined);
+    await b.query('ROLLBACK');
+    await pool.query(`DELETE FROM dusk_ingestion.event_observations WHERE protocol_revision=$1`,[concurrentIdentity[3]]);
+    await pool.query(`DELETE FROM dusk_ingestion.event_history_finalized_witnesses WHERE protocol_revision=$1`,[concurrentIdentity[3]]);
+    await pool.query(`DELETE FROM dusk_ingestion.event_history_state WHERE protocol_revision=$1`,[concurrentIdentity[3]]);
+    await pool.query(`DELETE FROM dusk_ingestion.protocol_identities WHERE protocol_revision=$1`,[concurrentIdentity[3]]);
+    a.release();b.release();
+  }
+});
+
+test('role limits are applied after time and canonical filters, so excluded recent rows cannot hide a wallet page', () => transaction(async client => {
+  const owner=fixtureKey(121).toBase58(),other=fixtureKey(122).toBase58();
+  const expected=[await source(client,2,{eventName:'HlpOpened',owner}),
+    await source(client,1,{eventName:'LeveragePositionLiquidated',owner:other,liquidator:owner})];
+  for(let i=3;i<9;i++) {
+    const key=await source(client,i,{eventName:'LeveragePositionLiquidated',owner,liquidator:other});
+    await client.query(`UPDATE dusk_ingestion.event_stream SET time='2026-09-03T00:00:00Z' WHERE event_key=$1`,[key]);
+    const uncanonical=await source(client,i+10,{eventName:'HlpOpened',owner,commitment:'confirmed'});
+    await client.query(`UPDATE dusk_ingestion.event_observations SET commitment='finalized' WHERE event_key=$1`,[uncanonical]);
+  }
+  const data=await readEventHistory(client,{...query,version:2,owner,category:'activity'});
+  assert.deepEqual(data.events.map(row=>row.eventKey),expected);
+  assert.equal(data.pagination.hasMore,false);
+}));
+
+
+test('matching native notifications invalidate a cached page immediately', () => transaction(async client => {
+  await source(client,0);
+  const first=await readCachedEventHistory(client,query);
+  const notice={cluster:pin.cluster,programId:pin.dusk.programId,idlHash:pin.dusk.idlCanonicalSha256,
+    protocolRevision:pin.revision,slot};
+  invalidateDuskReadCaches(JSON.stringify({...notice,protocolRevision:'other-release'}));
+  assert.equal(await readCachedEventHistory(client,query),first);
+  invalidateDuskReadCaches(JSON.stringify(notice));
+  assert.notEqual(await readCachedEventHistory(client,query),first);
 }));
