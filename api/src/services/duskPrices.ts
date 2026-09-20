@@ -1,3 +1,4 @@
+import { externalPriceTargets, fetchExternalPrices, storeExternalPrices } from './duskExternalPrices';
 import { BorshCoder, Idl } from '@coral-xyz/anchor';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { readFileSync } from 'node:fs';
@@ -180,7 +181,7 @@ export async function captureDuskPrices() {
     const market = entry.pubkey.toBase58();
     if (seen.has(market) || entry.account.executable || entry.account.owner.toBase58() !== pin.dusk.programId) throw new Error('Invalid complete market price discovery');
     seen.add(market);
-    priceMarketBindings(active[1],market,decoder.accounts.decode('Market',entry.account.data));
+    const bound = priceMarketBindings(active[1],market,decoder.accounts.decode('Market',entry.account.data));
     const snapshot = await captureMarketSimulation(market,discovery.context.slot);
     if (snapshot.deploymentIdentitySha256 !== initial.deploymentIdentitySha256) throw new Error('Deployment changed after price discovery');
     if (!snapshot.preview) { unavailableMarkets.push(market); continue; }
@@ -188,9 +189,12 @@ export async function captureDuskPrices() {
       blockhash: snapshot.blockhash,blockTime: snapshot.blockTime,observedAt: snapshot.observedAt,
       deploymentIdentitySha256: snapshot.deploymentIdentitySha256,rawMarket: snapshot.marketAccount.data,rawPreview: snapshot.preview,
       marketStateBasis: 'simulation-post-state',references };
+    const external = await fetchExternalPrices(externalPriceTargets(pin.cluster,references,[
+      { mint: bound.baseMint,decimals: bound.baseDecimals },{ mint: bound.quoteMint,decimals: bound.quoteDecimals } ]));
     const client = await pool.connect();
     try {
       await storeCaptureDeployment(client,discoveredIdentity);
+      await storeExternalPrices(client,external,source.deploymentIdentitySha256);
       const captureId = await storePriceCapture(client,source);
       await client.query('BEGIN'); priced += await projectPriceCapture(client,captureId); await client.query('COMMIT'); captured++;
     } catch (error) { await client.query('ROLLBACK'); throw error; }

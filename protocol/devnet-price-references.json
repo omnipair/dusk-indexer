@@ -9,6 +9,7 @@
     {
       "mint": "So11111111111111111111111111111111111111112",
       "priceUsd": "180",
+      "externalMint": "So11111111111111111111111111111111111111112",
       "note": "Existing webapp devnet display reference; a configured demo value, not an external SOL market quote."
     },
     {

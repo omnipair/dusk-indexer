@@ -2,7 +2,7 @@ import { PublicKey } from '@solana/web3.js';
 import { canonicalJson, DuskPinnedProtocol, sha256 } from '../config/duskProtocol';
 import { unsigned } from './duskYieldAccounting';
 
-export interface PriceReference { mint: string; priceUsd: string; note: string }
+export interface PriceReference { mint: string; priceUsd: string; note: string; externalMint?: string }
 export interface PriceReferences {
   schemaVersion: 'dusk-price-references.v1'; cluster: string; programId: string; idlSha256: string; protocolRevision: string;
   effectiveFrom: string; references: PriceReference[];
@@ -35,7 +35,7 @@ export function parsePriceReferences(value: unknown, pin: DuskPinnedProtocol): P
     if (seen.has(mint)) throw new Error('Duplicate configured price reference');
     seen.add(mint);
     if (typeof ref.note !== 'string' || !ref.note.trim()) throw new Error('Configured prices require a source note');
-    return { mint,priceUsd,note: ref.note.trim() };
+    return { mint,priceUsd,note: ref.note.trim(),...(ref.externalMint === undefined ? {} : { externalMint: key(ref.externalMint) }) };
   }).sort((a,b) => a.mint.localeCompare(b.mint));
   return { schemaVersion: 'dusk-price-references.v1',cluster: pin.cluster,programId: pin.dusk.programId,
     idlSha256: pin.dusk.idlCanonicalSha256,protocolRevision: pin.revision,effectiveFrom: new Date(data.effectiveFrom).toISOString(),references };
@@ -87,6 +87,7 @@ export function projectMarketPrices(input: {
     if (!own && !other) continue;
     // The program's curve-aware quote already normalizes token decimals.
     const spotPriceNad = BigInt(spotPrices[side]);
+    if (!own && spotPriceNad === 0n) continue;
     const reference = own ?? other!;
     prices.push({ mint,decimals: side === 'base' ? bound.baseDecimals : bound.quoteDecimals,
       priceUsd: own ? own.priceUsd : multiplyPriceRatio(reference.priceUsd,spotPriceNad,1_000_000_000n),
