@@ -74,6 +74,7 @@ database/
 !database/migrations/041_dusk_yield_checkpoint_replay_indexes.sql
 !database/migrations/041_dusk_quote_series.sql
 !database/migrations/042_dusk_event_history_performance.sql
+!database/migrations/043_dusk_live_snapshots.sql
 !database/dusk-migrations.txt
 
 # Other language artifacts

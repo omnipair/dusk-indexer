@@ -23,3 +23,4 @@
 041_dusk_yield_checkpoint_replay_indexes.sql
 041_dusk_quote_series.sql
 042_dusk_event_history_performance.sql
+043_dusk_live_snapshots.sql

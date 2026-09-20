@@ -1,3 +1,4 @@
+import { stopDuskSnapshotStreams } from './services/duskSnapshotStream';
 import app from './app';
 import pool from './config/database';
 import { startActivityInvalidationListener, stopActivityInvalidationListener } from './services/activityInvalidationService';
@@ -15,6 +16,7 @@ let server: any;
 const gracefulShutdown = async (signal: string) => {
   console.log(`${signal} received, shutting down gracefully`);
   perfMetrics.stopReporting();
+  stopDuskSnapshotStreams();
   await stopActivityInvalidationListener();
   await stopPoolInvalidationListener();
   await stopDuskInvalidationListener();

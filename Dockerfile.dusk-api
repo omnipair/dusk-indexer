@@ -9,6 +9,7 @@ FROM node:20-bookworm-slim AS builder
 
 WORKDIR /app/api
 COPY api/package.json api/package-lock.json ./
+COPY api/vendor ./vendor
 RUN npm ci
 
 COPY api/tsconfig.json ./
@@ -23,6 +24,7 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app/api
 COPY api/package.json api/package-lock.json ./
+COPY api/vendor ./vendor
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=builder /app/api/dist ./dist
