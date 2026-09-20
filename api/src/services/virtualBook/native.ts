@@ -18,16 +18,16 @@ const importSdk = new Function(
   "return import('@omnipair/dusk-sdk')",
 ) as () => Promise<Sdk>;
 let sdkExports: Sdk | undefined;
-export let DEFAULT_READONLY_PUBLIC_KEY: PublicKey;
-export const decodePreviewMarketReturnData: Sdk['decodePreviewMarketReturnData'] =
-  (...args) => sdkExports!.decodePreviewMarketReturnData(...args);
+// Native ESM imports are initialized once by createVirtualBookRuntime.
 export const decodePreviewSwapReturnData: Sdk['decodePreviewSwapReturnData'] = (
   ...args
 ) => sdkExports!.decodePreviewSwapReturnData(...args);
-export const deriveMarketAddress: Sdk['deriveMarketAddress'] = (...args) =>
-  sdkExports!.deriveMarketAddress(...args);
-export const deriveFutarchyAuthorityAddress: Sdk['deriveFutarchyAuthorityAddress'] =
-  (...args) => sdkExports!.deriveFutarchyAuthorityAddress(...args);
+export const decodeDuskVirtualBookBatch: Sdk['decodeDuskVirtualBookBatch'] = (
+  ...args
+) => sdkExports!.decodeDuskVirtualBookBatch(...args);
+export const projectDuskVirtualBook: Sdk['projectDuskVirtualBook'] = (
+  ...args
+) => sdkExports!.projectDuskVirtualBook(...args);
 export const minimumDuskReadSlot = (deployment: DuskDeploymentEnvelope) =>
   Math.max(
     Number(deployment.programDataSlot),
@@ -47,11 +47,11 @@ export async function createVirtualBookRuntime(
   if (sha256(canonicalJson(sdkModule.IDL)) !== pin.dusk.idlCanonicalSha256)
     throw new Error('VOB SDK IDL differs from the pinned deployment');
   sdkExports = sdkModule;
-  DEFAULT_READONLY_PUBLIC_KEY = sdkExports.DEFAULT_READONLY_PUBLIC_KEY;
+
   const provider = new AnchorProvider(
     connection,
     {
-      publicKey: DEFAULT_READONLY_PUBLIC_KEY,
+      publicKey: sdkExports.DEFAULT_READONLY_PUBLIC_KEY,
       signTransaction: async () => {
         throw new Error('Display previews never sign');
       },
@@ -61,7 +61,7 @@ export async function createVirtualBookRuntime(
     },
     { commitment: 'confirmed' },
   );
-  const sdk = new sdkExports.Dusk({
+  const dusk = new sdkExports.Dusk({
     provider,
     programId: new PublicKey(pin.dusk.programId),
   });
@@ -78,7 +78,7 @@ export async function createVirtualBookRuntime(
       return { observedSlot: observed.sourceSlot };
     },
   };
-  return { sdk, boundary };
+  return { dusk, boundary };
 }
 export async function boundedDuskRpcRead<T>(
   read: () => Promise<T>,
@@ -102,22 +102,4 @@ export async function boundedDuskRpcRead<T>(
     clearTimeout(timer);
     signal?.removeEventListener('abort', cancel);
   }
-}
-export function duskRawUnitsFromDecimal(
-  value: string,
-  decimals: number,
-): bigint {
-  if (
-    !Number.isInteger(decimals) ||
-    decimals < 0 ||
-    decimals > 255 ||
-    !/^(0|[1-9][0-9]*)(\.[0-9]*)?$/.test(value)
-  )
-    throw new Error('Invalid VOB amount');
-  const [whole, fraction = ''] = value.split('.');
-  if (fraction.length > decimals) throw new Error('Invalid VOB precision');
-  return (
-    BigInt(whole) * 10n ** BigInt(decimals) +
-    BigInt(fraction.padEnd(decimals, '0') || '0')
-  );
 }

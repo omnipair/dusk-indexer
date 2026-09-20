@@ -69,19 +69,19 @@ export async function captureVirtualBook(
     runtime = undefined;
     throw error;
   });
-  const { sdk, boundary } = await runtime;
+  const { dusk, boundary } = await runtime;
   const controller = new AbortController();
   const deadline = setTimeout(() => controller.abort(), 15_000);
   try {
     const snapshot = await readDuskVirtualBook({
-      sdk,
+      dusk,
       market: selection.market,
       deployment,
       boundary,
       signal: controller.signal,
     });
     const quoted = await readDuskVirtualBookQuotes({
-      sdk,
+      dusk,
       snapshot,
       boundary,
       groupingBps: selection.groupingBps,
