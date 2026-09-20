@@ -1,3 +1,4 @@
+import { openVirtualBookStream } from '../../services/duskSnapshotStream';
 /**
  * Dusk read API.
  *
@@ -47,6 +48,8 @@ import { provenance, renderMetrics } from '../../utils/metrics';
 import { PublicKey } from '@solana/web3.js';
 
 const router = Router();
+
+router.get('/virtual-book/:market/stream', asyncRoute(openVirtualBookStream));
 
 router.get('/changes', asyncRoute(openDuskChangeStream));
 

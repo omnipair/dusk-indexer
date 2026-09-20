@@ -174,3 +174,6 @@ dist
 
 # gRPC Reflection service files
 /indexer/proto/*.bin
+
+# Reviewed native SDK vendored for shared display simulations.
+!api/vendor/dusk-sdk-2.9.0.tgz
