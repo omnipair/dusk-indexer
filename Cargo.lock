@@ -3387,6 +3387,7 @@ name = "omnipair-grpc-server"
 version = "0.2.1"
 dependencies = [
  "async-stream",
+ "bs58",
  "chrono",
  "clap",
  "dotenv",

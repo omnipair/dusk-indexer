@@ -48,7 +48,7 @@ fn notice_slot(payload: &str, pin: &Value) -> Option<u64> {
         .then_some(slot)
 }
 
-fn valid_envelope(value: &Value, pin: &Value, floor: u64, now: i64) -> bool {
+pub(crate) fn valid_envelope(value: &Value, pin: &Value, floor: u64, now: i64) -> bool {
     let d = &value["deployment"];
     let slot = d["sourceSlot"].as_u64().unwrap_or(0);
     let age = d["observedAt"]
@@ -244,6 +244,17 @@ impl DuskStream {
             return Err(fail());
         }
         Ok(value["deployment"].clone())
+    }
+    pub fn subscribe_payloads(
+        &self,
+        request: crate::grpc_server::stream::DuskPayloadsRequest,
+    ) -> Result<crate::dusk_payloads::Updates, Status> {
+        crate::dusk_payloads::subscribe(
+            self.endpoint.clone(),
+            self.pin.clone(),
+            self.capacity.clone(),
+            request,
+        )
     }
     pub fn subscribe(&self) -> Result<Updates, Status> {
         let permit = self

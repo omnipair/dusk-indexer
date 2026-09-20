@@ -1,32 +1,34 @@
 import { randomUUID } from 'node:crypto';
 import type { Request, Response } from 'express';
-import {
-  currentVirtualBook,
-  VirtualBookEnvelope,
-  VirtualBookSelection,
-  virtualBookSelection,
-} from './duskVirtualBook';
+import { currentVirtualBook, virtualBookSelection } from './duskVirtualBook';
 
-interface Subscriber {
-  snapshot(value: VirtualBookEnvelope): void;
+interface SnapshotValue {
+  data: { revision: string; expiresAt: number };
+  deployment: { deploymentIdentitySha256: string };
+}
+interface Subscriber<T> {
+  snapshot(value: T): void;
   unavailable(): void;
 }
 /** One producer per selection per API process. PostgreSQL coalesces replicas.
  * Disconnected topics stop work; slow clients disconnect instead of queuing.
  */
-export function createVirtualBookHub(read = currentVirtualBook) {
+export function createDuskSnapshotHub<S, T extends SnapshotValue>(
+  read: (selection: S) => Promise<T | null>,
+  keyFor: (selection: S) => string,
+) {
   const topics = new Map<
     string,
     {
-      listeners: Set<Subscriber>;
+      listeners: Set<Subscriber<T>>;
       timer?: ReturnType<typeof setTimeout>;
-      latest?: VirtualBookEnvelope;
+      latest?: T;
       stopped: boolean;
     }
   >();
   return {
-    subscribe(selection: VirtualBookSelection, subscriber: Subscriber) {
-      const key = `${selection.market}:${selection.groupingBps}`;
+    subscribe(selection: S, subscriber: Subscriber<T>) {
+      const key = keyFor(selection);
       let topic = topics.get(key);
       if (!topic) {
         if (topics.size >= 16)
@@ -48,7 +50,18 @@ export function createVirtualBookHub(read = currentVirtualBook) {
               for (const listener of [...state.listeners])
                 listener.snapshot(snapshot);
             }
-          } catch {
+          } catch (error) {
+            // Never log RPC URLs, credentials, request bodies or raw errors.
+            const reason =
+              error instanceof Error &&
+              error.message ===
+                'Depth curve does not match the current reserves'
+                ? 'curve-reserve-mismatch'
+                : 'capture-failed';
+            console.warn('Dusk shared snapshot unavailable', {
+              topic: key,
+              reason,
+            });
             for (const listener of [...state.listeners]) listener.unavailable();
           } finally {
             if (!state.stopped)
@@ -81,6 +94,12 @@ export function createVirtualBookHub(read = currentVirtualBook) {
     },
   };
 }
+export function createVirtualBookHub(read = currentVirtualBook) {
+  return createDuskSnapshotHub(
+    read,
+    (selection) => `${selection.market}:${selection.groupingBps}`,
+  );
+}
 const hub = createVirtualBookHub();
 const active = new Set<() => void>();
 export function stopDuskSnapshotStreams() {
@@ -91,10 +110,21 @@ export async function openVirtualBookStream(
   res: Response,
   source: Pick<typeof hub, 'subscribe'> = hub,
 ): Promise<void> {
-  const selection = virtualBookSelection(
-    req.params.market,
-    req.query.groupingBps ?? '10',
+  return openDuskSnapshotStream(
+    req,
+    res,
+    virtualBookSelection(req.params.market, req.query.groupingBps ?? '10'),
+    'dusk-virtual-book',
+    source,
   );
+}
+export async function openDuskSnapshotStream<S, T extends SnapshotValue>(
+  req: Request,
+  res: Response,
+  selection: S,
+  eventName: string,
+  source: { subscribe(selection: S, subscriber: Subscriber<T>): () => void },
+): Promise<void> {
   if (active.size >= 128)
     throw Object.assign(new Error('Snapshot stream capacity reached'), {
       status: 429,
@@ -125,14 +155,12 @@ export async function openVirtualBookStream(
   active.add(close);
   req.on('aborted', close);
   res.on('close', close);
-  res
-    .status(200)
-    .set({
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    });
+  res.status(200).set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
   res.flushHeaders();
   try {
     unsubscribe = source.subscribe(selection, {
@@ -149,9 +177,7 @@ export async function openVirtualBookStream(
           data: { ...value.data, streamId, sequence: ++sequence },
         };
         if (
-          !res.write(
-            `event: dusk-virtual-book\ndata: ${JSON.stringify(frame)}\n\n`,
-          )
+          !res.write(`event: ${eventName}\ndata: ${JSON.stringify(frame)}\n\n`)
         )
           close();
       },

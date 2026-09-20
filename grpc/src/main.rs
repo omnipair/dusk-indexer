@@ -1,6 +1,7 @@
 use {clap::Parser, sqlx::PgPool};
 
 mod db_listener;
+mod dusk_payloads;
 mod dusk_stream;
 mod grpc_server;
 

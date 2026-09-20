@@ -28,6 +28,7 @@ tower-http = { version = "0.5", features = ["cors"] }
 sqlx = { version = "0.6", features = ["runtime-tokio-rustls", "postgres"] }
 
 # Serialization
+bs58 = { workspace = true, features = ["alloc"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 
