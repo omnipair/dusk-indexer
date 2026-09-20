@@ -33,7 +33,7 @@ test('all leverage actions count their embedded receipt; a margin-only update ha
     assert.equal(parsed.amounts.filter((entry) => entry.metric === 'volume').length,1);
     assert.equal(parsed.amounts.find((entry) => entry.metric === 'swapFees')?.amount,'130000');
   }
-  assert.deepEqual(parse('LeveragePositionUpdated',{ ...activityPayload('LeveragePositionUpdated'),swap: null }).amounts,[]);
+  assert.deepEqual(parse('LeveragePositionUpdated',{ ...activityPayload('LeveragePositionUpdated'),swap: null,borrowed_amount: '0' }).amounts,[]);
   for (const name of ['LeveragePositionOpened','LeveragePositionClosed','LeveragePositionLiquidated'])
     assert.throws(() => parse(name,{ ...activityPayload(name),swap: null }),/payload/);
 });

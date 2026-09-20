@@ -42,3 +42,10 @@ test('a preview from a different bank cannot price this snapshot',() => {
   assert.throws(() => projectMarketPrices({ pin,marketAddress: source.market,market: decoder.accounts.decode('Market',Buffer.from(source.rawMarket,'base64')),
     preview: decoder.types.decode('MarketPreview',Buffer.from(source.rawPreview,'base64')),slot: source.slot+1,blockTime: source.blockTime,references: source.references }),/observed bank/);
 });
+
+test('an unavailable on-chain quote does not erase the known reference asset',() => {
+  const result = project(priceFixture({ quoteNad: 0n }));
+  assert.equal(result.prices.length,1);
+  assert.equal(result.prices[0].mint,priceFixture().quoteMint);
+  assert.equal(result.prices[0].priceUsd,'1');
+});

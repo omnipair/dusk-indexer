@@ -11,7 +11,7 @@ export const activityReceipt = () => ({
   retained_fee: '10000',compounded_fee: '50000',claimable_fee_credit: '69000',
 });
 export function activityPayload(name = 'SwapExecuted',slot = activitySlot): Record<string,unknown> {
-  const common = { market: activityMarket,metadata: { market: activityMarket,slot: String(slot),signer: fixtureKey(121).toBase58() } };
+  const common = { market: activityMarket,collateral_asset_mint: priceFixture().baseMint,collateral_amount: '3000000000',collateral_sold: '1000000000',collateral_delta: '1000000000',borrowed_amount: '2000000',debt_delta: '2000000',metadata: { market: activityMarket,slot: String(slot),signer: fixtureKey(121).toBase58() } };
   if (name === 'SwapExecuted') return { market: activityMarket,trader: fixtureKey(121).toBase58(),...activityReceipt() };
   if (name === 'HlpClosed' || name === 'HlpTerminalLiquidated')
     return { ...common,asset_side: '0',target_asset: '0',interest_paid: '250000' };

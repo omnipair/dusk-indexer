@@ -12,6 +12,7 @@ import { priceFixture } from './duskPriceFixtures';
 import { fixtureKey } from './duskYieldCheckpointFixtures';
 import { storeCaptureDeployment } from '../services/duskHistoryDeployment';
 import { historyDeploymentFixture } from './duskHistoryDeploymentFixtures';
+import { storeExternalPrices } from '../services/duskExternalPrices';
 
 if (process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS !== 'true' || !process.env.DATABASE_URL)
   throw new Error('Set DUSK_ALLOW_DISPOSABLE_DB_TESTS=true and a disposable DATABASE_URL');
@@ -116,6 +117,41 @@ test('leverage swaps, margin-only changes and reported interest are distinct eco
   assert.equal(view.metrics.swapFees.observedUsd,'0.39');
   assert.equal(view.metrics.reportedInterest.observedUsd,'1.25');
   assert.equal(view.metrics.reportedInterest.observations,5);
+}));
+
+test('product totals survive replay and distinguish exposure, new credit and repayments',() => transaction(async client => {
+  await priced(client);
+  await source(client,{ name: 'LeveragePositionOpened' });
+  await source(client,{ name: 'MarketDebtUpdated' });
+  await source(client,{ name: 'MarketDebtUpdated',fields: { ...activityPayload('MarketDebtUpdated'),debt_delta: '-2000000' } });
+  await source(client,{ name: 'LeveragePositionUpdated',fields: { ...activityPayload('LeveragePositionUpdated'),swap: null,borrowed_amount: '0' } });
+  assert.equal(await projectMarketActivityBatch(client),4);
+  assert.equal(await projectMarketActivityBatch(client),0);
+  const view = await readMarketActivity(client,query);
+  assert.equal(view.volumes.spot.observedUsd,'5');
+  assert.equal(view.volumes.credit.observedUsd,'2');
+  assert.equal(view.volumes.margin.observedUsd,'7.5');
+  assert.equal(view.volumes.credit.observations,1);
+  assert.equal(view.volumes.margin.observations,1);
+  assert.deepEqual(view.markets[0].volumes,view.volumes);
+  assert.equal(view.volumes.spot.estimatedObservations,1);
+}));
+
+test('event-time provider prices precede native references without leaking future or other-deployment observations',() => transaction(async client => {
+  await priced(client); await source(client); await projectMarketActivityBatch(client);
+  assert.equal((await readMarketActivity(client,query)).volumes.spot.observedUsd,'5');
+  const quote = { mint: priceFixture().baseMint,externalMint: priceFixture().baseMint,decimals: 9,
+    priceUsd: '3',provider: 'jupiter' as const,sourceTime: '2026-09-02T00:00:06Z',observedAt: '2026-09-02T00:00:06Z' };
+  await storeExternalPrices(client,[quote],'c'.repeat(64));
+  assert.equal((await readMarketActivity(client,query)).volumes.spot.observedUsd,'5');
+  await storeExternalPrices(client,[{ ...quote,sourceTime: '2026-09-02T00:00:07Z',observedAt: '2026-09-02T00:00:07Z' }],query.deploymentIdentitySha256);
+  const pricedView = await readMarketActivity(client,query);
+  assert.equal(pricedView.volumes.spot.observedUsd,'6');
+  assert.equal(pricedView.volumes.spot.estimatedObservations,1); // Mainnet price mapped into devnet.
+  await storeExternalPrices(client,[{ ...quote,priceUsd: '99',sourceTime: '2026-09-02T00:00:11Z',observedAt: '2026-09-02T00:00:11Z' }],query.deploymentIdentitySha256);
+  const historical = await readMarketActivity(client,query);
+  assert.equal(historical.volumes.spot.observedUsd,'6');
+  assert.equal(historical.coverage.selectionHash,pricedView.coverage.selectionHash);
 }));
 
 test('missing event-time evidence reports a backlog and a bad source rolls back the entire batch',() => transaction(async (client) => {
