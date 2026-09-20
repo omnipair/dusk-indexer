@@ -16,7 +16,8 @@ pub const FILE_DESCRIPTOR_SET: &[u8] = tonic::include_file_descriptor_set!("stre
 
 use {
     stream::{
-        DuskChange, DuskChangesRequest, SwapsRequest, SwapsUpdate,
+        DuskChange, DuskChangesRequest, DuskPayload, DuskPayloadsRequest, SwapsRequest,
+        SwapsUpdate,
         stream_service_server::{StreamService, StreamServiceServer},
     },
     tonic_web::GrpcWebLayer,
@@ -127,6 +128,22 @@ impl SwapStreamServer {
 
 #[tonic::async_trait]
 impl StreamService for SwapStreamServer {
+    type StreamDuskPayloadsStream = std::pin::Pin<
+        Box<dyn tokio_stream::Stream<Item = Result<DuskPayload, Status>> + Send + 'static>,
+    >;
+    async fn stream_dusk_payloads(
+        &self,
+        request: Request<DuskPayloadsRequest>,
+    ) -> Result<Response<Self::StreamDuskPayloadsStream>, Status> {
+        let native = self
+            .native
+            .as_ref()
+            .ok_or_else(|| Status::unavailable("Native Dusk streaming is not configured"))?;
+        Ok(Response::new(
+            native.subscribe_payloads(request.into_inner())?,
+        ))
+    }
+
     type StreamDuskChangesStream = std::pin::Pin<
         Box<dyn tokio_stream::Stream<Item = Result<DuskChange, Status>> + Send + 'static>,
     >;

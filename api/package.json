@@ -52,7 +52,7 @@
     "@metaplex-foundation/umi": "^1.4.1",
     "@metaplex-foundation/umi-bundle-defaults": "^1.4.1",
     "@metaplex-foundation/umi-web3js-adapters": "^1.4.1",
-    "@omnipair/dusk-sdk": "file:vendor/dusk-sdk-2.10.0.tgz",
+    "@omnipair/dusk-sdk": "file:vendor/dusk-sdk-2.10.1-devnet.20260918.tgz",
     "@omnipair/program-interface": "^0.10.0",
     "@solana/spl-token": "^0.4.14",
     "@solana/spl-token-metadata": "0.1.6",

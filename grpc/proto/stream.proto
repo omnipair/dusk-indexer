@@ -6,6 +6,7 @@ service StreamService {
   rpc StreamSwapsUpdates(SwapsRequest) returns (stream SwapsUpdate);
   // Native Dusk notifications; never decode them as legacy reserve-ratio swaps.
   rpc StreamDuskChanges(DuskChangesRequest) returns (stream DuskChange);
+  rpc StreamDuskPayloads(DuskPayloadsRequest) returns (stream DuskPayload);
 }
 
 message SwapsRequest {}
@@ -33,5 +34,16 @@ message SwapsUpdate {
 message DuskChangesRequest {}
 message DuskChange {
   // Exact dusk-read-change.v1 success envelope, checked by the native client.
+  string envelope_json = 1;
+}
+
+message DuskPayloadsRequest {
+  string kind = 1;
+  string market = 2;
+  string side = 3;
+  uint32 resolution_seconds = 4;
+}
+message DuskPayload {
+  // Full dusk-payload.v1 snapshot; display-only, never transaction authority.
   string envelope_json = 1;
 }
