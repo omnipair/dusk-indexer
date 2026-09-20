@@ -108,6 +108,9 @@ Dockerfile
 
 # Test data and fixtures
 **/fixtures/
+# The API TypeScript build includes tests and their imported JSON fixtures.
+# Keep this exception after the broad fixture exclusion.
+!api/src/tests/fixtures/
 test-data/
 
 # Documentation
