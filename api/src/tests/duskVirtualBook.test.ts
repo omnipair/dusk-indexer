@@ -22,10 +22,10 @@ import {
 import type { DuskDeploymentEnvelope } from '../services/duskDeploymentService';
 
 const setup = async () => {
-  const { sdk } = await createVirtualBookRuntime(
+  const { dusk } = await createVirtualBookRuntime(
     new Connection('http://localhost:8899'),
   );
-  const account = sdk.program.coder.accounts.decode(
+  const account = dusk.program.coder.accounts.decode(
     'market',
     Buffer.from(fixture.result.value.accounts[0].data[0], 'base64'),
   );
@@ -46,12 +46,12 @@ const setup = async () => {
         ]).exactAssetIn.toString(),
       ),
     }));
-  return { sdk, snapshot, requests };
+  return { dusk, snapshot, requests };
 };
 test('backend decodes the saved native batch with exact cumulative sizes and program fees', async () => {
   const h = await setup();
   const decoded = decodeDuskVirtualBookBatch(
-    h.sdk,
+    h.dusk,
     h.snapshot,
     h.requests,
     fixture.result as unknown as RpcResponseAndContext<SimulatedTransactionResponse>,
@@ -99,7 +99,7 @@ test('backend rejects old banks, wrong programs, truncated logs and changed inpu
     alter(value);
     assert.throws(() =>
       decodeDuskVirtualBookBatch(
-        h.sdk,
+        h.dusk,
         h.snapshot,
         h.requests,
         value as unknown as RpcResponseAndContext<SimulatedTransactionResponse>,
@@ -109,7 +109,7 @@ test('backend rejects old banks, wrong programs, truncated logs and changed inpu
   }
   assert.throws(() =>
     decodeDuskVirtualBookBatch(
-      h.sdk,
+      h.dusk,
       h.snapshot,
       h.requests.map((row) => ({ ...row, amount: row.amount + 1n })),
       fixture.result as unknown as RpcResponseAndContext<SimulatedTransactionResponse>,
@@ -161,7 +161,7 @@ test('shared deliveries retain capture time and reject upgrades after cache look
 test('backend preserves nonlinear surcharge in marginal and cumulative depth', async () => {
   const h = await setup(),
     decoded = decodeDuskVirtualBookBatch(
-      h.sdk,
+      h.dusk,
       h.snapshot,
       h.requests,
       fixture.result as unknown as RpcResponseAndContext<SimulatedTransactionResponse>,

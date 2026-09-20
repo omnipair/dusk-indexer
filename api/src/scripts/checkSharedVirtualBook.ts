@@ -91,7 +91,7 @@ async function main() {
       `Expected at most one shared computation; observed ${captures}`,
     );
     const sample = frames[0],
-      { sdk } = await createVirtualBookRuntime();
+      { dusk } = await createVirtualBookRuntime();
     const checks = [];
     for (const side of ['bids', 'asks'] as const) {
       const level = sample.data.book[side][5];
@@ -107,7 +107,7 @@ async function main() {
           ? sample.data.book.quoteMint
           : sample.data.book.baseMint,
       );
-      const quote = await sdk.get.previewSwap({
+      const quote = await dusk.get.previewSwap({
         market,
         exactAssetIn: new BN(input.toString()),
         assetInMint:
@@ -121,7 +121,7 @@ async function main() {
         sample.data.book.mid,
         'Market changed during comparison',
       );
-      const rpc = sdk.program.provider.connection,
+      const rpc = dusk.program.provider.connection,
         info = await rpc.getAccountInfo(mint, 'confirmed');
       assert.ok(info);
       const decoded = await getMint(rpc, mint, 'confirmed', info.owner),

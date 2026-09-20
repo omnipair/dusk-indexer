@@ -2,11 +2,13 @@
 
 The virtual order book is computed once per deployment, market and grouping,
 then delivered to every subscriber by the API. It uses the same reviewed Dusk
-SDK 2.9.0 as dusk-webapp, including the program's size-dependent swap surcharge
+SDK 2.10.0 as dusk-webapp, including the program's size-dependent swap surcharge
 and Token-2022 output transfer fees. The SDK IDL digest must match the vendored
-protocol lock before computation. Native computation was ported from webapp
-commit 1834248f; the browser's original implementation remains a diagnostic
-reference and is no longer called by its VOB hook.
+protocol lock before computation. Native computation now lives in
+`@omnipair/dusk-sdk` ([source PR #37](https://github.com/omnipair/dusk/pull/37)).
+Backend production and webapp diagnostics use the same vendored artifact.
+Adapters retain deployment checks; the SDK owns simulation, batching, account
+validation, concentration and fee projection. Client instances are named `dusk`.
 
 ## Scheduling and fan-out
 
@@ -89,3 +91,21 @@ into unbounded shared-cache keys.
   disconnect, upgrade, backpressure, and no overlapping captures.
 - Probes submit no signed transactions. Live concentrated/nonzero-surcharge
   markets, hosted proxy/load testing and rollout remain unexecuted gates.
+
+
+## SDK extraction validation
+
+SDK 2.10.0 is built from `db3d0ce` and has SHA-256
+`0fdf15e490eab77e3532915430a522f0ce9cd6e91ed35737268d3bba81985253`. No program, IDL, migration, stream-schema or deployment
+identity changes accompany this package bump. SDK tests cover 28 preview/VOB
+cases; the protocol repository's full required checks and 74-test LiteSVM suite
+pass. Backend TypeScript and 168 unit tests pass with the vendored package.
+The frontend's read-only diagnostics matched independent native previews in
+both directions on four devnet markets, including output transfer fees.
+
+Final-archive validation also passed a clean `npm ci`, both PostgreSQL snapshot
+coordination integration tests (including 30 competing connections), and a
+10-client SSE probe on the transfer-fee market: one capture, one revision,
+source slot 501236955, both sides within two raw units of independent previews.
+One earlier cold-stream probe closed before a frame; a direct capture and the
+subsequent stream probe passed without code changes. Its cause was not isolated.
