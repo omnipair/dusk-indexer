@@ -10,6 +10,8 @@ export const DUSK_CHANGE_STREAM_HEARTBEAT_MS = 2_000;
 export const DUSK_CHANGE_STREAM_BATCH_MS = 250;
 export const DUSK_CHANGE_STREAM_OBSERVATION_TIMEOUT_MS = 20_000;
 const active = new Set<() => void>();
+/** A reader may sit one oversized frame behind, never an unbounded backlog. */
+const MAX_PENDING_BYTES = 4 * 1024 * 1024;
 
 interface Dependencies {
   start(): Promise<void>;
@@ -64,8 +66,12 @@ export async function openDuskChangeStream(req: Request, res: Response, deps: De
     const frame = { success: true, data: { schemaVersion: 'dusk-read-change.v1', streamId,
       sequence: ++sequence, kind, sourceSlot }, deployment };
     lastSentAt = Date.now();
-    // Slow clients reconnect and resync. Never accumulate an unbounded send queue.
-    if (!res.write(`event: dusk-change\ndata: ${JSON.stringify(frame)}\n\n`)) close();
+    // Slow clients reconnect and resync. Never accumulate an unbounded send
+    // queue. `write` returning false only reports the socket buffer crossing
+    // its 16 KiB high water mark, which a single large frame does on a healthy
+    // reader; writableLength is what measures a reader actually falling behind.
+    res.write(`event: dusk-change\ndata: ${JSON.stringify(frame)}\n\n`);
+    if (res.writableLength > MAX_PENDING_BYTES) close();
   }
   function schedule(kind: 'change' | 'resync' | 'heartbeat', slot = 0) {
     if (closed) return;

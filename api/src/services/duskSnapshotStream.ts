@@ -102,6 +102,9 @@ export function createVirtualBookHub(read = currentVirtualBook) {
 }
 const hub = createVirtualBookHub();
 const active = new Set<() => void>();
+/** Room for a backlog of roughly two maximum-size frames, never a queue that
+ * grows with how far behind a reader falls. */
+const MAX_PENDING_BYTES = 4 * 1024 * 1024;
 export function stopDuskSnapshotStreams() {
   for (const close of [...active]) close();
 }
@@ -145,9 +148,19 @@ export async function openDuskSnapshotStream<S, T extends SnapshotValue>(
     res.removeListener('close', close);
     if (!res.writableEnded) res.end();
   };
+  // `write` returning false only reports that the socket buffer crossed its
+  // high water mark, 16 KiB by default. A single frame larger than that trips
+  // it on a perfectly healthy reader, so it cannot stand in for "slow client".
+  // Only a reader that stays behind accumulates an unbounded queue, and
+  // writableLength is what measures that.
+  const send = (text: string) => {
+    if (stopped) return;
+    res.write(text);
+    if (res.writableLength > MAX_PENDING_BYTES) close();
+  };
   // Comments prove transport liveness only, never refresh a financial snapshot.
   const heartbeat = setInterval(() => {
-    if (!res.write(': heartbeat\n\n')) close();
+    send(': heartbeat\n\n');
   }, 10_000);
   const initialTimeout = setTimeout(() => {
     if (!sequence) close();
@@ -176,10 +189,7 @@ export async function openDuskSnapshotStream<S, T extends SnapshotValue>(
           ...value,
           data: { ...value.data, streamId, sequence: ++sequence },
         };
-        if (
-          !res.write(`event: ${eventName}\ndata: ${JSON.stringify(frame)}\n\n`)
-        )
-          close();
+        send(`event: ${eventName}\ndata: ${JSON.stringify(frame)}\n\n`);
       },
       unavailable: close,
     });

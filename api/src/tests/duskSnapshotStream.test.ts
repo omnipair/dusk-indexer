@@ -85,7 +85,9 @@ test('slow captures never overlap and disconnected results cannot reach clients'
 class Sink extends EventEmitter {
   writableEnded = false;
   frames: string[] = [];
-  writable = true;
+  /** What Node still has queued. `write` reports false above the 16 KiB high
+   * water mark, which one large frame reaches on an idle, healthy reader. */
+  writableLength = 0;
   status() {
     return this;
   }
@@ -95,14 +97,14 @@ class Sink extends EventEmitter {
   flushHeaders() {}
   write(value: string) {
     this.frames.push(value);
-    return this.writable;
+    return this.writableLength <= 16 * 1024;
   }
   end() {
     this.writableEnded = true;
   }
 }
-test('SSE sequences snapshots, closes on an upgrade, and releases a backpressured subscription', async () => {
-  for (const backpressure of [false, true]) {
+test('SSE sequences snapshots, keeps an oversized frame open, and drops a reader that stays behind', async () => {
+  for (const behind of [false, true]) {
     const req = Object.assign(new EventEmitter(), {
         params: { market: selection.market },
         query: { groupingBps: '10' },
@@ -122,12 +124,21 @@ test('SSE sequences snapshots, closes on an upgrade, and releases a backpressure
         },
       },
     );
-    res.writable = !backpressure;
+    // Both readers push `write` past the high water mark. Only the second is
+    // actually behind; the first is simply receiving a frame over 16 KiB.
+    res.writableLength = behind ? 8 * 1024 * 1024 : 64 * 1024;
     emit(snapshot());
     const first = JSON.parse(res.frames[0].split('\ndata: ')[1]);
     assert.equal(first.data.sequence, 1);
-    if (!backpressure) {
-      const upgraded = snapshot('r2');
+    if (!behind) {
+      assert.equal(res.writableEnded, false);
+      assert.equal(unsubscribed, 0);
+      emit(snapshot('r2'));
+      assert.equal(
+        JSON.parse(res.frames[1].split('\ndata: ')[1]).data.sequence,
+        2,
+      );
+      const upgraded = snapshot('r3');
       upgraded.deployment = {
         ...upgraded.deployment,
         deploymentIdentitySha256: 'b'.repeat(64),
