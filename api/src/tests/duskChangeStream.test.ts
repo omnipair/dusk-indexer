@@ -31,13 +31,15 @@ test('a failed subscriber cannot suppress other subscribers and unsubscribe rele
 
 class Sink extends EventEmitter {
   writableEnded = false;
-  writable = true;
+  /** What Node still has queued. `write` reports false above the 16 KiB
+   * high water mark, which one large frame reaches on a healthy reader. */
+  writableLength = 0;
   headersSent = false;
   frames: Array<{ data: { kind: string; sequence: number; sourceSlot: number; streamId: string }; deployment: DuskDeploymentEnvelope }> = [];
   status() { return this; }
   set() { return this; }
   flushHeaders() { this.headersSent = true; }
-  write(value: string) { this.frames.push(JSON.parse(value.split('\ndata: ')[1])); return this.writable; }
+  write(value: string) { this.frames.push(JSON.parse(value.split('\ndata: ')[1])); return this.writableLength <= 16 * 1024; }
   end() { this.writableEnded = true; }
 }
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -105,9 +107,17 @@ test('disconnect during the initial observation cannot write headers or retain a
   assert.equal(h.res.headersSent, false); assert.equal(h.subscribed(), false);
 });
 
-test('backpressure closes a slow client without buffering more frames', async () => {
-  const h = harness(); h.res.writable = false; await h.open();
-  assert.equal(h.res.frames.length, 1); assert.equal(h.res.writableEnded, true); assert.equal(h.subscribed(), false);
+test('a frame over the high water mark keeps streaming; a reader that stays behind is dropped', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: 100_000 });
+  // Crossing the 16 KiB high water mark is what one large frame does; it is
+  // not evidence of a slow reader and must not end the stream.
+  const open = harness(); t.after(open.close); open.res.writableLength = 64 * 1024; await open.open();
+  assert.equal(open.res.writableEnded, false); assert.equal(open.subscribed(), true);
+  t.mock.timers.tick(2_000); await flush(); t.mock.timers.tick(0); await flush();
+  assert.equal(open.res.frames.length, 2); assert.equal(open.res.frames[1].data.sequence, 2);
+
+  const behind = harness(); behind.res.writableLength = 8 * 1024 * 1024; await behind.open();
+  assert.equal(behind.res.frames.length, 1); assert.equal(behind.res.writableEnded, true); assert.equal(behind.subscribed(), false);
 });
 
 test('a hung initial observation releases the connection and subscriber at its deadline', async t => {
