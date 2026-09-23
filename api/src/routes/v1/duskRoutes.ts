@@ -10,6 +10,9 @@ import { Router } from 'express';
 
 import { deploymentSnapshot } from '../../services/duskMarketSurface';
 import { openDuskPayloadStream } from '../../services/duskPayloadStream';
+import { currentOwnerAccounts, currentLeverageValuation } from '../../services/duskDisplayState';
+import { ownerAccountsSelection } from '../../services/duskOwnerAccounts';
+import { leverageValuationSelection } from '../../services/duskLeverageValuation';
 
 import { duskApiConfig, loadPinnedProtocol } from '../../config/duskProtocol';
 import {
@@ -54,6 +57,16 @@ const router = Router();
 router.get('/virtual-book/:market/stream', asyncRoute(openVirtualBookStream));
 
 router.get('/payloads', asyncRoute(openDuskPayloadStream));
+
+router.get('/owners/:owner/accounts/:kind', asyncRoute(async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await currentOwnerAccounts(ownerAccountsSelection(req.params.owner, req.params.kind)));
+}));
+
+router.get('/owners/:owner/leverage-valuations/:address', asyncRoute(async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await currentLeverageValuation(leverageValuationSelection(req.params.owner, req.params.address)));
+}));
 
 router.get('/changes', asyncRoute(openDuskChangeStream));
 
