@@ -1,5 +1,5 @@
 import { BorshCoder } from '@coral-xyz/anchor';
-import { AccountInfo, PublicKey } from '@solana/web3.js';
+import { AccountInfo, PublicKey, SystemProgram } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID, unpackAccount } from '@solana/spl-token';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -141,7 +141,14 @@ export function projectPortfolioSource(source: PortfolioCaptureSource) {
       const item = expected.get(entry.address);
       if (!item || seen.has(entry.address) || item.market !== group.market) throw new Error('Portfolio snapshot omits or duplicates its discovery set');
       seen.add(entry.address);
-      if (!entry.account) { closed.push(entry.address); continue; }
+      // Simulation can materialize an absent read-only account as an empty
+      // System Program account instead of null. Either form has no remaining
+      // protocol/token state. Interpret it during replay so saved evidence and
+      // its content hash remain unchanged, including captures made before this fix.
+      if (!entry.account || (entry.account.owner === SystemProgram.programId.toBase58()
+        && entry.account.executable === false && entry.account.data === '')) {
+        closed.push(entry.address); continue;
+      }
       let state: unknown;
       if (item.kind === 'borrow' || item.kind === 'leverage') {
         state = decoder.accounts.decode(item.kind === 'borrow' ? 'BorrowPosition' : 'LeveragePosition',rawAccount(entry.account,pin.dusk.programId).data);
