@@ -2,6 +2,10 @@
 
 A high-performance TypeScript API server that provides REST endpoints for querying Omnipair protocol data indexed by the Rust daemon.
 
+The Dusk wallet account and leverage display-value endpoints are documented in
+[Wallet display-state API](../docs/dusk-display-state-api.md), including response
+contracts, freshness checks and the webapp deployment dependency.
+
 ## 🏗️ Architecture
 
 The API server is built with:
