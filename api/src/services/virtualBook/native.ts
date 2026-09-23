@@ -76,6 +76,14 @@ export async function createVirtualBookRuntime(
     },
     { commitment: 'confirmed' },
   );
+  const delegate = sdkExports.createLeverageDelegateProgram({ provider });
+  if (
+    sha256(canonicalJson(delegate.rawIdl)) !==
+    pin.leverageDelegate.idlCanonicalSha256
+  )
+    throw new Error(
+      'Order SDK IDL differs from the pinned delegate deployment',
+    );
   const dusk = new sdkExports.Dusk({
     provider,
     programId: new PublicKey(pin.dusk.programId),
