@@ -1,5 +1,6 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
+import { SystemProgram } from '@solana/web3.js';
 import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
@@ -43,6 +44,25 @@ test('saved portfolio evidence replays idempotently without current RPC or price
   const result = await readPortfolioHistory(client,query(fixture.owner));
   assert.equal(result.snapshots[0].valuations.netPositionValueUsd,'51.95');
   assert.equal(result.snapshots[0].captureId,id); assert.equal(result.coverage.pendingCaptures,'0');
+}));
+
+test('a saved empty-system position replays without rewriting evidence or blocking later captures',() => transaction(async (client) => {
+  const fixture = portfolioFixture();
+  fixture.source.catalog.items[0].kind = 'leverage';
+  fixture.source.groups[0].accounts[0].account = { owner: SystemProgram.programId.toBase58(),executable: false,data: '' };
+  const first = await storePortfolioCapture(client,fixture.source);
+  const before = await client.query('SELECT source,content_hash FROM dusk_ingestion.portfolio_capture_observations WHERE capture_id=$1',[first]);
+  const later = await storePortfolioCapture(client,portfolioFixture({ slot: fixture.source.groups[0].slot+1,closed: true }).source);
+  assert.equal(await projectPortfolioCaptureBatch(client),2);
+  assert.equal(await projectPortfolioCaptureBatch(client),0);
+  const checkpoint = await client.query('SELECT components,coverage,valuations FROM dusk_ingestion.portfolio_checkpoints WHERE capture_id=$1',[first]);
+  assert.equal(checkpoint.rows[0].components.length,1);
+  assert.equal(checkpoint.rows[0].components[0].address,fixture.tokenAddress);
+  assert.deepEqual(checkpoint.rows[0].coverage.closedAccounts,[fixture.position]);
+  assert.equal(checkpoint.rows[0].valuations.netPositionValueUsd,'50');
+  assert.equal((await client.query('SELECT count(*)::int AS total FROM dusk_ingestion.portfolio_capture_projections WHERE capture_id=ANY($1::bigint[])',[[first,later]])).rows[0].total,2);
+  const after = await client.query('SELECT source,content_hash FROM dusk_ingestion.portfolio_capture_observations WHERE capture_id=$1',[first]);
+  assert.deepEqual(after.rows,before.rows);
 }));
 test('older backfill, equal block timestamps and closure snapshots all retain history',() => transaction(async (client) => {
   const first = portfolioFixture();
