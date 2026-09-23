@@ -10,6 +10,14 @@ import type { DuskDeploymentEnvelope } from '../services/duskDeploymentService';
 const market = '11111111111111111111111111111111';
 test('payload selections reject ambiguous fields, noncanonical markets and unbounded history', () => {
   assert.deepEqual(payloadSelection({ kind: 'markets' }), { kind: 'markets' });
+  assert.deepEqual(payloadSelection({ kind: 'wallet', owner: market }), {
+    kind: 'wallet',
+    owner: market,
+  });
+  assert.deepEqual(payloadSelection({ kind: 'statistics', range: '24h' }), {
+    kind: 'statistics',
+    range: '24h',
+  });
   assert.deepEqual(
     payloadSelection({
       kind: 'candles',
@@ -20,6 +28,11 @@ test('payload selections reject ambiguous fields, noncanonical markets and unbou
     { kind: 'candles', market, side: 'base', resolutionSeconds: 900 },
   );
   for (const input of [
+    { kind: 'wallet', owner: market, market },
+    { kind: 'wallet', owner: 'invalid' },
+    { kind: 'statistics', range: '7d' },
+    { kind: 'statistics', range: ['24h'] },
+    { kind: 'statistics', range: 'all', owner: market },
     { kind: 'markets', market },
     { kind: 'trades', market, owner: market },
     { kind: 'trades', market: market + '1' },

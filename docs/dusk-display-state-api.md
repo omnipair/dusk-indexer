@@ -85,3 +85,10 @@ surfaces unavailable until the API is present.
   HTTP requests and zero browser RPC calls. No transaction was signed or sent.
 - Webapp validation: 1,438 unit tests, TypeScript and full lint passed. Dedicated
   wallet sign/send gates were not executed; transaction submission is unchanged.
+
+## Wallet-wide stream
+
+The wallet/statistics stream extension is documented in
+[dusk-wallet-statistics-streams.md](dusk-wallet-statistics-streams.md). It batches
+existing-position valuations and orders for atomic frontend updates while
+retaining these per-position routes for older clients.

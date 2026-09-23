@@ -28,6 +28,21 @@ export const decodeDuskVirtualBookBatch: Sdk['decodeDuskVirtualBookBatch'] = (
 export const projectDuskVirtualBook: Sdk['projectDuskVirtualBook'] = (
   ...args
 ) => sdkExports!.projectDuskVirtualBook(...args);
+export const createLeverageDelegateProgram: Sdk['createLeverageDelegateProgram'] =
+  (...args) => sdkExports!.createLeverageDelegateProgram(...args);
+export const deriveLeverageOrderAddress: Sdk['deriveLeverageOrderAddress'] = (
+  ...args
+) => sdkExports!.deriveLeverageOrderAddress(...args);
+export const deriveLeveragePositionAddress: Sdk['deriveLeveragePositionAddress'] =
+  (...args) => sdkExports!.deriveLeveragePositionAddress(...args);
+export const deriveMarketAddress: Sdk['deriveMarketAddress'] = (...args) =>
+  sdkExports!.deriveMarketAddress(...args);
+export const deriveReferralAccrualAddress: Sdk['deriveReferralAccrualAddress'] =
+  (...args) => sdkExports!.deriveReferralAccrualAddress(...args);
+export const deriveReferralPartnerAddress: Sdk['deriveReferralPartnerAddress'] =
+  (...args) => sdkExports!.deriveReferralPartnerAddress(...args);
+export const decodePreviewHlpOrderTriggerReturnData: Sdk['decodePreviewHlpOrderTriggerReturnData'] =
+  (...args) => sdkExports!.decodePreviewHlpOrderTriggerReturnData(...args);
 export const minimumDuskReadSlot = (deployment: DuskDeploymentEnvelope) =>
   Math.max(
     Number(deployment.programDataSlot),

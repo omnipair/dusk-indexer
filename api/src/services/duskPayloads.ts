@@ -1,3 +1,7 @@
+import { captureWalletSnapshot } from './duskWalletSnapshot';
+import { captureStatisticsSnapshot } from './duskStatisticsSnapshot';
+import { displayRuntime } from './duskDisplayState';
+import { displayPublicKey } from './duskOwnerAccounts';
 import { randomUUID } from 'node:crypto';
 import { PublicKey } from '@solana/web3.js';
 import {
@@ -11,6 +15,8 @@ import { listQuoteHistory } from './duskQuoteHistory';
 import { sharedDuskSnapshot } from './duskSharedSnapshot';
 
 export type PayloadSelection =
+  | { kind: 'wallet'; owner: string }
+  | { kind: 'statistics'; range: '24h' | 'all' }
   | { kind: 'markets' }
   | { kind: 'trades'; market: string }
   | {
@@ -40,6 +46,20 @@ export function payloadSelection(
       status: 400,
     });
   };
+  if (input.kind === 'wallet') {
+    if (Object.keys(input).some((key) => !['kind', 'owner'].includes(key)))
+      invalid();
+    return { kind: 'wallet', owner: displayPublicKey(input.owner) };
+  }
+  if (input.kind === 'statistics') {
+    if (
+      Object.keys(input).some((key) => !['kind', 'range'].includes(key)) ||
+      typeof input.range !== 'string' ||
+      !['24h', 'all'].includes(input.range)
+    )
+      invalid();
+    return { kind: 'statistics', range: input.range as '24h' | 'all' };
+  }
   if (input.kind === 'markets') {
     if (Object.keys(input).some((key) => key !== 'kind')) invalid();
     return { kind: 'markets' };
@@ -75,7 +95,7 @@ export function payloadSelection(
   };
 }
 export const payloadLifetime = (selection: PayloadSelection) =>
-  selection.kind === 'markets' ? 15_000 : 60_000;
+  ['markets', 'wallet'].includes(selection.kind) ? 15_000 : 60_000;
 
 /** Full bounded snapshots recover without a per-subscriber replay log. Older
  * history is still paginated through the existing immutable cursor endpoints. */
@@ -84,6 +104,38 @@ export async function capturePayload(
 ): Promise<PayloadEnvelope> {
   const observedAt = Date.now();
   const result = await withDeploymentRead<unknown>(async (deployment) => {
+    if (selection.kind === 'wallet' || selection.kind === 'statistics') {
+      const { dusk, boundary } = await displayRuntime();
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 14_000);
+      try {
+        const data =
+          selection.kind === 'wallet'
+            ? await captureWalletSnapshot(
+                dusk,
+                boundary,
+                selection.owner,
+                deployment,
+                controller.signal,
+              )
+            : await captureStatisticsSnapshot(
+                dusk,
+                selection.range,
+                deployment,
+                controller.signal,
+              );
+        return {
+          data,
+          sourceSlot: Math.max(
+            data.sourceSlot,
+            'verificationSlot' in data ? data.verificationSlot : 0,
+          ),
+        };
+      } finally {
+        controller.abort();
+        clearTimeout(timer);
+      }
+    }
     if (selection.kind === 'markets') {
       const { config, projected, sourceSlot } =
         await deploymentSnapshot(deployment);
@@ -167,7 +219,12 @@ export async function currentPayload(
   const result = await deps.shared({
     key: `payload.v1:${before.deploymentIdentitySha256}:${JSON.stringify(selection)}`,
     identity: before.deploymentIdentitySha256,
-    intervalMs: selection.kind === 'candles' ? 5000 : 2000,
+    intervalMs:
+      selection.kind === 'statistics'
+        ? 5000
+        : selection.kind === 'candles'
+          ? 5000
+          : 2000,
     compute: () => deps.capture(selection),
   });
   const after = await deps.envelope(
