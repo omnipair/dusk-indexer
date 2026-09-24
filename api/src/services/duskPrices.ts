@@ -1,3 +1,5 @@
+import { nativeFields } from './duskPortfolioMath';
+import { unsigned } from './duskYieldAccounting';
 import { externalPriceTargets, fetchExternalPrices, storeExternalPrices } from './duskExternalPrices';
 import { BorshCoder, Idl } from '@coral-xyz/anchor';
 import { Connection, PublicKey } from '@solana/web3.js';
@@ -94,9 +96,12 @@ export function verifyStoredPriceCapture(row: StoredPriceCapture,release?: {pin:
     || Date.parse(source.observedAt)<Date.parse(source.blockTime) || hashSource(source,pin) !== row.content_hash
     || sha256(row.raw_preview) !== row.preview_hash) throw new Error('FINALIZED_INVARIANT: saved price source hash mismatch');
   const coder = release?.coder ?? priceDecoder();
+  const preview = nativeFields(coder.types.decode('MarketPreview',row.raw_preview));
+  const oraclePrices = { base: unsigned(nativeFields(preview.base).price_ema_nad, (1n<<64n)-1n).toString(),
+    quote: unsigned(nativeFields(preview.quote).price_ema_nad, (1n<<64n)-1n).toString() };
   const projected = projectMarketPrices({ pin,marketAddress: source.market,market: coder.accounts.decode('Market',row.raw_market),
-    preview: coder.types.decode('MarketPreview',row.raw_preview),slot: source.slot,blockTime: source.blockTime,references: source.references });
-  return { source,projected };
+    preview,slot: source.slot,blockTime: source.blockTime,references: source.references });
+  return { source,projected,oraclePrices };
 }
 
 /** Caller owns a transaction. Projection uses only the saved policy and bytes. */

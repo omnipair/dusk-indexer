@@ -105,6 +105,7 @@ async function fixture() {
     leverageDelegateProgramId: delegate.programId.toBase58(),
   };
   const deps: typeof walletCaptureDependencies = {
+    oracle: async () => [],
     accounts: async () => ({
       schemaVersion: 'dusk-owner-accounts.v1',
       owner: f.selection.owner,

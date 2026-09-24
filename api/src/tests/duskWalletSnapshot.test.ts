@@ -79,6 +79,10 @@ async function fixture() {
   );
   const deps: typeof walletCaptureDependencies = {
     accounts: async () => accounts,
+    oracle: async (_dusk, rows, deployment) => rows.map(row => ({
+      address: row.address, market: f.marketAddress.toBase58(), sourceSlot: deployment.sourceSlot,
+      status: 'unavailable' as const, reason: 'oracle-unavailable' as const,
+    })),
     valuation: async () => valuation,
     orders: async () => ({
       owner: f.selection.owner,
@@ -190,4 +194,10 @@ test('exposure capture groups verified collateral and rejects malformed or regre
     captureMarketExposures(f.dusk, f.deployment),
     /Incomplete/,
   );
+});
+
+test('an incomplete oracle batch cannot be published as a complete wallet frame', async () => {
+  const f = await fixture();
+  f.deps.oracle = async () => [];
+  await assert.rejects(f.capture(), /oracle valuation batch is incomplete/);
 });
