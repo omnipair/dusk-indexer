@@ -21,6 +21,17 @@ import { displayPublicKey } from './duskOwnerAccounts';
 import { readDuskLeverageCloseReceipt } from './duskLeverageCloseReceipt';
 import { boundedDuskRpcRead } from './virtualBook/native';
 
+/** A confirmed program rejection is an explicit unavailable quote, not a
+ * transport failure. Wallet batches can publish the other positions together. */
+export class DuskLeverageValuationUnavailable extends Error {
+  constructor(
+    readonly address: string,
+    readonly sourceSlot: number,
+  ) {
+    super('Leverage close valuation cannot execute');
+  }
+}
+
 export interface LeverageValuationSelection {
   owner: string;
   address: string;
@@ -193,13 +204,23 @@ export async function captureLeverageValuation(
     }),
   );
   const slot = result.context.slot;
-  if (
-    !Number.isSafeInteger(slot) ||
-    slot < mintRead.context.slot ||
-    result.value.err ||
-    result.value.accounts?.length !== 3
-  )
+  if (!Number.isSafeInteger(slot) || slot < mintRead.context.slot)
     throw new Error('Leverage close valuation cannot execute');
+  if (result.value.err) {
+    const error = result.value.err as { InstructionError?: unknown[] };
+    const instruction = error.InstructionError;
+    if (
+      Array.isArray(instruction) &&
+      instruction[0] === 4 &&
+      typeof instruction[1] === 'object' &&
+      instruction[1] !== null &&
+      Number.isSafeInteger((instruction[1] as { Custom?: number }).Custom)
+    )
+      throw new DuskLeverageValuationUnavailable(selection.address, slot);
+    throw new Error('Leverage close valuation cannot execute');
+  }
+  if (result.value.accounts?.length !== 3)
+    throw new Error('Valuation simulation accounts unavailable');
   const accountAt = (index: number): AccountInfo<Buffer> | null => {
     const value = result.value.accounts![index];
     if (!value) return null;
@@ -280,6 +301,7 @@ export async function captureLeverageValuation(
     collateralDecimals: receipt.collateralDecimals,
     debtDecimals: mint.decimals,
     debtMint: mintAddress.toBase58(),
+    marketAccount: marketRead.value!.data.toString('base64'),
     position: {
       ...selection,
       market: position.market.toBase58(),

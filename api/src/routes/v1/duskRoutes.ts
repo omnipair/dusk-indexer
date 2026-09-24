@@ -1,3 +1,4 @@
+import { currentPayload, payloadSelection } from '../../services/duskPayloads';
 import { openVirtualBookStream } from '../../services/duskSnapshotStream';
 /**
  * Dusk read API.
@@ -55,6 +56,19 @@ import { PublicKey } from '@solana/web3.js';
 const router = Router();
 
 router.get('/virtual-book/:market/stream', asyncRoute(openVirtualBookStream));
+
+router.get(
+  '/payload-snapshot',
+  asyncRoute(async (req, res) => {
+    const snapshot = await currentPayload(payloadSelection(req.query));
+    if (!snapshot)
+      throw Object.assign(new Error('Payload snapshot unavailable'), {
+        status: 503,
+      });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(snapshot);
+  }),
+);
 
 router.get('/payloads', asyncRoute(openDuskPayloadStream));
 
