@@ -23,8 +23,8 @@ async function transaction(work: (client: PoolClient) => Promise<void>) {
   finally { await client.query('ROLLBACK'); client.release(); }
 }
 async function source(client: PoolClient,slotOffset: number,seconds: number,nad: bigint,
-  options: { project?: boolean; identity?: string; price?: string; inverse?: bigint } = {}) {
-  const fixture = priceFixture({ references: options.price !== undefined,price: options.price,quoteNad: nad,inverseNad: options.inverse });
+  options: { project?: boolean; identity?: string; price?: string; inverse?: bigint; oracle?: bigint; inverseOracle?: bigint } = {}) {
+  const fixture = priceFixture({ references: options.price !== undefined,price: options.price,quoteNad: nad,inverseNad: options.inverse,oracleNad: options.oracle,inverseOracleNad: options.inverseOracle });
   const row = fixture.source(pin.historyFirstSlot+100+slotOffset);
   row.blockTime = new Date(Date.parse(query.since)+seconds*1000).toISOString();
   row.observedAt = new Date(Date.parse(row.blockTime)+1000).toISOString();
@@ -184,4 +184,14 @@ test('cached history is invalidated by revision even if notifications are missed
   assert.equal(updated.candles[0].high.price,'4');
   await source(client,2,20,5_000_000_000n,{ project:false });
   await assert.rejects(readQuoteHistoryRequest(client,query,undefined,true),/FINALIZED_INVARIANT/);
+}));
+
+test('oracle overlay samples come from the close witness even when spot is unchanged, and retain symmetric inverse EMA', () => transaction(async client => {
+  await source(client,1,10,2_500_000_000n,{ inverse: 400_000_000n,oracle: 2_000_000_000n,inverseOracle: 450_000_000n });
+  const last = await source(client,2,20,2_500_000_000n,{ inverse: 400_000_000n,oracle: 2_100_000_000n,inverseOracle: 440_000_000n });
+  const result = await readQuoteHistory(client,query);
+  assert.equal(result.candles[0].close.price,'2.5');
+  assert.deepEqual(result.candles[0].oracleClose,{ ...result.candles[0].close,price:'2.1',captureId:last });
+  const inverse = await readQuoteHistory(client,{ ...query,side:'quote' });
+  assert.equal(inverse.candles[0].oracleClose?.price,'0.44');
 }));

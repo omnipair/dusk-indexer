@@ -110,10 +110,10 @@ export async function readQuoteHistory(client: PoolClient, query: QuoteHistoryQu
       q.base_mint,q.quote_mint,q.base_decimals,q.quote_decimals,q.base_spot_price_nad::text,q.quote_spot_price_nad::text
     FROM dusk_ingestion.price_capture_observations o JOIN dusk_ingestion.market_quote_projections q USING(capture_id)
     WHERE o.capture_id=ANY($1::bigint[])`,[ids]) : { rows: [] };
-  const verified = new Map<string,{ nad: string; sourceHash: string; time: string; sourceSlot: string }>();
+  const verified = new Map<string,{ nad: string; oracle: string; sourceHash: string; time: string; sourceSlot: string }>();
   let binding: { baseMint: string; quoteMint: string; baseDecimals: number; quoteDecimals: number } | null = null;
   for (const row of witnesses.rows) {
-    const { source,projected } = context?.archive ? context.archive.verify(row) : await verifyWitness(row),bound = projected.bound;
+    const { source,projected,oraclePrices } = context?.archive ? context.archive.verify(row) : await verifyWitness(row),bound = projected.bound;
     if (source.market !== query.market || !deployments.includes(source.deploymentIdentitySha256)
       || source.slot<pin.historyFirstSlot || source.slot>(context?.archive?.lastSlot ?? Number.MAX_SAFE_INTEGER) || source.blockTime<window.since || source.blockTime>=window.until
       || row.base_mint !== bound.baseMint || row.quote_mint !== bound.quoteMint
@@ -122,17 +122,18 @@ export async function readQuoteHistory(client: PoolClient, query: QuoteHistoryQu
       || binding && canonicalJson(binding) !== canonicalJson(bound))
       throw new Error('FINALIZED_INVARIANT: quote-history projection differs from its source');
     binding = bound;
-    verified.set(row.capture_id,{ nad: projected.spotPrices[query.side],sourceHash: row.content_hash,
+    verified.set(row.capture_id,{ nad: projected.spotPrices[query.side],oracle: oraclePrices[query.side],sourceHash: row.content_hash,
       time: source.blockTime,sourceSlot: String(source.slot) });
   }
-  const witness = (id: string) => {
+  const witness = (id: string, oracle = false) => {
     const value = verified.get(id);
     if (!value) throw new Error('FINALIZED_INVARIANT: quote-history source disappeared');
-    return { captureId: id,sourceHash: value.sourceHash,price: nadPrice(value.nad),time: value.time,sourceSlot: value.sourceSlot };
+    return { captureId: id,sourceHash: value.sourceHash,price: nadPrice(oracle ? value.oracle : value.nad),time: value.time,sourceSlot: value.sourceSlot };
   };
   const candles = buckets.rows.map(row => ({ time: Number(row.time),samples: row.samples,
     firstSourceSlot: row.first_slot,lastSourceSlot: row.last_slot,
-    open: witness(row.open_id),high: witness(row.high_id),low: witness(row.low_id),close: witness(row.close_id) }));
+    open: witness(row.open_id),high: witness(row.high_id),low: witness(row.low_id),close: witness(row.close_id),
+    oracleClose: verified.get(row.close_id)?.oracle !== '0' ? witness(row.close_id, true) : null }));
   const pending = (BigInt(coverage.captures)-BigInt(coverage.projected)).toString();
   const data = {
     schemaVersion: 'dusk-quote-history.v1',window,binding,candles,revision,

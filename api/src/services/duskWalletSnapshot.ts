@@ -1,3 +1,4 @@
+import { captureOracleValuations } from './duskOracleValuation';
 import { randomUUID } from 'node:crypto';
 import type { Dusk, LeveragePosition } from '@omnipair/dusk-sdk';
 import type { DuskDeploymentEnvelope } from './duskDeploymentService';
@@ -40,6 +41,7 @@ export async function completeBatch<T, R>(
 export const walletCaptureDependencies = {
   accounts: captureOwnerAccounts,
   valuation: captureLeverageValuation,
+  oracle: captureOracleValuations,
   orders: readDuskOrders,
 };
 export async function captureWalletSnapshot(
@@ -64,7 +66,7 @@ export async function captureWalletSnapshot(
     ...deployment,
     sourceSlot: Math.max(deployment.sourceSlot, accounts.sourceSlot),
   };
-  const [valuations, orders] = await Promise.all([
+  const [valuations, orders, oracleValuations] = await Promise.all([
     completeBatch(open, async (row) => {
       try {
         return await deps.valuation(
@@ -98,11 +100,17 @@ export async function captureWalletSnapshot(
         deployment.programUpgradeAuthority ||
         undefined,
     }),
+    deps.oracle(dusk, open, captureDeployment, signal),
   ]);
+  const oracleAddresses = new Set(oracleValuations.map(row => row.address));
+  if (oracleValuations.length !== open.length || oracleAddresses.size !== open.length ||
+      open.some(row => !oracleAddresses.has(row.address)))
+    throw new Error('Wallet oracle valuation batch is incomplete');
   const sourceSlot = Math.max(
     accounts.sourceSlot,
     orders.slot,
     ...valuations.map((row) => row.sourceSlot),
+    ...oracleValuations.map((row) => row.sourceSlot),
   );
   const verified = await deps.accounts(
     dusk,
@@ -182,6 +190,7 @@ export async function captureWalletSnapshot(
     verificationSlot: verified.sourceSlot,
     accounts,
     valuations,
+    oracleValuations,
     orders: {
       owner,
       observedAt: orders.observedAt,
