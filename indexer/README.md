@@ -358,19 +358,20 @@ block, so rows are stamped with arrival time and a fixed blockhash marker.
 There is no backfill. The stream starts at the current slot; a dropped
 connection, a deploy or a transaction the processor refuses leaves a gap,
 as in v1. Every dropped transaction is logged with its signature, and
-`--replay <signature>` re-ingests one through the same path. Complete
-program account snapshots run on their own timer, and the deployment is
-attested at startup and before every snapshot.
+`--replay <signature>` re-ingests one through the same path. Nothing reads
+program accounts: state comes from events. The deployment is attested once
+at startup; a streamed loader transaction that upgrades, re-authorizes or
+closes either pinned program stops the daemon, and the next start refuses the
+changed binary.
 
 Environment:
 
 | Variable | Meaning |
 | --- | --- |
 | `DUSK_CLUSTER` | Chain namespace in every event key (e.g. `devnet`) |
-| `DUSK_RPC_URL` | RPC for attestation, account snapshots and `--replay` |
+| `DUSK_RPC_URL` | RPC for the startup attestation and `--replay` |
 | `HELIUS_API_KEY` | Helius key for the WebSocket; defaults to the `api-key` in `DUSK_RPC_URL` |
 | `DATABASE_URL` | Postgres; Timescale turns `event_stream` into a hypertable |
-| `DUSK_ACCOUNT_SCAN_INTERVAL_MS` | Account snapshot cadence (default 15000) |
 | `METRICS_PORT` | Prometheus `/metrics` (default 8080) |
 
 Local run:
