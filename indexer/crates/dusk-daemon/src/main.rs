@@ -1,49 +1,49 @@
 //! Live-cluster Dusk ingestion daemon.
 //!
-//! Polls `getSignaturesForAddress` for the pinned Dusk program at finalized
-//! commitment, decodes every event a transaction carries — Anchor event-CPI
-//! inner instructions and `Program data:` logs alike — through the pinned IDL
+//! Streams every confirmed transaction that touches the pinned Dusk or
+//! leverage-delegate program through a Carbon pipeline fed by a Helius Atlas
+//! WebSocket, decodes every event it carries — Anchor event-CPI inner
+//! instructions and `Program data:` logs alike — through the pinned IDL
 //! decoder, and persists them into the `dusk_ingestion` schema plus the
-//! `event_stream` hypertable.
+//! `event_stream` hypertable as they land. This is the v1 indexer's shape.
 //!
-//! Finalized-only on purpose: a live cluster's finalized history cannot fork,
-//! so canonical rows are written directly and the foundation's fork-resolution
-//! machinery stays out of the hot path. The cost is finality latency
-//! (~seconds), which discovery and history — this daemon's consumers — can
-//! afford. Keepers read chain state directly and never wait on this pipeline.
+//! There is no backfill. The stream starts at the current slot, and a dropped
+//! connection or a restart leaves its window out, as in v1. Program account
+//! snapshots run on their own timer, off the transaction path, and the
+//! deployment is attested at startup and before every snapshot.
 
 mod accounts;
 mod extract;
-mod history;
 mod identity;
+mod liveness;
 mod orders;
 mod persist;
-mod scans;
+mod pipeline;
+mod processors;
 
 use {
-    anyhow::{Context as _, Result},
-    dusk_indexer_foundation::{
-        decoder::PinnedIdlDecoder, verify_vendored_protocol, DUSK_PROGRAM_ID,
-        LEVERAGE_DELEGATE_PROGRAM_ID,
-    },
-    solana_client::{
-        nonblocking::rpc_client::RpcClient,
-        rpc_config::{RpcBlockConfig, RpcTransactionConfig},
-    },
+    anyhow::{anyhow, Context as _, Result},
+    dusk_indexer_foundation::{decoder::PinnedIdlDecoder, verify_vendored_protocol},
+    solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcTransactionConfig},
     solana_commitment_config::CommitmentConfig,
-    solana_pubkey::Pubkey,
     solana_signature::Signature,
-    solana_transaction_status::{TransactionDetails, UiTransactionEncoding},
-    std::{str::FromStr, time::Duration},
+    solana_transaction_status::UiTransactionEncoding,
+    sqlx::PgPool,
+    std::{str::FromStr, sync::Arc, time::Duration},
+    tokio::sync::Mutex,
 };
+
+/// The datasource reconnects after 5 s without a Clock update.
+const STREAM_LIVENESS: Duration = Duration::from_secs(10);
 
 struct Config {
     cluster: String,
     rpc_url: String,
     database_url: String,
-    poll_interval: Duration,
-    /// Signatures fetched per page; also bounds catch-up burst size.
-    page_limit: usize,
+    /// Only streaming needs it; one-shot modes read over plain RPC.
+    helius_api_key: Option<String>,
+    metrics_port: u16,
+    account_scan_interval: Duration,
 }
 
 impl Config {
@@ -51,25 +51,50 @@ impl Config {
         let cluster = std::env::var("DUSK_CLUSTER").context("DUSK_CLUSTER is required")?;
         let rpc_url = std::env::var("DUSK_RPC_URL").context("DUSK_RPC_URL is required")?;
         let database_url = std::env::var("DATABASE_URL").context("DATABASE_URL is required")?;
-        let poll_interval = Duration::from_millis(
-            std::env::var("DUSK_POLL_INTERVAL_MS")
+        // The Helius RPC URL already carries the key the WebSocket needs.
+        let helius_api_key = std::env::var("HELIUS_API_KEY")
+            .ok()
+            .filter(|key| !key.is_empty())
+            .or_else(|| api_key_from_url(&rpc_url));
+        let metrics_port = std::env::var("METRICS_PORT")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(8080);
+        let account_scan_interval = Duration::from_millis(
+            std::env::var("DUSK_ACCOUNT_SCAN_INTERVAL_MS")
                 .ok()
                 .and_then(|value| value.parse().ok())
                 .unwrap_or(15_000),
         );
-        let page_limit = std::env::var("DUSK_SIGNATURE_PAGE_LIMIT")
-            .ok()
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(200)
-            .clamp(10, 1_000);
         Ok(Self {
             cluster,
             rpc_url,
             database_url,
-            poll_interval,
-            page_limit,
+            helius_api_key,
+            metrics_port,
+            account_scan_interval,
         })
     }
+}
+
+fn flag_value(name: &str) -> Option<String> {
+    let mut args = std::env::args();
+    while let Some(arg) = args.next() {
+        if arg == name {
+            return args.next();
+        }
+    }
+    None
+}
+
+fn api_key_from_url(url: &str) -> Option<String> {
+    let (_, query) = url.split_once('?')?;
+    query
+        .split('&')
+        .filter_map(|pair| pair.split_once('='))
+        .find(|(name, _)| *name == "api-key")
+        .map(|(_, value)| value.to_owned())
+        .filter(|value| !value.is_empty())
 }
 
 #[tokio::main]
@@ -79,20 +104,13 @@ async fn main() -> Result<()> {
 
     // Refuse to start on artifacts that disagree with the compiled pin —
     // exactly the check the decoder performs, surfaced before any I/O.
-    verify_vendored_protocol().map_err(|error| anyhow::anyhow!(error.to_string()))?;
+    verify_vendored_protocol().map_err(|error| anyhow!(error.to_string()))?;
 
     let config = Config::from_env()?;
-    let decoder = PinnedIdlDecoder::new(config.cluster.clone())
-        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-    let program = Pubkey::from_str(DUSK_PROGRAM_ID)?;
-
-    log::info!(
-        "dusk-indexer-daemon starting: cluster={} program={} poll={}ms",
-        config.cluster,
-        program,
-        config.poll_interval.as_millis(),
+    let decoder = Arc::new(
+        PinnedIdlDecoder::new(config.cluster.clone())
+            .map_err(|error| anyhow!(error.to_string()))?,
     );
-
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
         .connect(&config.database_url)
@@ -101,274 +119,178 @@ async fn main() -> Result<()> {
     persist::ensure_protocol_identity(&pool, &config.cluster).await?;
 
     let rpc = RpcClient::new_with_commitment(config.rpc_url.clone(), CommitmentConfig::finalized());
-
     let mut attestation = identity::Attestation::default();
     attestation.verify(&rpc, &config.cluster).await?;
-    if std::env::args().any(|arg| arg == "--ingest-orders-once") {
-        let delegate = Pubkey::from_str(LEVERAGE_DELEGATE_PROGRAM_ID)?;
-        let count =
-            ingest_once(&rpc, &pool, &decoder, &config, &delegate, &mut attestation).await?;
-        println!(
-            "{}",
-            serde_json::json!({"ingestedOrderTransactions":count,"submittedTransactions":0})
-        );
-        return Ok(());
-    }
-    if std::env::args().any(|arg| arg == "--ingest-once") {
-        let count = ingest_all(&rpc, &pool, &decoder, &config, &program, &mut attestation).await?;
-        let window = attestation.window()?;
-        println!(
-            "{}",
-            serde_json::json!({"cluster":config.cluster,"ingestedTransactions":count,
-            "firstDeploymentSlot":window.first_slot,"attestedThroughSlot":window.through_slot,
-            "submittedTransactions":0})
-        );
-        return Ok(());
-    }
+    let window = attestation.window()?;
+    persist::record_deployment(&pool, &config.cluster, window).await?;
+
     if std::env::args().any(|arg| arg == "--scan-accounts-once") {
         accounts::capture(&rpc, &pool, &decoder, &config.cluster, &mut attestation).await?;
         return Ok(());
     }
-
-    let mut shutdown = std::pin::pin!(shutdown_signal());
-    loop {
-        attestation.verify(&rpc, &config.cluster).await?;
-        tokio::select! {
-            _ = &mut shutdown => {
-                log::info!("shutdown signal received; draining");
-                break;
-            }
-            result = ingest_all(&rpc, &pool, &decoder, &config, &program, &mut attestation) => {
-                match result {
-                    // A pass that found nothing still proves the daemon is
-                    // polling, which is the difference between a quiet market
-                    // and a dead ingester. Recorded as a cursor heartbeat
-                    // rather than a log line, so the signal is queryable by
-                    // whatever is watching rather than only greppable.
-                    Ok(0) => {
-                        if let Err(error) = persist::touch_cursor(&pool, &config.cluster).await {
-                            log::warn!("cursor heartbeat failed: {error:#}");
-                        }
-                    }
-                    Ok(count) => log::info!("ingested {count} new transactions"),
-                    // Transient RPC/database trouble must not kill the daemon;
-                    // the cursor guarantees the next pass re-covers the gap.
-                    Err(error) if format!("{error:#}").contains("FINALIZED_INVARIANT") => return Err(error),
-                    Err(error) => log::warn!("ingestion pass failed: {error:#}"),
-                }
-                if let Err(error) = accounts::capture(&rpc, &pool, &decoder, &config.cluster, &mut attestation).await {
-                    if format!("{error:#}").contains("FINALIZED_INVARIANT") { return Err(error); }
-                    log::warn!("native account scan failed: {error:#}");
-                }
-                tokio::time::sleep(config.poll_interval).await;
-            }
-        }
-    }
-    Ok(())
-}
-
-/// One poll: the next uncovered finalized interval, oldest first.
-async fn ingest_once(
-    rpc: &RpcClient,
-    pool: &sqlx::PgPool,
-    decoder: &PinnedIdlDecoder,
-    config: &Config,
-    program: &Pubkey,
-    attestation: &mut identity::Attestation,
-) -> Result<usize> {
-    let order_scan = program.to_string() == LEVERAGE_DELEGATE_PROGRAM_ID;
-    let window = attestation.window()?;
-    persist::record_deployment(pool, &config.cluster, window).await?;
-    // Hold one transaction-scoped lock across enumeration, decoding and commit.
-    // Interrupted passes leave canonical observations intact but no coverage.
-    let mut scan = pool.begin().await?;
-    if !scans::lock(&mut scan, &config.cluster, order_scan).await? {
-        return Ok(0);
-    }
-    let start = scans::next_slot(&mut scan, &config.cluster, window, order_scan).await?;
-    if start > window.through_slot {
-        return Ok(0);
-    }
-    let scan_window = identity::DeploymentWindow {
-        first_slot: start,
-        ..window
-    };
-
-    // Newest-first pages walked back past the last covered slot (or release start).
-    let mut new_signatures = Vec::new();
-    let mut before = None;
-    let mut pagination = history::Pagination::default();
-    let boundary = loop {
-        // No `until`: observe the actual lower boundary instead of treating an
-        // empty/pruned page as proof that a stored cursor was reached.
-        let page: Vec<solana_client::rpc_response::RpcConfirmedTransactionStatusWithSignature> =
-            rpc.send(
-                solana_client::rpc_request::RpcRequest::GetSignaturesForAddress,
-                serde_json::json!([program.to_string(), {
-                    "before": before, "limit": config.page_limit,
-                    "commitment": "finalized", "minContextSlot": window.through_slot
-                }]),
-            )
-            .await
-            .context("getSignaturesForAddress")?;
-        let selected = pagination.select(
-            &page
-                .iter()
-                .map(|entry| (entry.signature.as_str(), entry.slot))
-                .collect::<Vec<_>>(),
-            scan_window,
-        )?;
-        for entry in &page {
-            Signature::from_str(&entry.signature).context("invalid finalized signature")?;
-            if entry.confirmation_status
-                != Some(solana_transaction_status::TransactionConfirmationStatus::Finalized)
-            {
-                anyhow::bail!("signature listing is not finalized");
-            }
-        }
-        before = page.last().map(|entry| entry.signature.clone());
-        let boundary = selected.reached_start.then(|| {
-            let entry = &page[selected.range.end];
-            (entry.signature.clone(), entry.slot)
-        });
-        new_signatures.extend(
-            page.into_iter()
-                .skip(selected.range.start)
-                .take(selected.range.len()),
-        );
-        if let Some(boundary) = boundary {
-            break boundary;
-        }
-    };
-    attestation.verify(rpc, &config.cluster).await?;
-
-    // Oldest first, so the cursor only ever advances over persisted work.
-    new_signatures.reverse();
-    let mut receipts = Vec::new();
-    for entry in new_signatures {
-        window.require_slot(entry.slot)?;
-        attestation.verify(rpc, &config.cluster).await?;
-        let signature = Signature::from_str(&entry.signature)?;
-        let transaction = rpc
+    // The stream logs every transaction it drops; this re-ingests one.
+    if let Some(signature) = flag_value("--replay") {
+        let fetched = rpc
             .get_transaction_with_config(
-                &signature,
+                &Signature::from_str(&signature).context("invalid --replay signature")?,
                 RpcTransactionConfig {
-                    encoding: Some(UiTransactionEncoding::Json),
-                    commitment: Some(CommitmentConfig::finalized()),
+                    encoding: Some(UiTransactionEncoding::Base64),
+                    commitment: Some(CommitmentConfig::confirmed()),
                     max_supported_transaction_version: Some(0),
                 },
             )
             .await
             .with_context(|| format!("getTransaction {signature}"))?;
-        if transaction.slot != entry.slot {
-            anyhow::bail!("FINALIZED_INVARIANT: signature and transaction slots differ");
+        let processor = processors::DuskTransactionProcessor::new(
+            pool,
+            decoder,
+            config.cluster.clone(),
+            window.first_slot,
+            Arc::default(),
+        );
+        let events = processor
+            .replay(&processors::metadata_from_rpc(&fetched)?)
+            .await?;
+        println!(
+            "{}",
+            serde_json::json!({"replayedTransaction": signature, "events": events})
+        );
+        return Ok(());
+    }
+
+    log::info!(
+        "dusk-indexer-daemon streaming: cluster={} first_slot={} account_scan={}ms",
+        config.cluster,
+        window.first_slot,
+        config.account_scan_interval.as_millis(),
+    );
+
+    let snapshots = tokio::spawn(snapshot_accounts(
+        rpc,
+        pool.clone(),
+        decoder.clone(),
+        config.cluster.clone(),
+        attestation,
+        config.account_scan_interval,
+    ));
+    let liveness = Arc::new(liveness::StreamLiveness::default());
+    let cursor = Arc::new(Mutex::new(()));
+    let heartbeat = tokio::spawn(heartbeat(
+        pool.clone(),
+        config.cluster.clone(),
+        liveness.clone(),
+        cursor.clone(),
+    ));
+
+    let result = tokio::select! {
+        result = stream(&config, pool, decoder, window.first_slot, liveness, cursor) => result,
+        joined = snapshots => joined.context("account snapshot task panicked")?,
+        _ = shutdown_signal() => {
+            log::info!("shutdown signal received");
+            Ok(())
         }
-        window.require_slot(transaction.slot)?;
-        let block = rpc
-            .get_block_with_config(
-                transaction.slot,
-                RpcBlockConfig {
-                    encoding: Some(UiTransactionEncoding::Json),
-                    transaction_details: Some(TransactionDetails::None),
-                    rewards: Some(false),
-                    commitment: Some(CommitmentConfig::finalized()),
-                    max_supported_transaction_version: Some(0),
-                },
-            )
-            .await
-            .context("reading containing finalized block")?;
-        scans::validate_transaction(&entry, &transaction)?;
-        let transaction_sha = scans::transaction_hash(&transaction)?;
-        let observed = if entry.err.is_none() {
-            Some(extract::decode_transaction(
-                decoder,
-                &entry.signature,
-                &transaction,
-                &block.blockhash,
-                block.parent_slot,
-                block.block_time,
-            )?)
-        } else {
-            None
-        };
-        attestation.verify(rpc, &config.cluster).await?;
-        let mut keys = Vec::new();
-        let mut instruction_keys = Vec::new();
-        if let Some(observed) = observed {
-            if order_scan {
-                for instruction in &observed.orders {
-                    instruction_keys.push(
-                        orders::persist(
-                            pool,
-                            &config.cluster,
-                            &entry.signature,
-                            observed.slot,
-                            &block.blockhash,
-                            observed.block_time,
-                            instruction,
-                        )
-                        .await?,
-                    );
-                }
-            } else {
-                for event in &observed.events {
-                    persist::persist_event(pool, event, observed.block_time, window).await?;
-                    keys.push(event.canonical_record().event_key);
+    };
+    heartbeat.abort();
+    result
+}
+
+/// The pipeline, rebuilt after any failure with the v1 indexer's backoff. The
+/// datasource reconnects on its own; a failed run means the pipeline stopped.
+async fn stream(
+    config: &Config,
+    pool: PgPool,
+    decoder: Arc<PinnedIdlDecoder>,
+    first_slot: u64,
+    liveness: Arc<liveness::StreamLiveness>,
+    cursor: Arc<Mutex<()>>,
+) -> Result<()> {
+    let api_key = config
+        .helius_api_key
+        .as_deref()
+        .context("HELIUS_API_KEY is required to stream (or an api-key in DUSK_RPC_URL)")?;
+    let mut retry = Duration::from_secs(1);
+    loop {
+        let datasource = pipeline::helius_datasource(api_key, &config.cluster)?;
+        let processor = processors::DuskTransactionProcessor::new(
+            pool.clone(),
+            decoder.clone(),
+            config.cluster.clone(),
+            first_slot,
+            cursor.clone(),
+        );
+        let mut run = pipeline::build(datasource, processor, config.metrics_port, liveness.clone())
+            .map_err(|error| anyhow!("building pipeline: {error:?}"))?;
+        match run.run().await {
+            Ok(()) => {
+                log::warn!("pipeline finished; restarting");
+                retry = Duration::from_secs(1);
+            }
+            Err(error) => {
+                log::error!(
+                    "pipeline failed: {error:?}; restarting in {}s",
+                    retry.as_secs()
+                );
+                tokio::time::sleep(retry).await;
+                retry = (retry * 2).min(Duration::from_secs(30));
+                continue;
+            }
+        }
+        tokio::time::sleep(retry).await;
+    }
+}
+
+/// Complete program account snapshots on a timer. A deployment that no longer
+/// matches the pin stops the daemon; anything else is retried next interval.
+async fn snapshot_accounts(
+    rpc: RpcClient,
+    pool: PgPool,
+    decoder: Arc<PinnedIdlDecoder>,
+    cluster: String,
+    mut attestation: identity::Attestation,
+    interval: Duration,
+) -> Result<()> {
+    loop {
+        match accounts::capture(&rpc, &pool, &decoder, &cluster, &mut attestation).await {
+            Ok(()) => {
+                if let Err(error) =
+                    persist::record_deployment(&pool, &cluster, attestation.window()?).await
+                {
+                    log::warn!("deployment interval update failed: {error:#}");
                 }
             }
-            log::debug!(
-                "slot {}: {} event(s) [{}]",
-                observed.slot,
-                keys.len(),
-                observed.event_names().join(", ")
-            );
+            Err(error) if format!("{error:#}").contains("FINALIZED_INVARIANT") => {
+                return Err(error)
+            }
+            Err(error) => log::warn!("native account scan failed: {error:#}"),
         }
-        keys.sort();
-        instruction_keys.sort();
-        receipts.push(serde_json::json!({
-            "signature": entry.signature, "slot": entry.slot, "blockhash": block.blockhash,
-            "failed": entry.err.is_some(), "transactionSha256": transaction_sha, "eventKeys": keys, "instructionKeys": instruction_keys
-        }));
-        attestation.verify(rpc, &config.cluster).await?;
-        if !order_scan {
-            persist::advance_cursor(pool, &config.cluster, &entry.signature, entry.slot, window)
-                .await?;
+        tokio::time::sleep(interval).await;
+    }
+}
+
+/// A quiet market must not look like a dead ingester, and a dead stream must
+/// not look like a quiet market. The cursor's time is history coverage and
+/// `/status` liveness, so it moves only while the WebSocket delivers verified
+/// Clock updates.
+async fn heartbeat(
+    pool: PgPool,
+    cluster: String,
+    liveness: Arc<liveness::StreamLiveness>,
+    cursor: Arc<Mutex<()>>,
+) {
+    loop {
+        tokio::time::sleep(Duration::from_secs(15)).await;
+        if !liveness.live_within(STREAM_LIVENESS) {
+            log::warn!(
+                "no verified Clock update for {}s; cursor heartbeat withheld",
+                STREAM_LIVENESS.as_secs()
+            );
+            continue;
+        }
+        let _cursor = cursor.lock().await;
+        if let Err(error) = persist::touch_cursor(&pool, &cluster, chrono::Utc::now()).await {
+            log::warn!("cursor heartbeat failed: {error:#}");
         }
     }
-    let through = rpc
-        .get_block_with_config(
-            window.through_slot,
-            RpcBlockConfig {
-                encoding: Some(UiTransactionEncoding::Json),
-                transaction_details: Some(TransactionDetails::None),
-                rewards: Some(false),
-                commitment: Some(CommitmentConfig::finalized()),
-                max_supported_transaction_version: Some(0),
-            },
-        )
-        .await
-        .context("reading history upper boundary")?;
-    let release_time = rpc
-        .get_block_time(window.first_slot - 1)
-        .await
-        .context("reading deployment block time")?;
-    attestation.verify(rpc, &config.cluster).await?;
-    scans::record(
-        &mut scan,
-        &config.cluster,
-        scan_window,
-        &boundary,
-        &through.blockhash,
-        through
-            .block_time
-            .context("history boundary has no block time")?,
-        release_time,
-        &receipts,
-        order_scan,
-    )
-    .await?;
-    scan.commit().await?;
-    Ok(receipts.len())
 }
 
 fn dotenv_optional() {
@@ -415,17 +337,21 @@ async fn shutdown_signal() {
     }
 }
 
-async fn ingest_all(
-    rpc: &RpcClient,
-    pool: &sqlx::PgPool,
-    decoder: &PinnedIdlDecoder,
-    config: &Config,
-    program: &Pubkey,
-    attestation: &mut identity::Attestation,
-) -> Result<usize> {
-    let events = ingest_once(rpc, pool, decoder, config, program, attestation).await?;
-    attestation.verify(rpc, &config.cluster).await?;
-    let delegate = Pubkey::from_str(LEVERAGE_DELEGATE_PROGRAM_ID)?;
-    let orders = ingest_once(rpc, pool, decoder, config, &delegate, attestation).await?;
-    Ok(events + orders)
+#[cfg(test)]
+mod tests {
+    use super::api_key_from_url;
+
+    #[test]
+    fn reads_the_helius_key_from_the_rpc_url() {
+        assert_eq!(
+            api_key_from_url("https://devnet.helius-rpc.com/?api-key=abc123").as_deref(),
+            Some("abc123")
+        );
+        assert_eq!(
+            api_key_from_url("https://rpc.example/?x=1&api-key=k&y=2").as_deref(),
+            Some("k")
+        );
+        assert_eq!(api_key_from_url("https://rpc.example/"), None);
+        assert_eq!(api_key_from_url("https://rpc.example/?api-key="), None);
+    }
 }

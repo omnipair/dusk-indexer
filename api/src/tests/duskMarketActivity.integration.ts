@@ -82,7 +82,7 @@ test('API-only releases preserve verified historical USD pricing for activity',(
 test('finalized native trades project once, exclude other revisions and commitments, and retain late backfills',() => transaction(async (client) => {
   await priced(client);
   await source(client);
-  await source(client,{ commitment: 'confirmed' });
+  await source(client,{ commitment: 'processed' });
   await source(client,{ revision: `fixture-other-${randomUUID()}` });
   await source(client,{ name: 'YieldClaimed' });
   assert.equal(await projectMarketActivityBatch(client),1);
@@ -255,6 +255,42 @@ test('500-row keyset pages retain every event sharing a slot and expose partial 
   assert.equal(view.metrics.volume.observedUsd,'2515');
   assert.equal(view.metrics.swapFees.observedUsd,'65.39');
   assert.equal(view.coverage.projectionComplete,true);
+}));
+
+/** Register the release as the daemon does and return its registration time. */
+async function registerRelease(client: PoolClient) {
+  const body = JSON.stringify({ revision: pin.revision,cluster: { name: pin.cluster,genesisHash: pin.genesisHash },
+    programs: [pin.dusk,pin.leverageDelegate].map(p => ({ name: p.name,programId: p.programId,binary: { sha256: p.binarySha256 },
+      idl: { canonicalSha256: p.idlCanonicalSha256 },deployment: p.deployment })) });
+  await client.query('SELECT dusk_ingestion.record_deployment_interval($1,$2,$3,$4,$5,$6)',
+    [pin.cluster,pin.revision,pin.historyFirstSlot,pin.historyFirstSlot+100,createHash('sha256').update(body).digest('hex'),body]);
+  return (await client.query<{ registered_at: Date }>('SELECT registered_at FROM dusk_ingestion.deployment_intervals WHERE cluster=$1 AND protocol_revision=$2',
+    [pin.cluster,pin.revision])).rows[0].registered_at;
+}
+async function cursor(client: PoolClient,stream: string,time: Date) {
+  await client.query(`INSERT INTO dusk_ingestion.ingestion_cursors(cluster,program_id,idl_hash,protocol_revision,stream_name,commitment,next_slot,updated_at)
+    VALUES($1,$2,$3,$4,$5,'confirmed',$6,$7)`,[...active,stream,pin.historyFirstSlot,time]);
+}
+
+test('the stream cursor covers windows from the release registration to its time',() => transaction(async client => {
+  const registered = await registerRelease(client),at = (ms: number) => new Date(registered.getTime()+ms).toISOString();
+  const window = { ...query,since: at(1),until: at(19) };
+  assert.equal((await readMarketActivity(client,window)).coverage.historyScan,null);
+  // A retired poller's cursor is not coverage, however recent.
+  await cursor(client,'finalized-signature-poll',new Date(registered.getTime()+10));
+  assert.equal((await readMarketActivity(client,window)).coverage.historyScan,null);
+  await new Promise(resolve => setTimeout(resolve,30));
+  await cursor(client,'helius-atlas-ws',new Date(registered.getTime()+20));
+  const covered = await readMarketActivity(client,window);
+  assert.deepEqual(covered.coverage.historyScan,{ basis: 'confirmed-stream.v1',firstSlot: String(pin.historyFirstSlot),
+    throughSlot: String(pin.historyFirstSlot),releaseBlockTime: registered.toISOString(),throughBlockTime: at(20),completedAt: at(20) });
+  assert.equal(covered.coverage.historyRangeComplete,true);
+  assert.equal((await readMarketActivity(client,{ ...window,until: at(20) })).coverage.historyRangeComplete,false);
+  assert.equal((await readMarketActivity(client,{ ...window,since: at(0) })).coverage.historyRangeComplete,false);
+  // A cursor ahead of this host's clock claims no more than now.
+  await client.query(`UPDATE dusk_ingestion.ingestion_cursors SET updated_at=now()+interval '1 minute' WHERE stream_name='helius-atlas-ws'`);
+  const skewed = await readMarketActivity(client,window);
+  assert.ok(Date.parse(skewed.coverage.historyScan!.throughBlockTime)<=Date.now());
 }));
 
 test('selection identity binds market and normalized time filters, including empty windows',() => transaction(async (client) => {

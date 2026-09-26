@@ -45,7 +45,7 @@ async function source(client: PoolClient, offset: number, options: { commitment?
 }
 test('native history paginates same-slot CPI events without signature deduplication or late-backfill shifts', () => transaction(async client => {
   await source(client,2); await source(client,2); await source(client,1);
-  await source(client,3,{ commitment:'confirmed' });
+  await source(client,3,{ commitment:'processed' });
   await source(client,4,{ revision:'fixture-'+randomUUID() });
   const first = await readEventHistory(client,query);
   assert.equal(first.events.length,2); assert.equal(first.pagination.hasMore,true);
@@ -72,7 +72,7 @@ test('v2 reads finalized hLP and yield events while v1 and position-close querie
   await source(client,3,{eventName:'HlpClosed',owner});
   await source(client,2,{eventName:'YieldClaimed',owner});
   await source(client,1,{eventName:'LiquidityAdded',owner});
-  await source(client,5,{eventName:'HlpOpened',owner,commitment:'confirmed'});
+  await source(client,5,{eventName:'HlpOpened',owner,commitment:'processed'});
   const v1 = await readEventHistory(client,{...query,limit:100});
   assert.deepEqual(v1.events.map(row=>row.eventName),['LiquidityAdded']);
   assert.equal(v1.schemaVersion,'dusk-event-history.v1');

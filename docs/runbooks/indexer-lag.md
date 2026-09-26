@@ -22,17 +22,20 @@ prices beside stale history.
 
 ## Do
 
-1. Check the daemon is alive at all. In Railway, `dusk-indexer` logs a line per
-   ingested batch. Silence means the process is wedged rather than slow.
+1. Check the stream is delivering. The cursor heartbeat runs every 15 s even
+   on a quiet market, but only while the WebSocket delivers verified Clock
+   updates; the daemon logs `cursor heartbeat withheld` when it does not, and
+   `/metrics` stops counting `helius_atlas_ws_clock_*` updates. A stale cursor
+   with the process running means the stream is down or wedged.
 2. Check whether it is the RPC rather than the indexer — see
    [RPC provider outage](rpc-provider-outage.md). A rate-limited daemon falls
    behind without erroring.
-3. If the daemon is alive and the RPC is healthy, restart `dusk-indexer`. It
-   resumes from its stored cursor, so a restart costs only the batch in flight.
-4. If lag keeps growing after a restart, the daemon is not keeping up with the
-   chain rather than stuck. Reduce `DUSK_POLL_INTERVAL_MS` only if the RPC has
-   headroom; otherwise this needs a wider ingestion window, which is a change
-   rather than an incident action.
+3. If the daemon is alive and the RPC is healthy, restart `dusk-indexer`. The
+   stream resumes at the current slot; transactions confirmed while it was down
+   are not backfilled.
+4. Re-ingest anything that matters with `dusk-indexer-daemon --replay
+   <signature>`. Transactions the processor refused are in the logs as
+   `dropped transaction <signature>`.
 
 ## Over when
 
@@ -44,6 +47,6 @@ growing and ignore it.
 
 ## Do not
 
-Do not clear the cursor to "start fresh". The cursor is what makes ingestion
-resumable, and resetting it re-ingests from the beginning without fixing
-whatever caused the lag.
+Do not clear the cursor to "start fresh". It records the last streamed slot
+and the time `/status` and history coverage read; clearing it replays nothing
+and only hides liveness.
