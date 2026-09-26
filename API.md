@@ -452,6 +452,10 @@ and refuse data from a program they were not built against.
 | `GET /api/dusk/v1/markets/:market/events` | That market's event history |
 | `GET /api/dusk/v1/events` | Global activity feed |
 | `GET /api/dusk/v1/health` | Ingestion counters, cursor lag, envelope status (no envelope wrapper) |
+| `GET /api/dusk/v1/liquidations` | Liquidatable and auctioned borrow positions with program-previewed terms |
+| `GET /api/dusk/v1/owners/:owner/governance` | Locked yLP per proposal; with `market`, yLP yield-account flags |
+| `GET /api/dusk/v1/owners/:owner/referral-partner` | Referral terms and per-market accruals net of current transfer fees |
+| `GET /api/dusk/v1/owners/:owner/yield` | Claimable LP yield for held LP and unsettled hLP order escrows |
 
 Feed queries accept `events=Name1,Name2`, `since`/`until` (ISO 8601),
 `limit` (≤500) and `offset`.
