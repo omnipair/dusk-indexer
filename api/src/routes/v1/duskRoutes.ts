@@ -48,6 +48,7 @@ import { listArchivedQuoteHistory } from '../../services/duskArchivedQuoteHistor
 import { openDuskChangeStream } from '../../services/duskChangeStream';
 import { listPortfolioHistory, portfolioSampleSeconds } from '../../services/duskPortfolioSnapshots';
 import { governanceSelection, listGovernanceProposals } from '../../services/duskGovernance';
+import { currentLiquidations } from '../../services/duskLiquidations';
 import { provenance, renderMetrics } from '../../utils/metrics';
 
 import { PublicKey } from '@solana/web3.js';
@@ -79,6 +80,12 @@ router.get('/owners/:owner/accounts/:kind', asyncRoute(async (req, res) => {
 router.get('/owners/:owner/leverage-valuations/:address', asyncRoute(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json(await currentLeverageValuation(leverageValuationSelection(req.params.owner, req.params.address)));
+}));
+
+/** Open borrow positions with debt that are liquidatable or in auction. */
+router.get('/liquidations', asyncRoute(async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await currentLiquidations());
 }));
 
 router.get('/changes', asyncRoute(openDuskChangeStream));

@@ -77,7 +77,7 @@ export async function currentDisplayState<
   return { ...result, deployment: after };
 }
 
-async function captureWithDeadline<T>(
+export async function captureWithDeadline<T>(
   capture: (signal: AbortSignal) => Promise<T>,
 ) {
   const controller = new AbortController();

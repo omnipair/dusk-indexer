@@ -119,6 +119,10 @@ async function fixture() {
     valuation: walletCaptureDependencies.valuation,
     orders: (options) =>
       readDuskOrders({ ...options, previewPayer: undefined }),
+    borrowPositions: async () => ({ positions: [], sourceSlot: 1010 }),
+    borrowValuation: walletCaptureDependencies.borrowValuation,
+    hlpBalances: async () => ({ balances: [], sourceSlot: 1010 }),
+    hlpPositions: walletCaptureDependencies.hlpPositions,
   };
   return { ...f, deployment, boundary, deps, raw, marketInfo, order, infos };
 }
