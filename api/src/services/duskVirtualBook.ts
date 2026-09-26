@@ -15,6 +15,8 @@ import {
   projectDuskVirtualBook,
   VirtualBookView,
 } from './virtualBook/virtual-book-view-model';
+import { captureMarketEntryOrders } from './duskEntryOrderBook';
+import type { BookEntryOrders } from './duskEntryOrderBook';
 
 export const VIRTUAL_BOOK_MAX_AGE_MS = 20_000;
 export interface VirtualBookSnapshot {
@@ -29,6 +31,8 @@ export interface VirtualBookSnapshot {
   baseDecimals: number;
   quoteDecimals: number;
   book: VirtualBookView;
+  /** Open entry orders at or after the book's bank; null when unavailable. */
+  entryOrders: BookEntryOrders | null;
 }
 export interface VirtualBookEnvelope {
   success: true;
@@ -89,8 +93,19 @@ export async function captureVirtualBook(
     });
     const book = projectDuskVirtualBook(quoted);
     if (!book) throw new Error('Virtual book unavailable');
+    // Orders are a separate panel: their failure must not hide market depth.
+    const entryOrders = await captureMarketEntryOrders(
+      dusk,
+      {
+        address: selection.market,
+        baseMint: quoted.account.baseSide.assetMint.toBase58(),
+        quoteMint: quoted.account.quoteSide.assetMint.toBase58(),
+      },
+      quoted.slot,
+      controller.signal,
+    ).catch(() => null);
     const after = await boundedDuskRpcRead(
-      () => deploymentEnvelope(quoted.slot),
+      () => deploymentEnvelope(Math.max(quoted.slot, entryOrders?.sourceSlot ?? 0)),
       controller.signal,
     );
     if (after.deploymentIdentitySha256 !== deployment.deploymentIdentitySha256)
@@ -106,6 +121,7 @@ export async function captureVirtualBook(
       baseDecimals: quoted.account.baseSide.assetDecimals,
       quoteDecimals: quoted.account.quoteSide.assetDecimals,
       book,
+      entryOrders,
     };
     if (Date.now() >= data.expiresAt)
       throw new Error('Virtual book expired during capture');
@@ -137,7 +153,13 @@ export async function currentVirtualBook(
     compute: () => deps.capture(selection, before),
   });
   const after = await boundedDuskRpcRead(() =>
-    deps.envelope(Math.max(before.sourceSlot, result?.data.sourceSlot ?? 0)),
+    deps.envelope(
+      Math.max(
+        before.sourceSlot,
+        result?.data.sourceSlot ?? 0,
+        result?.data.entryOrders?.sourceSlot ?? 0,
+      ),
+    ),
   );
   if (
     before.deploymentIdentitySha256 !== after.deploymentIdentitySha256 ||
