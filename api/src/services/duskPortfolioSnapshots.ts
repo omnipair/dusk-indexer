@@ -1,6 +1,6 @@
 import { BorshCoder } from '@coral-xyz/anchor';
 import { AccountInfo, PublicKey, SystemProgram } from '@solana/web3.js';
-import { TOKEN_2022_PROGRAM_ID, unpackAccount } from '@solana/spl-token';
+import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, unpackAccount } from '@solana/spl-token';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PoolClient } from 'pg';
@@ -10,20 +10,21 @@ import { deploymentEnvelope } from './duskDeploymentService';
 import { captureMarketSimulation, duskRawIdl, MarketSimulationSnapshot, SnapshotAccount } from './duskMarketSimulation';
 import { nativeFields, nativeKey, PortfolioKind, projectPortfolioComponent, totalPortfolioComponents } from './duskPortfolioMath';
 import { parsePriceReferences, priceMarketBindings } from './duskPriceMath';
-import { assertNativeEvidenceConsistent } from './duskNativeEvidence';
+import { readStreamCursor } from './duskHistoryCoverage';
 
 const identity = () => {
   const pin = loadPinnedProtocol();
   return [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
 };
 export interface PortfolioCatalogItem { address: string; market: string; owner: string; kind: PortfolioKind; sourceSlot: number }
+/** Discovery from streamed events, current as of the stream's slot and time. */
 export interface PortfolioCatalog {
-  accountScanId: string; accountSlot: number; lpScanIds: string[]; lpScanSlots: number[]; sourceFloor: number;
+  basis: 'streamed-events.v1'; throughSlot: number; streamTime: string; sourceFloor: number;
   markets: string[]; items: PortfolioCatalogItem[]; knownOwners: string[];
 }
 export interface PortfolioCaptureSource {
-  schemaVersion: 'dusk-portfolio-capture.v1'; catalog: PortfolioCatalog; groups: MarketSimulationSnapshot[];
-  references: unknown; observedAt: string; deploymentIdentitySha256: string; maxCatalogAgeSlots: number;
+  schemaVersion: 'dusk-portfolio-capture.v2'; catalog: PortfolioCatalog; groups: MarketSimulationSnapshot[];
+  references: unknown; observedAt: string; deploymentIdentitySha256: string; maxCatalogAgeSeconds: number;
 }
 const checkedSlot = (value: number) => {
   if (!Number.isSafeInteger(value) || value<0) throw new Error('Invalid portfolio source slot');
@@ -41,65 +42,41 @@ function coordinates(source: PortfolioCaptureSource) {
   return { minSlot: Math.min(...slots),maxSlot: Math.max(...slots),captureTime: new Date(Math.max(...times)).toISOString() };
 }
 
-/** Discovery only: every returned address is read again at its valuation bank. */
+/** Discovery only: every returned address is read again at its valuation bank.
+ * Positions and LP holders come from streamed events; an LP holder is valued
+ * through its canonical Token-2022 account, the one yield accrues to. */
 export async function readPortfolioCatalog(client: PoolClient): Promise<PortfolioCatalog> {
-  const active = identity();
-  await assertNativeEvidenceConsistent(client,active);
-  const scan = await client.query(`SELECT scan_id::text,slot::text FROM dusk_ingestion.account_scans
-    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND applied_at IS NOT NULL ORDER BY slot DESC,scan_id DESC LIMIT 1`,active);
-  if (!scan.rows[0]) throw new Error('A complete native account scan is required for portfolio capture');
-  const accountScanId = scan.rows[0].scan_id,accountSlot = checkedSlot(Number(scan.rows[0].slot));
-  const markets = await client.query(`SELECT m.account_pubkey,o.raw_account,m.scan_id::text FROM dusk_ingestion.native_markets m
-    JOIN dusk_ingestion.account_observations o USING(scan_id,account_pubkey)
-    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 ORDER BY m.account_pubkey`,active);
+  const active = identity(),stream = await readStreamCursor(client);
+  if (!stream) throw new Error('Portfolio capture needs a started Dusk stream');
+  const filter = 'cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4';
+  const markets = await client.query<{ market: string }>(`SELECT market FROM dusk_ingestion.streamed_markets WHERE ${filter} ORDER BY market`,active);
   if (!markets.rowCount) throw new Error('Portfolio capture has no discovered markets');
-  const marketAddresses = markets.rows.map((row) => nativeKey(row.account_pubkey));
-  const expectedMints = new Map<string,{ market: string; kind: PortfolioKind }>();
-  const decoder = new BorshCoder(duskRawIdl());
-  for (const row of markets.rows) {
-    if (row.scan_id !== accountScanId) throw new Error('Native market projection is behind its completed scan');
-    // The Rust JSON projection stringifies integers, including hash bytes.
-    // Decode the immutable account for SDK/IDL-shaped validation instead.
-    const state = nativeFields(decoder.accounts.decode('Market',row.raw_account));
-    priceMarketBindings(active[1],row.account_pubkey,state);
-    for (const [kind,mint] of [['ylp',state.ylp_mint],['base_hlp',nativeFields(state.base_side).hlp_mint],['quote_hlp',nativeFields(state.quote_side).hlp_mint]] as const) {
-      const address = nativeKey(mint);
-      if (expectedMints.has(address)) throw new Error('Portfolio LP mint is shared by different market bindings');
-      expectedMints.set(address,{ market: row.account_pubkey,kind });
-    }
-  }
-  const positions = await client.query(`SELECT account_pubkey,account_name,market,owner,source_slot::text,scan_id::text FROM dusk_ingestion.native_positions
-    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 ORDER BY account_pubkey`,active);
-  const items: PortfolioCatalogItem[] = positions.rows.map((row) => {
-    if (row.scan_id !== accountScanId || !marketAddresses.includes(row.market)) throw new Error('Position catalog is incomplete');
-    return { address: nativeKey(row.account_pubkey),owner: nativeKey(row.owner),market: row.market,
-      kind: row.account_name === 'BorrowPosition' ? 'borrow' : 'leverage',sourceSlot: checkedSlot(Number(row.source_slot)) };
+  const marketAddresses = markets.rows.map((row) => nativeKey(row.market));
+  const found = await client.query<{ address: string; market: string; owner: string; kind: PortfolioKind; last_slot: string; lp_mint: string | null }>(`
+    SELECT position AS address,market,owner,'borrow' AS kind,last_slot::text,NULL AS lp_mint
+      FROM dusk_ingestion.streamed_borrow_positions WHERE ${filter} AND open
+    UNION ALL SELECT position,market,owner,'leverage',last_slot::text,NULL
+      FROM dusk_ingestion.streamed_leverage_positions WHERE ${filter} AND open
+    UNION ALL SELECT NULL,market,owner,kind,last_slot::text,lp_mint
+      FROM dusk_ingestion.streamed_lp_balances WHERE ${filter} AND amount>0`,active);
+  const items: PortfolioCatalogItem[] = found.rows.map((row) => {
+    if (!marketAddresses.includes(row.market)) throw new Error('Position catalog is incomplete');
+    const owner = nativeKey(row.owner);
+    const address = row.lp_mint === null ? nativeKey(row.address)
+      : getAssociatedTokenAddressSync(new PublicKey(row.lp_mint),new PublicKey(owner),true,TOKEN_2022_PROGRAM_ID).toBase58();
+    return { address,owner,market: row.market,kind: row.kind,sourceSlot: checkedSlot(Number(row.last_slot)) };
   });
-  const lpScans = await client.query(`SELECT scan_id::text,lp_mint,market,token_kind,slot::text FROM dusk_ingestion.latest_lp_token_scans
-    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 ORDER BY lp_mint`,active);
-  const selected = lpScans.rows.filter((row) => expectedMints.has(row.lp_mint));
-  if (selected.length !== expectedMints.size) throw new Error('Complete ownership scans for every portfolio LP mint are required');
-  for (const row of selected) {
-    const expected = expectedMints.get(row.lp_mint)!;
-    if (row.market !== expected.market || row.token_kind !== expected.kind) throw new Error('LP scan differs from native market bindings');
-  }
-  const lpScanIds = selected.map((row) => row.scan_id);
-  const tokens = await client.query(`SELECT o.token_account,o.owner,s.market,s.token_kind,s.slot::text FROM dusk_ingestion.lp_token_observations o
-    JOIN dusk_ingestion.lp_token_scans s USING(scan_id) WHERE scan_id=ANY($1::bigint[]) ORDER BY o.token_account`,[lpScanIds]);
-  for (const row of tokens.rows) items.push({ address: nativeKey(row.token_account),owner: nativeKey(row.owner),market: row.market,
-    kind: row.token_kind,sourceSlot: checkedSlot(Number(row.slot)) });
-  // Preserve previous owners after closure or a token-account authority change.
-  const pastOwners = await client.query(`SELECT owner FROM dusk_ingestion.portfolio_checkpoints
-      WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
-    UNION SELECT decoded_fields->>'owner' FROM dusk_ingestion.account_projections
-      WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND account_name IN ('BorrowPosition','LeveragePosition')
-    UNION SELECT o.owner FROM dusk_ingestion.lp_token_observations o JOIN dusk_ingestion.lp_token_scans s USING(scan_id)
-      WHERE s.cluster=$1 AND s.program_id=$2 AND s.idl_hash=$3 AND s.protocol_revision=$4 AND s.applied_at IS NOT NULL`,active);
+  // Preserve previous owners after closure, a full withdrawal or a transfer.
+  const pastOwners = await client.query<{ owner: string }>(`
+    SELECT owner FROM dusk_ingestion.portfolio_checkpoints WHERE ${filter}
+    UNION SELECT owner FROM dusk_ingestion.streamed_borrow_positions WHERE ${filter}
+    UNION SELECT owner FROM dusk_ingestion.streamed_leverage_positions WHERE ${filter}
+    UNION SELECT owner FROM dusk_ingestion.streamed_lp_balances WHERE ${filter}`,active);
   const knownOwners = [...new Set([...items.map((item) => item.owner),...pastOwners.rows.map((row) => nativeKey(row.owner))])].sort();
   if (items.length>100000 || knownOwners.length>100000) throw new Error('Portfolio catalog exceeds the bounded capture capacity');
-  const lpScanSlots = selected.map((row) => checkedSlot(Number(row.slot)));
-  return { accountScanId,accountSlot,lpScanIds,lpScanSlots,markets: marketAddresses,items: items.sort((a,b) => a.address.localeCompare(b.address)),knownOwners,
-    sourceFloor: Math.max(accountSlot,...lpScanSlots) };
+  const throughSlot = checkedSlot(Number(stream.throughSlot));
+  return { basis: 'streamed-events.v1',throughSlot,streamTime: stream.time.toISOString(),sourceFloor: throughSlot,
+    markets: marketAddresses,items: items.sort((a,b) => a.address.localeCompare(b.address)),knownOwners };
 }
 
 function rawAccount(value: SnapshotAccount,program: string): AccountInfo<Buffer> {
@@ -111,12 +88,11 @@ function rawAccount(value: SnapshotAccount,program: string): AccountInfo<Buffer>
 /** Pure replay: saved discovery, account bytes and dated references are the inputs. */
 export function projectPortfolioSource(source: PortfolioCaptureSource) {
   const pin = loadPinnedProtocol(),decoder = new BorshCoder(duskRawIdl()),catalog = source.catalog,coords = coordinates(source);
-  if (source.schemaVersion !== 'dusk-portfolio-capture.v1' || !Number.isSafeInteger(source.maxCatalogAgeSlots) || source.maxCatalogAgeSlots<1
-    || source.maxCatalogAgeSlots>2500 || coords.maxSlot-checkedSlot(catalog.accountSlot)>source.maxCatalogAgeSlots
-    || coords.minSlot<checkedSlot(catalog.sourceFloor) || catalog.sourceFloor<catalog.accountSlot
-    || catalog.lpScanSlots.length !== catalog.lpScanIds.length || catalog.lpScanIds.length !== catalog.markets.length*3
-    || catalog.sourceFloor !== Math.max(catalog.accountSlot,...catalog.lpScanSlots)
-    || catalog.lpScanSlots.some((slot) => coords.maxSlot-checkedSlot(slot)>source.maxCatalogAgeSlots))
+  const catalogAge = Date.parse(source.observedAt)-Date.parse(catalog.streamTime);
+  if (source.schemaVersion !== 'dusk-portfolio-capture.v2' || catalog.basis !== 'streamed-events.v1'
+    || !Number.isSafeInteger(source.maxCatalogAgeSeconds) || source.maxCatalogAgeSeconds<1 || source.maxCatalogAgeSeconds>600
+    || !Number.isFinite(catalogAge) || catalogAge>source.maxCatalogAgeSeconds*1000
+    || catalog.sourceFloor !== checkedSlot(catalog.throughSlot) || coords.minSlot<catalog.sourceFloor)
     throw new Error('Portfolio catalog is stale or has invalid coordinates');
   parsePriceReferences(source.references,pin);
   const expected = new Map(catalog.items.map((item) => [nativeKey(item.address),item]));
@@ -170,8 +146,8 @@ export function projectPortfolioSource(source: PortfolioCaptureSource) {
     components: components.sort((a,b) => a.address.localeCompare(b.address)),valuations: totalPortfolioComponents(components) })),
     coverage: { basis: 'sampled-native-positions.v1',catalogComplete: true,atomicAcrossMarkets: false,historyComplete: false,
       discoveryAtomicWithValuation: false,completeAtValuationSlot: false,
-      accountScanId: catalog.accountScanId,accountScanSlot: String(catalog.accountSlot),lpScanIds: catalog.lpScanIds,
-      catalogMaxAgeSlots: source.maxCatalogAgeSlots,catalogLagSlots: coords.maxSlot-catalog.accountSlot,referenceHash,
+      catalogBasis: catalog.basis,catalogThroughSlot: String(catalog.throughSlot),catalogStreamTime: catalog.streamTime,
+      catalogMaxAgeSeconds: source.maxCatalogAgeSeconds,referenceHash,
       marketCount: markets.size,capturedAccountCount: seen.size,closedAccounts: closed.sort(),ownerChanges: moved,
       previewUnavailableMarkets: [...new Set(source.groups.filter((group) => group.previewUnavailable).map((group) => group.market))].sort(),
       includesWalletBalances: false,includesUnclaimedYield: false,currentTransactionQuote: false } };
@@ -249,17 +225,17 @@ export async function captureDuskPortfolioSnapshots(dependencies?: {
   let catalog: PortfolioCatalog;
   try { await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY'); catalog = await readPortfolioCatalog(client); await client.query('COMMIT'); }
   catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
-  const maxCatalogAgeSlots = Number(process.env.DUSK_PORTFOLIO_MAX_CATALOG_AGE_SLOTS ?? 750);
-  if (!Number.isSafeInteger(maxCatalogAgeSlots) || maxCatalogAgeSlots<1 || maxCatalogAgeSlots>2500
-    || before.sourceSlot-catalog.accountSlot>maxCatalogAgeSlots
-    || catalog.lpScanSlots.some((slot) => before.sourceSlot-slot>maxCatalogAgeSlots)
-    || catalog.items.some((item) => before.sourceSlot-item.sourceSlot>maxCatalogAgeSlots)) throw new Error('Portfolio discovery scans are stale; refresh native and LP scans');
+  // The stream heartbeats while live, so a recent stream time means discovery
+  // is current however long ago the last transaction landed.
+  const maxCatalogAgeSeconds = Number(process.env.DUSK_PORTFOLIO_MAX_CATALOG_AGE_SECONDS ?? 60);
+  if (!Number.isSafeInteger(maxCatalogAgeSeconds) || maxCatalogAgeSeconds<1 || maxCatalogAgeSeconds>600
+    || Date.now()-Date.parse(catalog.streamTime)>maxCatalogAgeSeconds*1000) throw new Error('The Dusk stream is stale; portfolio discovery is not current');
   const root = process.env.DUSK_PROTOCOL_DIR?.trim() || resolve(__dirname,'../../../protocol');
   const references = parsePriceReferences(JSON.parse(readFileSync(process.env.DUSK_PRICE_REFERENCES_FILE?.trim()
     || resolve(root,'devnet-price-references.json'),'utf8')),loadPinnedProtocol());
   const groups: MarketSimulationSnapshot[] = [];
-  // Envelope reads use confirmed commitment. Its current tip cannot be used
-  // as a finalized-bank floor; require the finalized catalog and deploy slots.
+  // Valuations read finalized banks at or after the stream's slot, so every
+  // discovered position exists at its valuation bank.
   const readFloor = Math.max(catalog.sourceFloor,checkedSlot(Number(before.programDataSlot)),checkedSlot(Number(before.leverageDelegateProgramDataSlot)));
   for (const market of catalog.markets) {
     const items = catalog.items.filter((item) => item.market === market);
@@ -269,10 +245,10 @@ export async function captureDuskPortfolioSnapshots(dependencies?: {
       groups.push(group);
     }
   }
-  const source: PortfolioCaptureSource = { schemaVersion: 'dusk-portfolio-capture.v1',catalog,groups,references,
-    observedAt: new Date().toISOString(),deploymentIdentitySha256: before.deploymentIdentitySha256,maxCatalogAgeSlots };
-  if ([catalog.accountSlot,...catalog.lpScanSlots].some((slot) => coordinates(source).maxSlot-slot>maxCatalogAgeSlots))
-    throw new Error('Portfolio catalog aged out during capture; refresh discovery and retry');
+  const source: PortfolioCaptureSource = { schemaVersion: 'dusk-portfolio-capture.v2',catalog,groups,references,
+    observedAt: new Date().toISOString(),deploymentIdentitySha256: before.deploymentIdentitySha256,maxCatalogAgeSeconds };
+  if (Date.parse(source.observedAt)-Date.parse(catalog.streamTime)>maxCatalogAgeSeconds*1000)
+    throw new Error('Portfolio catalog aged out during capture; retry');
   const writer = await pool.connect();
   try {
     await writer.query('BEGIN'); const id = await storePortfolioCapture(writer,source); await writer.query('COMMIT');

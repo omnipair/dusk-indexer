@@ -36,8 +36,6 @@ import {
 } from '../../services/duskReadModel';
 
 import { cache } from '../../utils/cache';
-import { listNativeAccounts, NativeAccountKind } from '../../services/duskNativeAccounts';
-import { listDuskLpOwnership } from '../../services/duskLpOwnership';
 import { listYieldClaims } from '../../services/duskYieldClaims';
 import { listYieldCheckpoints } from '../../services/duskYieldCheckpoints';
 import { listDuskPriceHistory } from '../../services/duskPrices';
@@ -348,38 +346,6 @@ router.get(
     res.json(await withDeployment(events));
   }),
 );
-
-/** Native account discovery with independent identity and scan provenance. */
-router.get('/accounts/:kind', asyncRoute(async (req, res) => {
-  const kind = req.params.kind as NativeAccountKind;
-  if (!['markets','borrow','leverage','yield','orders'].includes(kind)) {
-    res.status(400).json({ success: false, error: 'Unsupported native account kind' }); return;
-  }
-  const address = (value: unknown) => {
-    if (value === undefined) return undefined;
-    try { if (typeof value === 'string') return new PublicKey(value).toBase58(); } catch { /* handled below */ }
-    throw Object.assign(new Error('Invalid native account filter address'), { status: 400 });
-  };
-  const owner = address(req.query.owner), market = address(req.query.market);
-  res.json(await withDeploymentRead(async () => {
-    const result = await listNativeAccounts({ cluster: cluster(), kind, owner, market, limit: boundedLimit(req.query.limit), offset: boundedOffset(req.query.offset) });
-    return { data: result, sourceSlot: Number(result.coverage.sourceSlot) };
-  }));
-}));
-
-router.get('/lp-ownership', asyncRoute(async (req, res) => {
-  const address = (value: unknown) => {
-    if (value === undefined) return undefined;
-    try { if (typeof value === 'string') return new PublicKey(value).toBase58(); } catch { /* handled below */ }
-    throw Object.assign(new Error('Invalid LP ownership filter address'), { status: 400 });
-  };
-  const owner = address(req.query.owner), market = address(req.query.market);
-  res.json(await withDeploymentRead(async () => {
-    const result = await listDuskLpOwnership({ owner, market, limit: boundedLimit(req.query.limit), offset: boundedOffset(req.query.offset) });
-    const { envelopeSourceSlot, ...data } = result;
-    return { data, sourceSlot: envelopeSourceSlot };
-  }));
-}));
 
 /** Saved native position values, with catalog and per-bank coverage. */
 router.get('/owners/:owner/portfolio-snapshots',asyncRoute(async (req,res) => {

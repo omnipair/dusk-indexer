@@ -83,6 +83,8 @@ test('incomplete, duplicate, foreign and stale catalog captures cannot project',
   assert.throws(() => projectPortfolioSource(duplicate),/duplicates/);
   const wrong = portfolioFixture().source; wrong.groups[0].deploymentIdentitySha256 = 'c'.repeat(64);
   assert.throws(() => projectPortfolioSource(wrong),/identity/);
-  const stale = portfolioFixture().source; stale.catalog.lpScanSlots[0] -= 751;
+  const stale = portfolioFixture().source; stale.catalog.streamTime = '2026-09-01T23:59:04.999Z';
   assert.throws(() => projectPortfolioSource(stale),/stale/);
+  const early = portfolioFixture().source; early.catalog.throughSlot += 2; early.catalog.sourceFloor += 2;
+  assert.throws(() => projectPortfolioSource(early),/stale/);
 });

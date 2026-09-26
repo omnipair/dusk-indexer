@@ -62,27 +62,7 @@ jobs:
         working-directory: api
       - name: Rollback-only database integration
         working-directory: api
-        run: |
-          tests=()
-          for test in dist/tests/*.integration.js; do
-            if [[ "$test" != "dist/tests/duskNative.integration.js" ]]; then
-              tests+=("$test")
-            fi
-          done
-          node --test --test-concurrency=1 "${tests[@]}"
-      - name: Capture the attested devnet discovery fixtures
-        env:
-          DUSK_RPC_URL: ${{ secrets.DUSK_DEVNET_RPC_URL }}
-        run: |
-          if [ -z "$DUSK_RPC_URL" ]; then
-            echo 'DUSK_DEVNET_RPC_URL must provide devnet RPC with Token-2022 getProgramAccounts support.' >&2
-            exit 1
-          fi
-          cargo run --locked -p dusk-indexer-daemon -- --scan-accounts-once
-          node api/dist/scripts/duskLpOwnershipWorker.js --once
-      - name: Native database integration
-        working-directory: api
-        run: node --test dist/tests/duskNative.integration.js
+        run: node --test --test-concurrency=1 dist/tests/*.integration.js
   containers:
     runs-on: ubuntu-latest
     steps:

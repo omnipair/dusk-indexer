@@ -7,7 +7,10 @@ import { loadPinnedProtocol } from '../config/duskProtocol';
 import { projectPortfolioCapture, projectPortfolioCaptureBatch, readPortfolioHistory, storePortfolioCapture } from '../services/duskPortfolioSnapshots';
 import { portfolioFixture } from './duskPortfolioFixtures';
 import { fixtureKey } from './duskYieldCheckpointFixtures';
-import { assertNativeEvidenceConsistent } from '../services/duskNativeEvidence';
+import { readPortfolioCatalog } from '../services/duskPortfolioSnapshots';
+import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
+import { PublicKey } from '@solana/web3.js';
+import { fixtureMarket, key, streamedEvent, streamedMarket, streamedRelease } from './duskStreamedFixtures';
 
 if (process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS !== 'true' || !process.env.DATABASE_URL) throw new Error('A disposable DATABASE_URL is required');
 after(() => pool.end());
@@ -20,21 +23,31 @@ async function transaction(work: (client: PoolClient) => Promise<void>) {
 }
 const query = (owner: string) => ({ owner,limit: 100,offset: 0 });
 
-test('unapplied contradictory native scans stop discovery readers',() => transaction(async (client) => {
-  await assertNativeEvidenceConsistent(client,active);
-  for (const [blockhash,hash] of [[fixtureKey(183).toBase58(),'a'.repeat(64)],[fixtureKey(184).toBase58(),'b'.repeat(64)]])
-    await client.query(`INSERT INTO dusk_ingestion.account_scans(cluster,program_id,idl_hash,protocol_revision,slot,blockhash,parent_slot,content_hash)
-      VALUES($1,$2,$3,$4,920000001,$5,920000000,$6)`,[...active,blockhash,hash]);
-  await assert.rejects(assertNativeEvidenceConsistent(client,active),/FINALIZED_INVARIANT/);
-}));
-
-test('unapplied contradictory LP scans also stop discovery readers',() => transaction(async (client) => {
-  for (const [blockhash,hash] of [[fixtureKey(185).toBase58(),'a'.repeat(64)],[fixtureKey(186).toBase58(),'b'.repeat(64)]])
-    await client.query(`INSERT INTO dusk_ingestion.lp_token_scans
-      (cluster,program_id,idl_hash,protocol_revision,market,lp_mint,token_kind,slot,blockhash,parent_slot,block_time,mint_slot,mint_supply,decimals,raw_mint,content_hash,account_count)
-      VALUES($1,$2,$3,$4,$5,$6,'ylp',920000001,$7,920000000,'2026-09-02T00:00:00Z',920000001,0,9,''::bytea,$8,0)`,
-    [...active,fixtureKey(187).toBase58(),fixtureKey(188).toBase58(),blockhash,hash]);
-  await assert.rejects(assertNativeEvidenceConsistent(client,active),/FINALIZED_INVARIANT/);
+test('portfolio discovery comes from streamed positions and LP holders and keeps past owners',() => transaction(async (client) => {
+  // A stream time in the past: the API clamps a cursor ahead of its clock.
+  const time = new Date(Math.floor(Date.now()/1000)*1000-5000);
+  await streamedRelease(client,{ slot: 900_200_000,time });
+  await streamedMarket(client);
+  const { market,ylp } = fixtureMarket,[borrower,trader,closer,holder,leaver] = [211,212,213,214,215].map(key);
+  const borrow = key(216),open = key(217),closed = key(218);
+  await streamedEvent(client,'BorrowPositionUpdated',{ market,position: borrow,owner: borrower,base_collateral: '1',quote_collateral: '0',
+    fixed_base_shares: '0',fixed_quote_shares: '0',closed: false });
+  const leverage = (position: string,owner: string) => ({ market,position,owner,debt_asset_mint: fixtureMarket.baseMint,
+    collateral_asset_mint: fixtureMarket.quoteMint,collateral_amount: '5',debt_amount: '2',debt_shares: '2',closeout_value: '3' });
+  await streamedEvent(client,'LeveragePositionOpened',leverage(open,trader));
+  await streamedEvent(client,'LeveragePositionOpened',leverage(closed,closer));
+  await streamedEvent(client,'LeveragePositionClosed',leverage(closed,closer));
+  await streamedEvent(client,'LiquidityAdded',{ market,owner: holder,ylp_amount: '10' });
+  await streamedEvent(client,'LiquidityAdded',{ market,owner: leaver,ylp_amount: '4' });
+  await streamedEvent(client,'LpTransferred',{ market,lp_mint: ylp,source_owner: leaver,destination_owner: holder,amount: '4' });
+  const catalog = await readPortfolioCatalog(client);
+  const ata = getAssociatedTokenAddressSync(new PublicKey(ylp),new PublicKey(holder),true,TOKEN_2022_PROGRAM_ID).toBase58();
+  assert.deepEqual(catalog.markets,[market]);
+  assert.deepEqual(catalog.items.map(item => [item.kind,item.address,item.owner]).sort(),
+    [['borrow',borrow,borrower],['leverage',open,trader],['ylp',ata,holder]].sort());
+  for (const owner of [borrower,trader,closer,holder,leaver]) assert.ok(catalog.knownOwners.includes(owner),owner);
+  assert.equal(catalog.basis,'streamed-events.v1'); assert.equal(catalog.throughSlot,900_200_000);
+  assert.equal(catalog.sourceFloor,900_200_000); assert.equal(catalog.streamTime,time.toISOString());
 }));
 
 test('saved portfolio evidence replays idempotently without current RPC or price inputs',() => transaction(async (client) => {
@@ -80,7 +93,7 @@ test('sampled history retains actual first and latest captures with stable pagin
     const fixture = portfolioFixture({ slot: 910_000_010+index,lpAmount: BigInt(100+index) });
     const time = new Date(Date.parse('2026-09-02T00:00:00Z')+minute*60000).toISOString();
     fixture.source.groups[0].blockTime = time;
-    fixture.source.groups[0].observedAt = fixture.source.observedAt = time;
+    fixture.source.groups[0].observedAt = fixture.source.observedAt = fixture.source.catalog.streamTime = time;
     ids.push(await storePortfolioCapture(client,fixture.source));
     await projectPortfolioCapture(client,ids[index]);
   }
@@ -102,7 +115,7 @@ test('sampling exposes unavailable captures even when their display bucket has a
     const fixture = portfolioFixture({ slot: 910_000_020+index,references: index !== 1 });
     const time = new Date(Date.parse('2026-09-02T00:00:00Z')+index*60000).toISOString();
     fixture.source.groups[0].blockTime = time;
-    fixture.source.groups[0].observedAt = fixture.source.observedAt = time;
+    fixture.source.groups[0].observedAt = fixture.source.observedAt = fixture.source.catalog.streamTime = time;
     await projectPortfolioCapture(client,await storePortfolioCapture(client,fixture.source));
   }
   const result = await readPortfolioHistory(client,{ ...query(portfolioFixture().owner),sampleSeconds: 3600 });

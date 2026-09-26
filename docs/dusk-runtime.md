@@ -22,14 +22,8 @@ target/debug/dusk-indexer-daemon --replay <signature>
 
 `npm run test:deployment-integration --prefix api` checks registration, immutable identity, boundary slots, contaminated history, cursor guards and concurrent writes in a disposable PostgreSQL database. All fixtures roll back. Native adapter tests also require fresh `--scan-accounts-once` and LP ownership captures under the current pin. CI provisions PostgreSQL, applies the checksummed manifest, captures read-only devnet discovery, runs the native tests and builds both service images. The container checks verify that every manifest migration and both pinned IDLs are actually present in the images.
 
-The native CI job runs unit tests and rollback-only database fixtures before
-its live discovery step, so those checks do not depend on RPC availability.
-Live discovery requires the repository secret `DUSK_DEVNET_RPC_URL`. Its devnet
-provider must support filtered `getProgramAccounts` for Token-2022 as well as
-finalized block history. The public Solana devnet endpoint excludes the token
-program from its account indexes and cannot supply complete LP ownership.
-Missing configuration or unsupported queries still fail the required native
-gate; CI never substitutes partial ownership or a different network.
+The native CI job runs unit tests and rollback-only database fixtures. State
+comes from streamed events, so no CI step reads devnet accounts.
 
 ## Migrations
 
@@ -43,19 +37,17 @@ DUSK_MIGRATE_ONLY=true bash scripts/dusk-indexer-entrypoint.sh
 
 Migration 024 removes old event retention jobs. Until historical projections and archive coverage are complete, pruning the event stream would change the compatibility views' balances. A new retention policy must establish durable current state, completed historical allocation, and a replay/archive boundary first.
 
-## Native account projections
+## Streamed state
 
-Each complete finalized RPC scan records its containing block and immutable account bytes before applying native projections. A lagging block-history replica receives four bounded retries at the exact account-bank slot; another slot cannot supply the missing block metadata. Closure tombstones are generated only from a successful complete scan; partial RPC failures cannot close accounts. Older replay does not overwrite newer current state. Contradictory finalized observations halt ingestion.
+Migration 046 derives current protocol state from canonical streamed events, as the v1 indexer keeps its positions. Nothing reads program accounts. Each view folds events in stream order (slot, then arrival):
 
-The one-shot scan command verifies the chain and both programs, stores a complete account scan, then exits:
+- `streamed_markets` and `streamed_lp_mints`: one row per `MarketCreated`, with its yLP and two hLP mints.
+- `streamed_leverage_positions`: the last lifecycle event decides open or closed; the last `LeveragePositionOpened`/`LeveragePositionUpdated` carries the post-state.
+- `streamed_borrow_positions`: the last `BorrowPositionUpdated` snapshot is the account; `closed` marks its closing instruction.
+- `streamed_lp_balances`: yLP and hLP balances per owner, from liquidity and hLP events (mints and burns) and `LpTransferred`, which the Token-2022 transfer hook on every LP mint emits for each transfer.
+- `streamed_market_observations`: `MarketObserved` rows from the permissionless `observe_market` crank.
 
-```sh
-target/debug/dusk-indexer-daemon --scan-accounts-once
-```
-
-Native discovery is exposed at `/api/dusk/v1/accounts/:kind`, where kind is `markets`, `borrow`, `leverage`, `yield`, or `orders`. Optional owner/market filters use native addresses. Records include the full identity, finalized source slot, containing blockhash, and observed time. Missing scan coverage returns an error instead of an authoritative empty portfolio. Clients must re-read RPC state before writes.
-
-Program-account projections and finalized LP token ownership observations are available. Run `npm run start:lp-ownership-worker --prefix api -- --once` after a complete program scan to capture every LP token account and reconcile balances against mint supply. These point-in-time observations cover transfers and non-ATAs for discovery. Yield entitlement uses the canonical owner ATA required by the protocol, not the sum of arbitrary token accounts.
+State covers markets created after ingestion of the release began; there is no backfill, so a gap in the stream is a gap in state. The account scan, the LP token scan, `/api/dusk/v1/accounts/:kind` and `/api/dusk/v1/lp-ownership` are removed.
 
 ## Yield payment history
 
@@ -231,7 +223,7 @@ With `DATABASE_URL` pointing to a disposable database and `DUSK_ALLOW_DISPOSABLE
 
 ## Portfolio snapshots
 
-Migration 033 adds immutable raw portfolio captures, account evidence, bounded replay, source-bound owner checkpoints and notifications. After applying the migration manifest and building the API, keep the native daemon and LP ownership worker running, then start the snapshot worker:
+Migration 033 adds immutable raw portfolio captures, account evidence, bounded replay, source-bound owner checkpoints and notifications. After applying the migration manifest and building the API, keep the streaming daemon running, then start the snapshot worker:
 
 ```sh
 npm run start:native-portfolio-worker --prefix api -- --once
@@ -239,9 +231,9 @@ npm run start:native-portfolio-worker --prefix api -- --once
 
 Omit `--once` to capture every minute, or set `DUSK_PORTFOLIO_INTERVAL_MS` (minimum 1000). `--replay-only` drains saved captures without RPC. `railway.portfolio-snapshots.toml` defines the service. It requires the same checked protocol artifacts, RPC and database configuration as other native workers. Services and webapp adapters still need deployment/wiring; this command does not publish or upgrade anything.
 
-Capture requires completed native account and all LP-mint ownership scans. The market catalog is validated by decoding immutable raw account bytes, since the Rust JSON projection represents integer arrays differently from the SDK. Discovery may be at most `DUSK_PORTFOLIO_MAX_CATALOG_AGE_SLOTS` behind the observed tip (default 750; allowed 1–2500). Empty LP scans are included in the freshness check. A catalog that ages out during capture is rejected. Refresh discovery before retrying; never substitute zero for missing scan coverage. Stored contradictory finalized native or LP scans also halt discovery consumers.
+Discovery comes from the streamed-state views: markets, open borrow and leverage positions, and every owner with a positive yLP or hLP balance, valued through the owner's canonical Token-2022 account, which is the one yield accrues to. The catalog carries the stream's slot and time (`streamed-events.v1`). Capture requires the stream time within `DUSK_PORTFOLIO_MAX_CATALOG_AGE_SECONDS` (default 60; allowed 1–600) of the capture; the heartbeat keeps it current on a quiet market, so a stale time means the stream is down. Valuation banks start at the stream's slot, so every discovered position exists at its bank. A catalog that ages out during capture is rejected.
 
-The simulation reader includes up to 20 related read-only accounts and returns their post-simulation bytes with the updated market and preview. It checks the serialized transaction packet limit. Finalized reads use the finalized discovery and program deployment slots as their minimum, not the envelope's newer confirmed tip. Lagging-replica minimum-slot errors receive four bounded attempts without lowering that minimum. A program-local preview failure falls back to a fresh finalized account read while leaving valuation unavailable. Invalid response data, regressed slots or changed deployment identity fail the capture.
+The simulation reader includes up to 20 related read-only accounts and returns their post-simulation bytes with the updated market and preview. It checks the serialized transaction packet limit. Finalized reads use the stream's slot and the program deployment slots as their minimum. Lagging-replica minimum-slot errors receive four bounded attempts without lowering that minimum. A program-local preview failure falls back to a fresh finalized account read while leaving valuation unavailable. Invalid response data, regressed slots or changed deployment identity fail the capture.
 
 Raw captures commit before projection. Replay uses only the saved catalog, raw account/preview bytes and dated price policy. It does not consult current balances or prices. Every captured catalog account must appear exactly once, including null results for closed accounts. Prior owners are retained after transfers and closures so an observed empty snapshot can follow a nonempty one. Contradictory finalized account evidence remains stored and disables replay and reads. Different slots sharing one block timestamp remain separate capture IDs; late older captures are replayable and do not replace newer history.
 
