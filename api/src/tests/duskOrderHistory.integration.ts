@@ -44,6 +44,10 @@ test('same transaction create/cancel history survives account closure and pagina
   assert.equal(await observe(c,[0],'create_leverage_order','4'.repeat(88)),true);
   assert.equal(await observe(c,[1],'cancel_leverage_order','4'.repeat(88)),true);
   await assert.rejects(readOrderHistory(c,query),/stream has not started/);
+  // A retired poller's cursor is not the stream's.
+  await c.query(`INSERT INTO dusk_ingestion.ingestion_cursors(cluster,program_id,idl_hash,protocol_revision,stream_name,commitment,next_slot,last_observed_slot,updated_at)
+    VALUES($1,$2,$3,$4,'finalized-signature-poll','finalized',$5,$6,now())`,[...streamIdentity,first+3,first+2]);
+  await assert.rejects(readOrderHistory(c,query),/stream has not started/);
   await streamed(c,first+1);
   const page=await readOrderHistory(c,query);
   assert.equal(page.coverage.commitment,'confirmed');assert.equal(page.coverage.throughSlot,String(first+1));assert.equal(page.orders.length,1);assert.equal(page.orders[0].market,market);assert.equal(page.pagination.hasMore,true);

@@ -22,9 +22,11 @@ prices beside stale history.
 
 ## Do
 
-1. Check the daemon is alive at all. Its cursor heartbeat runs every 15 s even
-   on a quiet market, and `/metrics` counts `helius_atlas_ws_clock_*` updates
-   while the WebSocket is connected. Silence means the process is wedged.
+1. Check the stream is delivering. The cursor heartbeat runs every 15 s even
+   on a quiet market, but only while the WebSocket delivers verified Clock
+   updates; the daemon logs `cursor heartbeat withheld` when it does not, and
+   `/metrics` stops counting `helius_atlas_ws_clock_*` updates. A stale cursor
+   with the process running means the stream is down or wedged.
 2. Check whether it is the RPC rather than the indexer — see
    [RPC provider outage](rpc-provider-outage.md). A rate-limited daemon falls
    behind without erroring.
@@ -46,5 +48,5 @@ growing and ignore it.
 ## Do not
 
 Do not clear the cursor to "start fresh". It records the last streamed slot
-and the heartbeat `/status` reads; clearing it replays nothing and only hides
-liveness.
+and the time `/status` and history coverage read; clearing it replays nothing
+and only hides liveness.

@@ -2,7 +2,10 @@
 //! `transactionSubscribe` at confirmed commitment feeding one processor.
 
 use {
-    crate::processors::{DuskInstructions, DuskTransactionProcessor},
+    crate::{
+        liveness::StreamLiveness,
+        processors::{DuskInstructions, DuskTransactionProcessor},
+    },
     anyhow::{bail, Result},
     carbon_core::pipeline::{Pipeline, ShutdownStrategy},
     carbon_helius_atlas_ws_datasource::{Filters, HeliusWebsocket},
@@ -56,15 +59,18 @@ pub fn helius_datasource(api_key: &str, cluster: &str) -> Result<HeliusWebsocket
     ))
 }
 
+/// `liveness` outlives each pipeline: the heartbeat reads it across rebuilds.
 pub fn build(
     datasource: HeliusWebsocket,
     processor: DuskTransactionProcessor,
     metrics_port: u16,
+    liveness: Arc<StreamLiveness>,
 ) -> carbon_core::error::CarbonResult<Pipeline> {
     Pipeline::builder()
         .datasource(datasource)
         .metrics(Arc::new(LogMetrics::new()))
         .metrics(Arc::new(PrometheusMetrics::new_with_port(metrics_port)))
+        .metrics(liveness)
         .metrics_flush_interval(3)
         .transaction::<DuskInstructions, ()>(processor, None)
         .shutdown_strategy(ShutdownStrategy::ProcessPending)

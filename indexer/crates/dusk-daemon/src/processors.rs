@@ -28,6 +28,7 @@ use {
     },
     sqlx::PgPool,
     std::{sync::Arc, time::Duration},
+    tokio::sync::Mutex,
 };
 
 /// Streamed updates carry no containing block. Event keys never include the
@@ -58,6 +59,9 @@ pub struct DuskTransactionProcessor {
     decoder: Arc<PinnedIdlDecoder>,
     cluster: String,
     first_slot: u64,
+    /// Held across each transaction's writes and by the heartbeat, so the
+    /// cursor's time never passes an arrival time whose rows are unwritten.
+    cursor: Arc<Mutex<()>>,
 }
 
 impl DuskTransactionProcessor {
@@ -66,17 +70,20 @@ impl DuskTransactionProcessor {
         decoder: Arc<PinnedIdlDecoder>,
         cluster: String,
         first_slot: u64,
+        cursor: Arc<Mutex<()>>,
     ) -> Self {
         Self {
             pool,
             decoder,
             cluster,
             first_slot,
+            cursor,
         }
     }
 
     /// Re-ingest one transaction through the same path as the stream, for a
-    /// transaction the stream dropped or missed while disconnected.
+    /// transaction the stream dropped or missed while disconnected. The
+    /// cursor's slot rises to cover it; its time is left to the stream.
     pub async fn replay(&self, transaction: &TransactionMetadata) -> Result<usize> {
         self.ingest(transaction).await
     }
@@ -126,6 +133,15 @@ impl DuskTransactionProcessor {
         observed: &extract::ObservedTransaction,
         time: DateTime<Utc>,
     ) -> Result<()> {
+        // The slot first: the cursor's slot is never below a written event.
+        persist::advance_cursor(
+            &self.pool,
+            &self.cluster,
+            signature,
+            observed.slot,
+            self.first_slot,
+        )
+        .await?;
         for event in &observed.events {
             persist::persist_event(&self.pool, event, time, self.first_slot).await?;
         }
@@ -141,14 +157,7 @@ impl DuskTransactionProcessor {
             )
             .await?;
         }
-        persist::advance_cursor(
-            &self.pool,
-            &self.cluster,
-            signature,
-            observed.slot,
-            self.first_slot,
-        )
-        .await
+        Ok(())
     }
 }
 
@@ -161,8 +170,19 @@ impl Processor for DuskTransactionProcessor {
         (transaction, _, _): Self::InputType,
         metrics: Arc<MetricsCollection>,
     ) -> CarbonResult<()> {
+        let _cursor = self.cursor.lock().await;
         match self.ingest(&transaction).await {
             Ok(events) => {
+                // Every arrival up to now is written. The heartbeat retries a
+                // failed touch within its interval.
+                if let Err(error) =
+                    persist::touch_cursor(&self.pool, &self.cluster, Utc::now()).await
+                {
+                    log::warn!(
+                        "cursor touch after {} failed: {error:#}",
+                        transaction.signature
+                    );
+                }
                 metrics
                     .increment_counter("dusk_transactions_ingested", 1)
                     .await?;

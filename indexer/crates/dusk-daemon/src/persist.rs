@@ -77,18 +77,15 @@ pub async fn ensure_protocol_identity(pool: &PgPool, cluster: &str) -> Result<()
     Ok(())
 }
 
-/// Touch the cursor's `updated_at` without moving it.
-///
-/// The cursor otherwise advances only when a poll finds transactions, so on a
-/// quiet market a healthy daemon and a dead one look identical from the
-/// database — both leave an old cursor and a growing slot lag. A heartbeat on
-/// every poll makes the cursor's age a liveness signal rather than a measure
-/// of how recently somebody traded.
-pub async fn touch_cursor(pool: &PgPool, cluster: &str) -> Result<()> {
+/// Set the cursor's time: every transaction that arrived before `at` is
+/// written. The API serves this as history coverage and `/status` as
+/// liveness, so it is set only after a transaction's writes or by the
+/// heartbeat while the WebSocket is delivering, both under the cursor lock.
+pub async fn touch_cursor(pool: &PgPool, cluster: &str, at: DateTime<Utc>) -> Result<()> {
     sqlx::query(
         r#"
         UPDATE dusk_ingestion.ingestion_cursors
-           SET updated_at = now()
+           SET updated_at = $6
          WHERE cluster = $1 AND program_id = $2 AND idl_hash = $3
            AND protocol_revision = $4 AND stream_name = $5
         "#,
@@ -98,12 +95,14 @@ pub async fn touch_cursor(pool: &PgPool, cluster: &str) -> Result<()> {
     .bind(DUSK_IDL_SHA256)
     .bind(PROTOCOL_REVISION)
     .bind(STREAM_NAME)
+    .bind(at)
     .execute(pool)
     .await
     .context("touching ingestion cursor")?;
     Ok(())
 }
 
+/// Raise the cursor's slot to a transaction's. Its time is `touch_cursor`'s.
 pub async fn advance_cursor(
     pool: &PgPool,
     cluster: &str,
@@ -116,8 +115,8 @@ pub async fn advance_cursor(
         r#"
         INSERT INTO dusk_ingestion.ingestion_cursors
             (cluster, program_id, idl_hash, protocol_revision, stream_name,
-             commitment, next_slot, last_observed_slot, last_signature, updated_at)
-        VALUES ($1, $2, $3, $4, $5, 'confirmed', $6 + 1, $6, $7, now())
+             commitment, next_slot, last_observed_slot, last_signature)
+        VALUES ($1, $2, $3, $4, $5, 'confirmed', $6 + 1, $6, $7)
         ON CONFLICT (cluster, program_id, idl_hash, protocol_revision, stream_name)
         DO UPDATE SET
             next_slot = GREATEST(dusk_ingestion.ingestion_cursors.next_slot, EXCLUDED.next_slot),
@@ -125,8 +124,7 @@ pub async fn advance_cursor(
                 COALESCE(dusk_ingestion.ingestion_cursors.last_observed_slot, 0),
                 EXCLUDED.last_observed_slot
             ),
-            last_signature = EXCLUDED.last_signature,
-            updated_at = now()
+            last_signature = EXCLUDED.last_signature
         WHERE dusk_ingestion.ingestion_cursors.last_observed_slot IS NULL
            OR dusk_ingestion.ingestion_cursors.last_observed_slot <= EXCLUDED.last_observed_slot
         "#,

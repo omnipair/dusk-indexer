@@ -15,6 +15,7 @@
 mod accounts;
 mod extract;
 mod identity;
+mod liveness;
 mod orders;
 mod persist;
 mod pipeline;
@@ -29,7 +30,11 @@ use {
     solana_transaction_status::UiTransactionEncoding,
     sqlx::PgPool,
     std::{str::FromStr, sync::Arc, time::Duration},
+    tokio::sync::Mutex,
 };
+
+/// The datasource reconnects after 5 s without a Clock update.
+const STREAM_LIVENESS: Duration = Duration::from_secs(10);
 
 struct Config {
     cluster: String,
@@ -141,6 +146,7 @@ async fn main() -> Result<()> {
             decoder,
             config.cluster.clone(),
             window.first_slot,
+            Arc::default(),
         );
         let events = processor
             .replay(&processors::metadata_from_rpc(&fetched)?)
@@ -167,10 +173,17 @@ async fn main() -> Result<()> {
         attestation,
         config.account_scan_interval,
     ));
-    let heartbeat = tokio::spawn(heartbeat(pool.clone(), config.cluster.clone()));
+    let liveness = Arc::new(liveness::StreamLiveness::default());
+    let cursor = Arc::new(Mutex::new(()));
+    let heartbeat = tokio::spawn(heartbeat(
+        pool.clone(),
+        config.cluster.clone(),
+        liveness.clone(),
+        cursor.clone(),
+    ));
 
     let result = tokio::select! {
-        result = stream(&config, pool, decoder, window.first_slot) => result,
+        result = stream(&config, pool, decoder, window.first_slot, liveness, cursor) => result,
         joined = snapshots => joined.context("account snapshot task panicked")?,
         _ = shutdown_signal() => {
             log::info!("shutdown signal received");
@@ -188,6 +201,8 @@ async fn stream(
     pool: PgPool,
     decoder: Arc<PinnedIdlDecoder>,
     first_slot: u64,
+    liveness: Arc<liveness::StreamLiveness>,
+    cursor: Arc<Mutex<()>>,
 ) -> Result<()> {
     let api_key = config
         .helius_api_key
@@ -201,8 +216,9 @@ async fn stream(
             decoder.clone(),
             config.cluster.clone(),
             first_slot,
+            cursor.clone(),
         );
-        let mut run = pipeline::build(datasource, processor, config.metrics_port)
+        let mut run = pipeline::build(datasource, processor, config.metrics_port, liveness.clone())
             .map_err(|error| anyhow!("building pipeline: {error:?}"))?;
         match run.run().await {
             Ok(()) => {
@@ -251,14 +267,29 @@ async fn snapshot_accounts(
     }
 }
 
-/// A quiet market must not look like a dead ingester: the cursor's age is the
-/// liveness signal `/status` reads.
-async fn heartbeat(pool: PgPool, cluster: String) {
+/// A quiet market must not look like a dead ingester, and a dead stream must
+/// not look like a quiet market. The cursor's time is history coverage and
+/// `/status` liveness, so it moves only while the WebSocket delivers verified
+/// Clock updates.
+async fn heartbeat(
+    pool: PgPool,
+    cluster: String,
+    liveness: Arc<liveness::StreamLiveness>,
+    cursor: Arc<Mutex<()>>,
+) {
     loop {
-        if let Err(error) = persist::touch_cursor(&pool, &cluster).await {
+        tokio::time::sleep(Duration::from_secs(15)).await;
+        if !liveness.live_within(STREAM_LIVENESS) {
+            log::warn!(
+                "no verified Clock update for {}s; cursor heartbeat withheld",
+                STREAM_LIVENESS.as_secs()
+            );
+            continue;
+        }
+        let _cursor = cursor.lock().await;
+        if let Err(error) = persist::touch_cursor(&pool, &cluster, chrono::Utc::now()).await {
             log::warn!("cursor heartbeat failed: {error:#}");
         }
-        tokio::time::sleep(Duration::from_secs(15)).await;
     }
 }
 

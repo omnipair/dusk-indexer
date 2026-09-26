@@ -86,7 +86,7 @@ function volumeResponse(metrics: ReturnType<typeof emptyMetrics>) {
   return { spot: response.volume,credit: response.creditVolume,margin: response.marginVolume };
 }
 
-/** Caller owns a repeatable-read transaction. A cursor heartbeat is not range coverage. */
+/** Caller owns a repeatable-read transaction. Range coverage is the stream's cursor. */
 export async function readMarketActivity(client: PoolClient,options: MarketActivityQuery) {
   const active = identity(),swapBasis = activeSwapBasis(),maxPriceAgeSeconds = options.maxPriceAgeSeconds ?? 3600;
   if (!/^[0-9a-f]{64}$/.test(options.deploymentIdentitySha256) || !Number.isFinite(Date.parse(options.until)) || options.since && (!Number.isFinite(Date.parse(options.since)) || Date.parse(options.since)>Date.parse(options.until))
