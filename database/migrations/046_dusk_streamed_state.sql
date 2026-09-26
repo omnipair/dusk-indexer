@@ -11,7 +11,7 @@ CREATE INDEX dusk_streamed_state_events ON dusk_ingestion.event_observations
 
 CREATE VIEW dusk_ingestion.streamed_events AS
 SELECT o.cluster,o.program_id,o.idl_hash,o.protocol_revision,o.event_key,o.observation_id,o.slot,
-  o.transaction_signature AS signature,o.event_name,o.decoded_payload AS payload,s.time
+  o.transaction_signature AS signature,o.event_name,o.decoded_payload AS payload,o.payload_hash,s.time
 FROM dusk_ingestion.canonical_events c
 JOIN dusk_ingestion.event_observations o USING(cluster,program_id,idl_hash,protocol_revision,event_key,observation_id)
 JOIN dusk_ingestion.event_stream s USING(cluster,program_id,idl_hash,protocol_revision,event_key)

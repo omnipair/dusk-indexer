@@ -7,7 +7,7 @@ import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
 import { ACTIVITY_EVENTS, ACTIVITY_METRICS, ActivityMetric, ActivityPriceBasis, ActivityExternalPrice, activityPriceBasis, parseActivityEvent, swapVolumeBasis, valueActivityAmounts } from './duskActivityMath';
 import { formatUsd, usdUnits } from './duskPortfolioMath';
-import { StoredPriceCapture, verifyStoredPriceCapture } from './duskPrices';
+import { activePriceReferences, projectObservedPrices } from './duskPriceMath';
 import { HistoryDeploymentQuery, historyDeploymentIdentities } from './duskHistoryDeployment';
 import { historyScanCovers, readHistoryScan } from './duskHistoryCoverage';
 
@@ -96,10 +96,6 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
     throw new Error('Invalid native activity market');
   const deployments = await historyDeploymentIdentities(client,options);
   const historyScan = await readHistoryScan(client);
-  const conflicts = await client.query(`SELECT 1 FROM dusk_ingestion.price_capture_observations
-    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
-    GROUP BY market,slot HAVING count(DISTINCT (blockhash,preview_hash,block_time,reference_config))>1 LIMIT 1`,active);
-  if (conflicts.rowCount) throw new Error('FINALIZED_INVARIANT: contradictory activity price evidence');
   const changedSource = await client.query(`SELECT 1 FROM dusk_ingestion.market_activity_events a
     WHERE a.cluster=$1 AND a.program_id=$2 AND a.idl_hash=$3 AND a.protocol_revision=$4 AND (
       NOT EXISTS(SELECT 1 FROM dusk_ingestion.canonical_events c WHERE
@@ -126,16 +122,18 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
   const digest = createHash('sha256').update(JSON.stringify([active,options.deploymentIdentitySha256,
     options.since ? new Date(options.since).toISOString() : null,new Date(options.until).toISOString(),options.market ?? null,maxPriceAgeSeconds]));
   let afterSlot = '-1',afterKey = '',count = 0,swaps = 0,firstSourceSlot: string | null = null,lastSourceSlot: string | null = null;
+  const references = activePriceReferences();
   do {
-    const page = await client.query<ActivitySource & { capture_id: string | null; external_prices: ActivityExternalPrice[] }>(`
-      SELECT a.*,a.observation_id::text,a.slot::text,p.capture_id::text,COALESCE(external.quotes,'[]'::jsonb) AS external_prices
+    const page = await client.query<ActivitySource & { price_key: string | null; price_slot: string | null; price_time: Date | null;
+      price_payload: unknown; external_prices: ActivityExternalPrice[] }>(`
+      SELECT a.*,a.observation_id::text,a.slot::text,p.event_key AS price_key,p.slot::text AS price_slot,p.time AS price_time,
+        p.payload AS price_payload,COALESCE(external.quotes,'[]'::jsonb) AS external_prices
       FROM dusk_ingestion.market_activity_events a
-      LEFT JOIN LATERAL (SELECT p.capture_id FROM dusk_ingestion.price_capture_observations p
-        WHERE (p.cluster,p.program_id,p.idl_hash,p.protocol_revision,p.market)=(a.cluster,a.program_id,a.idl_hash,a.protocol_revision,a.market)
-          AND p.deployment_identity_sha256=ANY($11::text[])
-          AND p.slot<a.slot AND p.block_time<=a.block_time AND p.block_time>=a.block_time-($8::int*interval '1 second')
-        ORDER BY p.slot DESC,p.capture_id DESC LIMIT 1) p ON true
-      LEFT JOIN dusk_ingestion.market_quote_projections q ON q.capture_id=p.capture_id
+      LEFT JOIN LATERAL (SELECT p.event_key,p.slot,p.time,p.payload FROM dusk_ingestion.streamed_events p
+        WHERE (p.cluster,p.program_id,p.idl_hash,p.protocol_revision)=(a.cluster,a.program_id,a.idl_hash,a.protocol_revision)
+          AND p.event_name='MarketObserved' AND p.payload->>'market'=a.market
+          AND p.slot<a.slot AND p.time<=a.block_time AND p.time>=a.block_time-($8::int*interval '1 second')
+        ORDER BY p.slot DESC,p.observation_id DESC LIMIT 1) p ON true
       LEFT JOIN LATERAL (SELECT jsonb_agg(prices) AS quotes FROM (
         SELECT DISTINCT ON (x.mint) x.observation_id::text AS "observationId",x.mint,x.decimals,x.price_usd::text AS "priceUsd",
           (x.cluster<>'mainnet-beta') AS estimated,
@@ -143,7 +141,7 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
           to_char(x.observed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "observedAt"
         FROM dusk_ingestion.price_observations x
         WHERE (x.cluster,x.program_id,x.idl_hash,x.protocol_revision)=(a.cluster,a.program_id,a.idl_hash,a.protocol_revision)
-          AND x.mint IN (q.base_mint,q.quote_mint) AND x.quality='external-observation'
+          AND x.mint IN (p.payload->'base'->>'asset_mint',p.payload->'quote'->>'asset_mint') AND x.quality='external-observation'
           AND (x.source LIKE 'dusk-provider.v1:jupiter:%' OR x.source LIKE 'dusk-provider.v1:birdeye:%')
           AND x.source_evidence->>'basis'='dusk-provider.v1' AND x.source_evidence->>'sourceCluster'='mainnet-beta'
           AND x.source_evidence->>'deploymentIdentitySha256'=ANY($11::text[])
@@ -157,17 +155,14 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
     if (!page.rows.length) break;
     for (const row of page.rows) {
       let basis: ActivityPriceBasis | null = null;
-      if (row.capture_id) {
-        basis = prices.get(row.capture_id) ?? null;
+      if (row.price_key && row.price_time && row.price_slot) {
+        basis = prices.get(row.price_key) ?? null;
         if (!basis) {
-          const captured = await client.query<StoredPriceCapture>(`SELECT *,slot::text,market_slot::text,capture_id::text
-            FROM dusk_ingestion.price_capture_observations WHERE capture_id=$1`,[row.capture_id]);
-          const capture = captured.rows[0];
-          if (!capture || capture.market !== row.market || !deployments.includes(capture.deployment_identity_sha256))
-            throw new Error('FINALIZED_INVARIANT: activity price capture disappeared or changed deployment');
-          const { source,projected } = verifyStoredPriceCapture(capture);
-          basis = { captureId: row.capture_id,slot: source.slot,blockTime: source.blockTime,bound: projected.bound,prices: projected.prices,spotPrices: projected.spotPrices };
-          prices.set(row.capture_id,basis);
+          const projected = projectObservedPrices({ pin: loadPinnedProtocol(),observation: row.price_payload,
+            blockTime: row.price_time.toISOString(),references });
+          basis = { captureId: row.price_key,slot: Number(row.price_slot),blockTime: row.price_time.toISOString(),
+            bound: projected.bound,prices: projected.prices,spotPrices: projected.spotPrices };
+          prices.set(row.price_key,basis);
         }
       }
       const parsed = parseActivityEvent(row.event_name,row.payload,row.slot,swapBasis);
@@ -203,7 +198,7 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
       deploymentIdentitySha256: options.deploymentIdentitySha256,basis: 'recorded-economic-events.v1' as const,
       historyRangeComplete: summary.indexed === summary.projected && historyScanCovers(historyScan,options.since,options.until),historyScan,
       totalInterestAccrualAvailable: false as const,feeAllocationAvailable: false as const,
-      priceBasis: 'latest-captured-prior-slot.v1' as const,volumeBasis: 'product-volumes.v1' as const,valuationBasis: 'provider-then-onchain.v1' as const,swapVolumeBasis: swapBasis,
+      priceBasis: 'latest-observed-prior-slot.v1' as const,volumeBasis: 'product-volumes.v1' as const,valuationBasis: 'provider-then-onchain.v1' as const,swapVolumeBasis: swapBasis,
       indexedEvents: summary.indexed,projectedEvents: summary.projected,pendingEvents: (BigInt(summary.indexed)-BigInt(summary.projected)).toString(),
       projectionComplete: summary.indexed === summary.projected,firstSourceSlot,lastSourceSlot,
       selectionHash: digest.digest('hex') },

@@ -37,8 +37,7 @@ import {
 
 import { cache } from '../../utils/cache';
 import { listYieldClaims } from '../../services/duskYieldClaims';
-import { listYieldCheckpoints } from '../../services/duskYieldCheckpoints';
-import { listDuskPriceHistory } from '../../services/duskPrices';
+import { listObservedPriceHistory } from '../../services/duskObservedPrices';
 import { listYieldRates } from '../../services/duskYieldRates';
 import { listMarketActivity } from '../../services/duskMarketActivity';
 import { listOrderHistory } from '../../services/duskOrderHistory';
@@ -303,7 +302,7 @@ router.get('/prices/:mint',asyncRoute(async (req,res) => {
     res.status(400).json({ success: false,error: 'invalid historical price time range' }); return;
   }
   res.json(await withDeploymentRead(async () => {
-    const data = await listDuskPriceHistory({ mint,market,at,maxAgeSeconds,limit: boundedLimit(req.query.limit),offset: boundedOffset(req.query.offset) });
+    const data = await listObservedPriceHistory({ mint,market,at,maxAgeSeconds,limit: boundedLimit(req.query.limit),offset: boundedOffset(req.query.offset) });
     const sourceSlot = data.observations.reduce((highest,row) => Math.max(highest,Number(row.evidence.sourceSlot)),0);
     return { data,sourceSlot };
   }));
@@ -379,20 +378,6 @@ router.get('/owners/:owner/portfolio-snapshots',asyncRoute(async (req,res) => {
   }));
 }));
 
-/** Coherent observations of recorded yield; these are not harvest previews. */
-router.get('/owners/:owner/yield-checkpoints', asyncRoute(async (req, res) => {
-  const address = (value: unknown): string => {
-    try { if (typeof value === 'string' && new PublicKey(value).toBase58() === value) return value; } catch { /* invalid below */ }
-    throw Object.assign(new Error('Invalid yield checkpoint address'),{ status: 400 });
-  };
-  const owner = address(req.params.owner),market = req.query.market === undefined ? undefined : address(req.query.market);
-  res.json(await withDeploymentRead(async () => {
-    const data = await listYieldCheckpoints({ owner,market,limit: boundedLimit(req.query.limit),offset: boundedOffset(req.query.offset) });
-    const sourceSlot = Number(data.coverage.lastSourceSlot ?? 0);
-    if (!Number.isSafeInteger(sourceSlot) || sourceSlot<0) throw new Error('Invalid yield checkpoint slot');
-    return { data,sourceSlot };
-  }));
-}));
 
 /** Finalized payments attributed to the earning owner, with the recipient retained. */
 router.get('/owners/:owner/yield-claims', asyncRoute(async (req, res) => {

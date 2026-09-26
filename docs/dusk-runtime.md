@@ -70,37 +70,17 @@ Coverage reports indexed/projected/pending claim counts for the protocol identit
 
 ## Recorded yield checkpoints
 
-Migration 029 adds immutable account evidence for checkpoint replay and binds each projection to its exact source bytes. Build the API after applying the migration manifest, then run:
-
-```sh
-npm run start:yield-checkpoints-worker --prefix api -- --once
-```
-
-Omit `--once` to capture every 60 seconds, or set `DUSK_YIELD_CHECKPOINT_INTERVAL_MS` (minimum 1000). `railway.yield-checkpoints.toml` defines the service. Each pass first replays saved, unprojected observations in bounded transactions. `--replay-only` drains the saved backlog and exits without contacting RPC. Replay never uses a high-water slot cursor; older observations inserted later remain discoverable. Invalid or contradictory finalized evidence stops the worker and remains stored for investigation.
-
-Capture discovers yield accounts through finalized RPC, then reads each yield account, its market and its owner's canonical Token-2022 LP ATA together in a single RPC bank. It attests the deployment before and after these reads. Block-history lag retries the same finalized slot; another block or wall-clock time cannot replace its timestamp. Raw evidence is committed before projection. Missing canonical ATAs contribute zero LP balance while preserving already accrued earnings.
-
-`GET /api/dusk/v1/owners/:owner/yield-checkpoints` accepts optional `market`, `limit` and `offset`. It returns exact recorded swap-fee and interest amounts, LP balance, fractional remainders, decimals, and full finalized account/deployment provenance. It validates account owners, market/yield PDAs, LP mint bindings and token-account ownership before accepting a projection. Contradictory finalized observations make history unavailable instead of selecting the first arrival.
-
-The `recorded-growth.v1` basis settles stored growth indexes only. It does not simulate fresh market interest or the hLP vault's lazy harvest of underlying yield. `currentHarvestPreviewIncluded` and `historyComplete` therefore remain false. These checkpoints are observations from capture onward, not historical event-time earnings or a current claimable quote. The client must use the SDK and fresh RPC simulation for current transaction amounts.
+Recorded yield growth comes from `MarketObserved` events, which the permissionless `observe_market` crank emits after refreshing a market: its growth indexes, live reserves, yLP supply and spot and EMA quotes, with the program's own values. The yield-checkpoint worker, its account reads and `GET /api/dusk/v1/owners/:owner/yield-checkpoints` are removed; `analytics/yield-rates` reads the observation nearest each boundary within 900 s and prices it from the observation at or before it within 3600 s. Its basis stays `committed-market-growth.v1` and its commitment is `confirmed`. Keeper cadence sets the sample spacing; a market nobody cranks has no recent growth points.
 
 ## Dated price observations
 
-Migrations 030 through 032 add immutable market-preview evidence, bounded replay, price notifications and market-state provenance. After applying the manifest and building the API, run:
+Program prices come from `MarketObserved` events at read time: the program's decimal-normalized, curve-aware spot quote per side, under the dated reference policy. Nothing simulates `preview_market` on a timer any more.
 
-```sh
-npm run start:prices-worker --prefix api -- --once
-```
+`protocol/devnet-price-references.json` carries the existing webapp's three explicit devnet display references, with a full protocol identity, effective date and source notes. They are configured demo valuations, not external market prices. Override the path with `DUSK_PRICE_REFERENCES_FILE` when using another reviewed policy. A program/IDL/revision change requires deliberately updating this policy's identity. A configured value prices that specific mint; when only its counterasset has a reference, the program's spot quote derives an estimated reference. Arithmetic uses integers and decimal strings, with derived prices rounded down to 36 decimal places. It never substitutes a reserve ratio for a concentrated curve's price.
 
-Omit `--once` to capture on a five-second start-to-start cadence (slow captures do not overlap); `DUSK_PRICE_INTERVAL_MS` sets the interval (minimum 1000). `--replay-only` projects saved captures without contacting RPC. `railway.prices.toml` defines the worker. Its permissions are read-only on devnet and write access to the projection database; it never signs or submits transactions.
+`npm run start:prices-worker --prefix api` records provider quotes (Jupiter, with Birdeye as fallback) for every referenced mint that market observations quote. It runs when events land, woken by `dusk_event_ingested`, as the v1 volume enricher prices each swap, and refreshes a mint at most every 30 s. `railway.prices.toml` defines it. `DUSK_PRICE_INTERVAL_MS` no longer exists.
 
-`protocol/devnet-price-references.json` carries the existing webapp's three explicit devnet display references, with a full protocol identity, effective date and source notes. They are configured demo valuations, not external market prices. Override the path with `DUSK_PRICE_REFERENCES_FILE` when using another reviewed policy. A program/IDL/revision change requires deliberately updating this policy's identity. Each capture saves the complete dated policy and its hash, so changing the file later cannot reprice saved captures. Values are not inferred from token symbols or a token's position as a market's quote asset.
-
-The worker discovers finalized market accounts and simulates the program's `preview_market` at a finalized bank. It validates market PDAs, the preview's embedded slot and both deployment identities, then preserves the updated simulated market account and preview return bytes from that same bank. The `simulation-post-state` basis requires `market_slot=slot`; earlier `rpc-account` captures retain their original evidence and content hashes. Simulation updates are not submitted to the chain. A configured value prices that specific mint; when only its counterasset has a reference, the program's curve-aware spot quote derives an estimated reference. Token decimal differences are already accounted for by the program quote. Arithmetic uses integers and decimal strings, with derived prices rounded down to 36 decimal places. It does not substitute a reserve ratio for a concentrated curve's price.
-
-Missing references produce a completed capture with zero prices, not zero-valued tokens. A market-local simulation error is reported as unavailable coverage; contradictory finalized previews halt replay and history reads. Multiple slots sharing a block timestamp remain separate observations. Database guards bind prices to the capture coordinates, saved reference policy and arithmetic, and all price rows are immutable.
-
-`GET /api/dusk/v1/prices/:mint` accepts `market`, `at`, `maxAgeSeconds` (1–86400, default 3600), `limit` and `offset`. It returns observations at or before `at` within the age limit, preserving configured/derived quality, exact prices, reference evidence and finalized source slots under a fresh deployment envelope. Results do not imply one globally authoritative USD price across markets. Missing or stale prices return an empty observation list and `available: false`; an unknown price must remain unknown in portfolio totals. Coverage is from capture onward. The worker cannot reconstruct historical curve previews for uncaptured devnet slots, so `historyComplete` and `historicalBackfillAvailable` remain false. The old mutable anchor table and compatibility price views are not inputs to this pipeline.
+`GET /api/dusk/v1/prices/:mint` accepts `market`, `at`, `maxAgeSeconds` (1–86400, default 3600), `limit` and `offset`. It returns program-derived prices from every observation quoting the mint within the window, newest first, with the observation's event key, payload hash, reference and spot quote as evidence (`market-observed.v1`). Missing prices return an empty list and `available: false`; an unknown price stays unknown. Saved preview captures from earlier releases remain readable only through archived quote history.
 
 ## Recorded market activity
 
@@ -130,14 +110,11 @@ contribute a swap. Fees use their declared input/output asset; retained and
 compounded fees are components of swap fees, not additional fees. Claimed yield,
 referral allocations and fee auctions do not count as newly earned fees.
 
-Valuation reconstructs the latest eligible immutable price capture from its
-saved bytes and policy, including captures whose price worker has not yet run.
-It requires the same full protocol identity, market and deployment digest, a
-strictly earlier slot, and a non-future block timestamp within the age limit.
-Same-slot captures are excluded because bank evidence does not identify the
-trade's position within that slot. A newer empty reference policy leaves prices
-unknown; it cannot revive an older quote. Contradictory finalized source or
-price evidence stops the read. Arithmetic rounds down to 36 decimal places.
+Valuation prices each event from the latest `MarketObserved` for its market at
+a strictly earlier slot and a non-future time within the age limit
+(`latest-observed-prior-slot.v1`), preferring an event-time provider quote.
+Same-slot observations are excluded because an event does not say where in its
+slot the trade fell. Arithmetic rounds down to 36 decimal places.
 
 Each metric distinguishes `observedUsd` from `valuedUsd`. Any unpriced nonzero
 amount makes `observedUsd` null; `valuedUsd` is the explicitly partial known

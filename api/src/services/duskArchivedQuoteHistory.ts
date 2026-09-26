@@ -7,7 +7,7 @@ import { loadPinnedProtocol, loadProtocolAt } from '../config/duskProtocol';
 import { DuskDeploymentEnvelope } from './duskDeploymentService';
 import { assertPinnedHistoryDeployment, historyDeploymentIdentities } from './duskHistoryDeployment';
 import { verifyStoredPriceCapture } from './duskPrices';
-import { QuoteHistoryQuery, quoteHistoryState, readQuoteHistory } from './duskQuoteHistory';
+import { QuoteHistoryQuery, quoteHistoryState, readCapturedQuoteHistory } from './duskQuoteHistory';
 
 export const ARCHIVED_QUOTE_REVISION = 'devnet-2026-09-13-9973dea';
 export const PREVIOUS_QUOTE_REVISION = 'devnet-2026-09-18-1fa72d3';
@@ -47,7 +47,7 @@ export async function readArchivedQuoteHistory(client: PoolClient,query: QuoteHi
   const selection = {...query,deployment,deploymentIdentitySha256:deployment.deploymentIdentitySha256};
   const deployments = await historyDeploymentIdentities(client,selection,pin);
   const historyRevision = await quoteHistoryState(client,query.market,pin);
-  const history = await readQuoteHistory(client,selection,{revision:historyRevision,deployments,
+  const history = await readCapturedQuoteHistory(client,selection,{revision:historyRevision,deployments,
     archive:{pin,lastSlot,verify:row=>verifyStoredPriceCapture(row,{pin,coder})}});
   return {schemaVersion:'dusk-quote-history-archive.v1',deployment,history};
 }

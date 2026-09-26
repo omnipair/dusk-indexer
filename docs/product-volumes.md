@@ -28,9 +28,9 @@ does not activate Dusk PR #35 or change the deployed IDL.
 
 ## Prices
 
-The existing `start:prices-worker` now also persists provider observations in
-the immutable, protocol-scoped `price_observations` table. No new database
-migration or worker is required. The order for activity valuation is:
+`start:prices-worker` persists provider observations in the immutable,
+protocol-scoped `price_observations` table when events land. The order for
+activity valuation is:
 
 1. A captured Jupiter quote, with the existing Birdeye service as provider fallback.
 2. The native program's decimal-normalized, curve-aware spot quote times the

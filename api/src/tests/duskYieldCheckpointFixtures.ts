@@ -6,7 +6,12 @@ import { AccountLayout, AccountState, TOKEN_2022_PROGRAM_ID, getAssociatedTokenA
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { loadPinnedProtocol } from '../config/duskProtocol';
-import type { YieldCheckpointSource } from '../services/duskYieldCheckpoints';
+type RawInfo = { owner: string; executable: boolean; data: string };
+interface YieldCheckpointSource {
+  yieldAddress: string; market: string; lpTokenAccount: string; slot: number; blockhash: string; blockTime: string;
+  deploymentIdentitySha256: string;
+  accounts: { yield: RawInfo | null; market: RawInfo | null; lpToken: RawInfo | null };
+}
 
 const idl = JSON.parse(readFileSync(resolve(__dirname,'../../../protocol/idl/dusk.json'),'utf8')) as Idl;
 export const Q64 = 1n<<64n;

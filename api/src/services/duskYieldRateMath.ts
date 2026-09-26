@@ -40,6 +40,30 @@ export function marketGrowthPoint(input: {
     basis: 'committed-market-growth.v1',supply: supply!.toString(),assets };
 }
 
+/** A MarketObserved event as a committed growth point. The permissionless
+ * crank refreshes the market, then emits its growth indexes, live reserves and
+ * yLP supply, so the point is committed state, not a hypothetical preview. */
+export function observedGrowthPoint(input: {
+  pin: DuskPinnedProtocol; marketAddress: string; observation: unknown;
+  slot: number; blockTime: string; deploymentIdentitySha256: string;
+}): MarketGrowthPoint {
+  const observation = nativeFields(input.observation);
+  if (!Number.isSafeInteger(input.slot) || input.slot<input.pin.historyFirstSlot || nativeKey(observation.market) !== input.marketAddress
+    || !Number.isFinite(Date.parse(input.blockTime)) || !/^[0-9a-f]{64}$/.test(input.deploymentIdentitySha256))
+    throw new Error('Invalid observed market growth provenance');
+  const assets = ['base','quote'].map((name) => {
+    const side = nativeFields(observation[name]);
+    return { mint: nativeKey(side.asset_mint),decimals: Number(unsigned(side.asset_decimals,255n)),
+      reserve: unsigned(side.live_reserve,U64).toString(),
+      swapIndexQ64: unsigned(side.swap_fee_growth_index_q64,U128).toString(),
+      interestIndexQ64: unsigned(side.interest_growth_index_q64,U128).toString() };
+  });
+  if (assets[0].mint === assets[1].mint) throw new Error('Observed market sides share a mint');
+  return { market: input.marketAddress,lpMint: nativeKey(observation.ylp_mint),slot: input.slot,
+    blockTime: new Date(input.blockTime).toISOString(),deploymentIdentitySha256: input.deploymentIdentitySha256,
+    basis: 'committed-market-growth.v1',supply: unsigned(observation.ylp_supply,U64).toString(),assets };
+}
+
 /** Simple annualization of recorded, claimable LP earnings, valued at the end
  * prices against starting native share value. Unpaid interest and compounded
  * principal are separate lanes and are never inferred from these indexes. */
