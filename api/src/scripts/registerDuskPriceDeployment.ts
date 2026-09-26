@@ -8,7 +8,7 @@ import { storeCaptureDeployment } from '../services/duskHistoryDeployment';
 async function main() {
   const buildRevision = process.argv[2];
   if (!buildRevision?.trim() || process.argv.length !== 3) throw new Error('Provide the original price worker build revision');
-  const pin = loadPinnedProtocol(),current = await deploymentEnvelope(0,{ fresh: true });
+  const pin = loadPinnedProtocol(),current = await deploymentEnvelope(0);
   const candidate = { ...current,buildRevision };
   const envelope = { ...candidate,deploymentIdentitySha256: deploymentIdentityFingerprint(candidate) };
   const client = await pool.connect();

@@ -172,13 +172,13 @@ export async function captureDuskPrices() {
   const references = parsePriceReferences(JSON.parse(readFileSync(process.env.DUSK_PRICE_REFERENCES_FILE?.trim()
     || resolve(protocolRoot(),'devnet-price-references.json'),'utf8')),pin);
   const decoder = new BorshCoder(rawIdl);
-  const initial = await deploymentEnvelope(0,{ fresh: true });
+  const initial = await deploymentEnvelope(0);
   const floor = Math.max(Number(initial.programDataSlot),Number(initial.leverageDelegateProgramDataSlot));
   if (!Number.isSafeInteger(floor) || floor<0) throw new Error('Invalid price deployment slot');
   const discovery = await rpc.getProgramAccounts(new PublicKey(active[1]),{ commitment: 'finalized',withContext: true,minContextSlot: floor,
     filters: [{ memcmp: decoder.accounts.memcmp('Market') }] });
   if (!Number.isSafeInteger(discovery.context.slot) || discovery.context.slot<floor) throw new Error('Price discovery regressed');
-  const discoveredIdentity = await deploymentEnvelope(discovery.context.slot,{ fresh: true });
+  const discoveredIdentity = await deploymentEnvelope(discovery.context.slot);
   if (initial.deploymentIdentitySha256 !== discoveredIdentity.deploymentIdentitySha256) throw new Error('Deployment changed during price discovery');
   let captured = 0,priced = 0;
   const unavailableMarkets: string[] = [],seen = new Set<string>();

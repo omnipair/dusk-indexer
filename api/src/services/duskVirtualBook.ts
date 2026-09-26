@@ -90,7 +90,7 @@ export async function captureVirtualBook(
     const book = projectDuskVirtualBook(quoted);
     if (!book) throw new Error('Virtual book unavailable');
     const after = await boundedDuskRpcRead(
-      () => deploymentEnvelope(quoted.slot, { fresh: true }),
+      () => deploymentEnvelope(quoted.slot),
       controller.signal,
     );
     if (after.deploymentIdentitySha256 !== deployment.deploymentIdentitySha256)
@@ -128,9 +128,7 @@ export async function currentVirtualBook(
   selection: VirtualBookSelection,
   deps = dependencies,
 ): Promise<VirtualBookEnvelope | null> {
-  const before = await boundedDuskRpcRead(() =>
-    deps.envelope(0, { fresh: true }),
-  );
+  const before = await boundedDuskRpcRead(() => deps.envelope(0));
   const key = `virtual-book.v1:${before.deploymentIdentitySha256}:${selection.market}:${selection.groupingBps}`;
   const result = await deps.shared({
     key,
@@ -139,9 +137,7 @@ export async function currentVirtualBook(
     compute: () => deps.capture(selection, before),
   });
   const after = await boundedDuskRpcRead(() =>
-    deps.envelope(Math.max(before.sourceSlot, result?.data.sourceSlot ?? 0), {
-      fresh: true,
-    }),
+    deps.envelope(Math.max(before.sourceSlot, result?.data.sourceSlot ?? 0)),
   );
   if (
     before.deploymentIdentitySha256 !== after.deploymentIdentitySha256 ||

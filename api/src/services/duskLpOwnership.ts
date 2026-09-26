@@ -32,7 +32,7 @@ export async function captureDuskLpOwnership(): Promise<{ mints: number; account
   const mints = await discoverLpMints();
   let accounts = 0;
   for (const mint of mints) {
-    const before = await deploymentEnvelope(0, { fresh: true });
+    const before = await deploymentEnvelope(0);
     const result = await rpc.getProgramAccounts(TOKEN_2022_PROGRAM_ID, {
       commitment: 'finalized', withContext: true, minContextSlot: mint.sourceSlot,
       filters: [{ memcmp: { offset: 0, bytes: mint.mint } }],
@@ -62,7 +62,7 @@ export async function captureDuskLpOwnership(): Promise<{ mints: number; account
     if (total !== state.supply) throw new Error(`LP ownership and mint supply differ for ${mint.mint}; retry a coherent snapshot`);
     const block = await readFinalizedBlock(rpc, result.context.slot);
     if (!block || block.blockTime === null || block.blockTime === undefined) throw new Error('LP scan has no finalized containing block/time');
-    const after = await deploymentEnvelope(mintInfo.context.slot, { fresh: true });
+    const after = await deploymentEnvelope(mintInfo.context.slot);
     if (before.deploymentIdentitySha256 !== after.deploymentIdentitySha256) throw new Error('Deployment changed during LP ownership scan');
     const contentHash = hash(JSON.stringify([mint.market,mint.mint,mint.kind,state.supply.toString(),state.decimals,rows.map((row) => [row.token_account,row.data_hash])]));
     const client = await pool.connect();

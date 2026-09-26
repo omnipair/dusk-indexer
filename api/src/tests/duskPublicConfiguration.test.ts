@@ -41,7 +41,7 @@ test('public deployment and configuration routes never serialize the server RPC 
 });
 
 
-test('native gRPC identity observations are fresh and enforce their requested slot floor', async context => {
+test('native gRPC identity reads enforce their requested slot floor', async context => {
   const calls: unknown[][] = [];
   context.mock.method(deployment, 'deploymentEnvelope', async (...args: unknown[]) => {
     calls.push(args); return { sourceSlot: args[0] };
@@ -53,7 +53,7 @@ test('native gRPC identity observations are fresh and enforce their requested sl
     const response = { set: (_header: string, value: string) => { cacheControl = value; return response; }, json: resolve };
     handle({ query: { minimumSourceSlot: '500000001' } } as unknown as Request, response as unknown as Response, reject);
   });
-  assert.deepEqual(calls, [[500000001, { fresh: true }]]);
+  assert.deepEqual(calls, [[500000001]]);
   assert.equal(result.deployment.sourceSlot, 500000001);
   assert.equal(cacheControl, 'no-store');
   for (const value of ['-1', '1.5', '1e5', '9007199254740992', ['1'], {}]) {

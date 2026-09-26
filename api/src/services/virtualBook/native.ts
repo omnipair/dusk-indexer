@@ -91,7 +91,7 @@ export async function createVirtualBookRuntime(
   const boundary: DuskReadBoundary = {
     async assertCompatibleForRead(expected, signal) {
       const observed = await boundedDuskRpcRead(
-        () => deploymentEnvelope(expected.sourceSlot, { fresh: true }),
+        () => deploymentEnvelope(expected.sourceSlot),
         signal,
       );
       if (

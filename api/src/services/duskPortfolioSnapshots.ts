@@ -245,7 +245,7 @@ export async function replayPortfolioCaptures(): Promise<number> {
 export async function captureDuskPortfolioSnapshots(dependencies?: {
   envelope?: typeof deploymentEnvelope; capture?: typeof captureMarketSimulation;
 }) {
-  const before = await (dependencies?.envelope ?? deploymentEnvelope)(0,{ fresh: true }),client = await pool.connect();
+  const before = await (dependencies?.envelope ?? deploymentEnvelope)(0),client = await pool.connect();
   let catalog: PortfolioCatalog;
   try { await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY'); catalog = await readPortfolioCatalog(client); await client.query('COMMIT'); }
   catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }

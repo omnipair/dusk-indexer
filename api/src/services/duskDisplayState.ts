@@ -40,7 +40,7 @@ export async function currentDisplayState<
   capture: (deployment: DuskDeploymentEnvelope) => Promise<T>,
   deps = displayStateDependencies,
 ) {
-  const before = await deps.envelope(0, { fresh: true });
+  const before = await deps.envelope(0);
   const result = await deps.shared({
     key: `display.v1:${before.deploymentIdentitySha256}:${key}`,
     identity: before.deploymentIdentitySha256,
@@ -57,7 +57,6 @@ export async function currentDisplayState<
       result?.data.sourceSlot ?? 0,
       result?.data.verificationSlot ?? 0,
     ),
-    { fresh: true },
   );
   if (
     before.deploymentIdentitySha256 !== after.deploymentIdentitySha256 ||

@@ -147,13 +147,13 @@ export async function replayYieldCheckpoints(limit = 500): Promise<number> {
 
 export async function captureDuskYieldCheckpoints() {
   const active = identity(), rpc = new Connection(duskApiConfig().rpcUrl,'finalized'), decoder = coder();
-  const initial = await deploymentEnvelope(0,{ fresh: true });
+  const initial = await deploymentEnvelope(0);
   const minimumSlot = Math.max(Number(initial.programDataSlot),Number(initial.leverageDelegateProgramDataSlot));
   if (!Number.isSafeInteger(minimumSlot) || minimumSlot<0) throw new Error('Invalid deployment slot');
   const discovery = await rpc.getProgramAccounts(new PublicKey(active[1]),{ withContext: true,commitment: 'finalized',minContextSlot: minimumSlot,
     filters: [{ memcmp: decoder.memcmp('YieldAccount') }] });
   if (!Number.isSafeInteger(discovery.context.slot) || discovery.context.slot<minimumSlot) throw new Error('Yield discovery regressed behind the deployment');
-  const discoveredIdentity = await deploymentEnvelope(discovery.context.slot,{ fresh: true });
+  const discoveredIdentity = await deploymentEnvelope(discovery.context.slot);
   if (discoveredIdentity.deploymentIdentitySha256 !== initial.deploymentIdentitySha256) throw new Error('Deployment changed during yield discovery');
   const seen = new Set<string>();
   let captured = 0;
@@ -162,14 +162,14 @@ export async function captureDuskYieldCheckpoints() {
     if (seen.has(address)) throw new Error('Duplicate yield account in complete discovery');
     seen.add(address);
     const bound = yieldBindings(decoder.decode('YieldAccount',entry.account.data));
-    const before = await deploymentEnvelope(0,{ fresh: true });
+    const before = await deploymentEnvelope(0);
     if (before.deploymentIdentitySha256 !== initial.deploymentIdentitySha256) throw new Error('Deployment changed after yield discovery');
     // One RPC request supplies all coupled balances and indexes at one bank.
     const response = await rpc.getMultipleAccountsInfoAndContext([entry.pubkey,new PublicKey(bound.market),new PublicKey(bound.lpTokenAccount)],
       { commitment: 'finalized',minContextSlot: discovery.context.slot });
     if (!Number.isSafeInteger(response.context.slot) || response.context.slot<discovery.context.slot || response.value.length !== 3) throw new Error('Incomplete or regressed yield checkpoint read');
     const block = await readFinalizedBlock(rpc,response.context.slot);
-    const after = await deploymentEnvelope(response.context.slot,{ fresh: true });
+    const after = await deploymentEnvelope(response.context.slot);
     if (after.deploymentIdentitySha256 !== before.deploymentIdentitySha256) throw new Error('Deployment changed during yield checkpoint read');
     const source: YieldCheckpointSource = { yieldAddress: address,market: bound.market,lpTokenAccount: bound.lpTokenAccount,
       slot: response.context.slot,blockhash: block.blockhash,blockTime: new Date(block.blockTime*1000).toISOString(),

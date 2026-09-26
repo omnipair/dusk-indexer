@@ -187,7 +187,7 @@ router.get(
       if (typeof raw !== 'string' || !/^(0|[1-9][0-9]*)$/.test(raw) || !Number.isSafeInteger(Number(raw)))
         throw Object.assign(new Error('Invalid minimum source slot'), { status: 400 });
       res.set('Cache-Control', 'no-store').json({ success: true, data: null,
-        deployment: await deploymentEnvelope(Number(raw), { fresh: true }) });
+        deployment: await deploymentEnvelope(Number(raw)) });
       return;
     }
     res.json(
