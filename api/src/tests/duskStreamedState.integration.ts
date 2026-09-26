@@ -5,6 +5,7 @@ import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { fixtureMarket, key, streamedEvent, streamedIdentity, streamedMarket, streamedRelease } from './duskStreamedFixtures';
 import { readMarketExposures } from '../services/duskStatisticsSnapshot';
+import { staleObservedMarkets } from '../services/duskMarketCrank';
 
 if (process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS !== 'true' || !process.env.DATABASE_URL)
   throw new Error('Set DUSK_ALLOW_DISPOSABLE_DB_TESTS=true and a disposable DATABASE_URL');
@@ -93,4 +94,14 @@ test('open interest sums open leverage collateral per market side',() => transac
   const exposures = await readMarketExposures(client);
   assert.deepEqual(exposures.markets,[{ market,baseCollateral: '100',quoteCollateral: '40',positions: 2 }]);
   assert.equal(exposures.sourceSlot,900_300_000); assert.equal(exposures.complete,true);
+}));
+
+test('the crank takes unobserved and stale markets first, and skips fresh ones',() => transaction(async client => {
+  const stale = { ...fixtureMarket,market: key(260) },fresh = { ...fixtureMarket,market: key(261) },never = { ...fixtureMarket,market: key(262) };
+  for (const each of [stale,fresh,never]) await createdMarket(client,each);
+  await streamed(client,'MarketObserved',{ market: stale.market },undefined,new Date(Date.now()-600_000).toISOString());
+  await streamed(client,'MarketObserved',{ market: fresh.market },undefined,new Date(Date.now()-5_000).toISOString());
+  const due = await staleObservedMarkets(client,60,20);
+  assert.deepEqual(due.filter(row => [stale,fresh,never].some(m => m.market === row.market)).map(row => row.market),[never.market,stale.market]);
+  assert.equal((await staleObservedMarkets(client,60,1)).length,1);
 }));

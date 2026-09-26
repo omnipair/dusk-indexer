@@ -33,7 +33,8 @@
     "test:prices-integration": "npm run build && node --test dist/tests/duskPrices.integration.js",
     "test:market-activity-integration": "npm run build && node --test dist/tests/duskMarketActivity.integration.js",
     "test:portfolio-integration": "npm run build && node --test dist/tests/duskPortfolioSnapshots.integration.js",
-    "test:deployment-integration": "npm run build && node --test dist/tests/duskDeploymentInterval.integration.js"
+    "test:deployment-integration": "npm run build && node --test dist/tests/duskDeploymentInterval.integration.js",
+    "start:market-crank": "node dist/scripts/duskMarketCrank.js"
   },
   "keywords": [
     "typescript",

@@ -84,6 +84,10 @@ Coverage reports indexed/projected/pending claim counts for the protocol identit
 
 Recorded yield growth comes from `MarketObserved` events, which the permissionless `observe_market` crank emits after refreshing a market: its growth indexes, live reserves, yLP supply and spot and EMA quotes, with the program's own values. The yield-checkpoint worker, its account reads and `GET /api/dusk/v1/owners/:owner/yield-checkpoints` are removed; `analytics/yield-rates` reads the observation nearest each boundary within 900 s and prices it from the observation at or before it within 3600 s. Its basis stays `committed-market-growth.v1` and its commitment is `confirmed`. Keeper cadence sets the sample spacing; a market nobody cranks has no recent growth points.
 
+## Market crank
+
+`npm run start:market-crank --prefix api` sends the permissionless `observe_market` for every market whose latest `MarketObserved` is older than `DUSK_CRANK_STALE_SECONDS` (default 60), oldest first and at most `DUSK_CRANK_MAX_MARKETS` (default 20) per pass, every `DUSK_CRANK_INTERVAL_MS` (default 30000), as the v1 cranker sends `update_pair`. Staleness comes from the database; it reads no accounts. It only reports due markets unless `DUSK_CRANK_LIVE=true` and a fee-payer keypair file is mounted at `DUSK_CRANK_KEYPAIR_PATH`. `railway.market-crank.toml` defines it. Its cadence sets the spacing of chart samples, yield growth points and governance eligibility.
+
 ## Dated price observations
 
 Program prices come from `MarketObserved` events at read time: the program's decimal-normalized, curve-aware spot quote per side, under the dated reference policy. Nothing simulates `preview_market` on a timer any more.
