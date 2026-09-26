@@ -78,6 +78,7 @@ database/
 !database/migrations/044_dusk_streamed_ingestion.sql
 !database/migrations/045_dusk_event_ingested_notify.sql
 !database/migrations/046_dusk_streamed_state.sql
+!database/migrations/047_dusk_streamed_governance.sql
 !database/dusk-migrations.txt
 
 # Other language artifacts

@@ -27,3 +27,4 @@
 044_dusk_streamed_ingestion.sql
 045_dusk_event_ingested_notify.sql
 046_dusk_streamed_state.sql
+047_dusk_streamed_governance.sql

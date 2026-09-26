@@ -47,6 +47,7 @@ import { clearQuoteHistoryCache, listQuoteHistory } from '../../services/duskQuo
 import { listArchivedQuoteHistory } from '../../services/duskArchivedQuoteHistory';
 import { openDuskChangeStream } from '../../services/duskChangeStream';
 import { listPortfolioHistory, portfolioSampleSeconds } from '../../services/duskPortfolioSnapshots';
+import { governanceSelection, listGovernanceProposals } from '../../services/duskGovernance';
 import { provenance, renderMetrics } from '../../utils/metrics';
 
 import { PublicKey } from '@solana/web3.js';
@@ -348,6 +349,15 @@ router.get(
 );
 
 /** Saved native position values, with catalog and per-bank coverage. */
+/** Governance proposals and each market's eligible yLP, from streamed events. */
+router.get('/governance/proposals',asyncRoute(async (req,res) => {
+  const market = governanceSelection(req.query.market);
+  res.set('Cache-Control','no-store').json(await withDeploymentRead(async () => {
+    const data = await listGovernanceProposals(market);
+    return { data,sourceSlot: data.sourceSlot };
+  }));
+}));
+
 router.get('/owners/:owner/portfolio-snapshots',asyncRoute(async (req,res) => {
   let owner: string;
   try { owner = new PublicKey(req.params.owner).toBase58(); }
