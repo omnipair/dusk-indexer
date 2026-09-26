@@ -9,6 +9,9 @@ import { loadPinnedProtocol } from '../config/duskProtocol';
 import { readStreamedBorrowPositions } from '../services/duskBorrowValuation';
 import { readOpenEntryOrderAddresses } from '../services/duskEntryOrderBook';
 import { readStreamedHlpBalances } from '../services/duskHlpPositions';
+import { readOwnerGovernanceSupports, readStreamedMarketMints } from '../services/duskOwnerGovernance';
+import { readOwnerYieldGroups } from '../services/duskOwnerYield';
+import { readStreamedReferralState, referralPartnerAddress } from '../services/duskReferralPartner';
 import { fixtureMarket, key, streamedEvent, streamedIdentity, streamedMarket, streamedRelease } from './duskStreamedFixtures';
 
 if (process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS !== 'true' || !process.env.DATABASE_URL)
@@ -17,7 +20,7 @@ after(() => pool.end());
 
 const pin = loadPinnedProtocol();
 const delegateIdentity = [pin.cluster, pin.leverageDelegate.programId, pin.leverageDelegate.idlCanonicalSha256, pin.revision];
-const { market, baseHlp } = fixtureMarket;
+const { market, baseMint, quoteMint, ylp, baseHlp, quoteHlp } = fixtureMarket;
 const owner = key(201),
   other = key(202);
 
@@ -92,3 +95,71 @@ test('open entry orders are created orders whose latest lifecycle instruction is
   assert.deepEqual((await readOpenEntryOrderAddresses(market, client)).sort(), [key(221), key(225)].sort());
 }));
 
+test('governance supports fold a proposer\'s sponsorship, later supports and withdrawals per proposal', () => transaction(async (client) => {
+  await streamedMarket(client);
+  const proposal = key(240),
+    elsewhere = key(241);
+  await streamedEvent(client, 'ParameterProposalCreated', { proposal, market, proposer: owner, initial_support: '25', status: '0' });
+  await streamedEvent(client, 'ParameterProposalSupported', { proposal, supporter: other, amount: '60', supporter_locked: '60', total_locked: '85', status: '0' });
+  await streamedEvent(client, 'ParameterProposalCreated', { proposal: elsewhere, market: key(242), proposer: other, initial_support: '5', status: '0' });
+  await streamedEvent(client, 'ParameterProposalSupported', { proposal: elsewhere, supporter: owner, amount: '30', supporter_locked: '30', total_locked: '35', status: '0' });
+  await streamedEvent(client, 'ParameterProposalSupported', { proposal, supporter: owner, amount: '10', supporter_locked: '35', total_locked: '95', status: '0' });
+  let result = await readOwnerGovernanceSupports(owner, null, client);
+  assert.deepEqual(result.supports, [
+    { proposal, market, lockedAmount: '35' },
+    { proposal: elsewhere, market: key(242), lockedAmount: '30' },
+  ].sort((a, b) => a.market.localeCompare(b.market)));
+  assert.equal(result.sourceSlot, 900_500_000);
+  await streamedEvent(client, 'ParameterProposalSupportWithdrawn', { proposal, supporter: owner, amount: '35', total_locked: '60', status: '0' });
+  result = await readOwnerGovernanceSupports(owner, market, client);
+  assert.deepEqual(result.supports, []);
+  assert.deepEqual((await readOwnerGovernanceSupports(other, market, client)).supports, [{ proposal, market, lockedAmount: '60' }]);
+  assert.deepEqual(await readStreamedMarketMints(market, client), { ylpMint: ylp, baseMint, quoteMint });
+  assert.equal(await readStreamedMarketMints(key(242), client), null);
+}));
+
+test('a referral partner\'s terms and accruals come from its own events', () => transaction(async (client) => {
+  await streamedMarket(client);
+  const partner = referralPartnerAddress(owner).toBase58(),
+    otherPartner = referralPartnerAddress(other).toBase58();
+  const accrual = key(250),
+    second = key(251);
+  assert.equal((await readStreamedReferralState(owner, client)).partner, null);
+  await streamedEvent(client, 'ReferralPartnerConfigured', { referral_partner: partner, authority: owner, recipient: key(252),
+    interest_share_bps: '1500', active: true, signer: owner });
+  await streamedEvent(client, 'ReferralRecipientUpdated', { referral_partner: partner, authority: owner, recipient: key(253) });
+  await streamedEvent(client, 'ReferralInterestAccrued', { market, referral_partner: partner, referral_accrual: accrual, accrued_amount: '100' });
+  await streamedEvent(client, 'ReferralInterestAccrued', { market, referral_partner: partner, referral_accrual: accrual, accrued_amount: '40' });
+  await streamedEvent(client, 'ReferralInterestClaimed', { market, referral_partner: partner, referral_accrual: accrual, remaining_accrual: '0' });
+  await streamedEvent(client, 'ReferralInterestAccrued', { market, referral_partner: partner, referral_accrual: accrual, accrued_amount: '7' });
+  await streamedEvent(client, 'ReferralInterestAccrued', { market, referral_partner: partner, referral_accrual: second, accrued_amount: '3' });
+  await streamedEvent(client, 'ReferralInterestAccrued', { market, referral_partner: otherPartner, referral_accrual: key(254), accrued_amount: '9' });
+  const state = await readStreamedReferralState(owner, client);
+  assert.deepEqual(state.partner, { authority: owner, recipient: key(253), interestShareBps: 1500, active: true });
+  assert.deepEqual([...state.accruals.entries()].sort(), [[accrual, 7n], [second, 3n]].sort());
+  assert.deepEqual(state.markets, [{ market, baseMint, quoteMint }]);
+  assert.equal(state.sourceSlot, 900_500_000);
+}));
+
+test('yield discovery covers every held LP, including emptied holdings, and escrows until their yield settles', () => transaction(async (client) => {
+  await streamedMarket(client);
+  await streamedEvent(client, 'LiquidityAdded', { market, owner, ylp_amount: '10' });
+  await streamedEvent(client, 'LiquidityRemoved', { market, owner, ylp_amount: '10' });
+  await streamedEvent(client, 'HlpOpened', { market, owner, asset_side: '1', hlp_amount: '4', ylp_amount: '1' });
+  const hlpOrder = (order: string, target: string) =>
+    instruction(client, 'create_hlp_order', { market, target_hlp_mint: target, order, owner });
+  await hlpOrder(key(261), baseHlp);
+  await hlpOrder(key(262), quoteHlp);
+  await instruction(client, 'execute_hlp_order', { order: key(262), market, order_owner: owner });
+  await hlpOrder(key(263), quoteHlp);
+  await instruction(client, 'cancel_hlp_order', { order: key(263), owner });
+  await instruction(client, 'settle_hlp_order_yield', { order: key(263), market, owner });
+  const { groups, sourceSlot } = await readOwnerYieldGroups(owner, client);
+  assert.deepEqual(groups.map((group) => `${group.holder}:${group.lpMint}:${group.kind}`).sort(), [
+    `${owner}:${quoteHlp}:hlp`, `${owner}:${ylp}:ylp`, `${key(261)}:${baseHlp}:hlp`, `${key(262)}:${quoteHlp}:hlp`,
+  ].sort());
+  assert.ok(groups.every((group) => group.market === market && group.baseMint === baseMint && group.quoteMint === quoteMint));
+  assert.equal(sourceSlot, 900_500_000);
+  await hlpOrder(key(264), key(265));
+  await assert.rejects(readOwnerYieldGroups(owner, client), /unknown vault/);
+}));

@@ -49,6 +49,10 @@ import { openDuskChangeStream } from '../../services/duskChangeStream';
 import { listPortfolioHistory, portfolioSampleSeconds } from '../../services/duskPortfolioSnapshots';
 import { governanceSelection, listGovernanceProposals } from '../../services/duskGovernance';
 import { currentLiquidations } from '../../services/duskLiquidations';
+import { currentOwnerGovernance } from '../../services/duskOwnerGovernance';
+import { currentReferralPartner } from '../../services/duskReferralPartner';
+import { currentOwnerYield } from '../../services/duskOwnerYield';
+import { displayPublicKey } from '../../services/duskOwnerAccounts';
 import { provenance, renderMetrics } from '../../utils/metrics';
 
 import { PublicKey } from '@solana/web3.js';
@@ -80,6 +84,27 @@ router.get('/owners/:owner/accounts/:kind', asyncRoute(async (req, res) => {
 router.get('/owners/:owner/leverage-valuations/:address', asyncRoute(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json(await currentLeverageValuation(leverageValuationSelection(req.params.owner, req.params.address)));
+}));
+
+/** Supports locked from streamed events; yield-account flags for one market. */
+router.get('/owners/:owner/governance', asyncRoute(async (req, res) => {
+  const selection = { owner: displayPublicKey(req.params.owner), market: governanceSelection(req.query.market) };
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await currentOwnerGovernance(selection));
+}));
+
+/** Partner terms and accruals from streamed events, with current transfer fees. */
+router.get('/owners/:owner/referral-partner', asyncRoute(async (req, res) => {
+  const authority = displayPublicKey(req.params.owner);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await currentReferralPartner(authority));
+}));
+
+/** Claimable yield for streamed LP holdings and live hLP order escrows. */
+router.get('/owners/:owner/yield', asyncRoute(async (req, res) => {
+  const owner = displayPublicKey(req.params.owner);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await currentOwnerYield(owner));
 }));
 
 /** Open borrow positions with debt that are liquidatable or in auction. */
