@@ -68,7 +68,7 @@ npm run build --prefix api
 npm run start:yield-claims-worker --prefix api -- --once
 ```
 
-Omit `--once` to poll every ten seconds, or set `DUSK_YIELD_CLAIMS_INTERVAL_MS` (minimum 1000). `railway.yield-claims.toml` defines the worker service. It requires `DATABASE_URL` and the same checked `protocol/` artifacts as ingestion. It reads already-attested finalized events and never signs or contacts a wallet. Apply migrations before starting it; it does not change the database schema itself.
+Omit `--once` to keep it running: it drains once, then again after every event the daemon writes, woken by the `dusk_event_ingested` notification (migration 045). A lost connection reconnects and drains, so a restart catches up. `railway.yield-claims.toml` defines the worker service. It requires `DATABASE_URL` and the same checked `protocol/` artifacts as ingestion. It reads already-attested finalized events and never signs or contacts a wallet. Apply migrations before starting it; it does not change the database schema itself.
 
 Each bounded transaction selects unprojected `YieldClaimed` events through the full protocol identity and finalized canonical pointer. A PostgreSQL transaction lock serializes replicas. There is no monotonic slot cursor that could skip a later backfill at an older slot. Missing or contradictory event-time records and malformed values fail the batch without advancing it. Database guards bind every immutable projection to its exact observation, payload, blockhash and block time. Successful inserts notify native read consumers.
 
@@ -120,8 +120,9 @@ build the API, and run:
 npm run start:market-activity-worker --prefix api -- --once
 ```
 
-Omit `--once` to poll every 10 seconds. `DUSK_MARKET_ACTIVITY_INTERVAL_MS` sets
-the interval (minimum 1000). `railway.market-activity.toml` defines the worker.
+Omit `--once` to keep it running: it drains once, then again after every event
+the daemon writes, woken by the `dusk_event_ingested` notification (migration
+045). `railway.market-activity.toml` defines the worker.
 It reads saved events and writes projections; it does not contact RPC, hold a
 signing key or submit transactions. Each transaction projects at most 500 events
 under a protocol-scoped PostgreSQL lock. Late older-slot events remain eligible,
