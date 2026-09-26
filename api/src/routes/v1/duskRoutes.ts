@@ -11,8 +11,9 @@ import { Router } from 'express';
 
 import { deploymentSnapshot } from '../../services/duskMarketSurface';
 import { openDuskPayloadStream } from '../../services/duskPayloadStream';
-import { currentOwnerAccounts, currentLeverageValuation } from '../../services/duskDisplayState';
+import { currentOwnerAccounts, currentLeverageValuation, currentGovernanceProposals } from '../../services/duskDisplayState';
 import { ownerAccountsSelection } from '../../services/duskOwnerAccounts';
+import { governanceSelection } from '../../services/duskGovernance';
 import { leverageValuationSelection } from '../../services/duskLeverageValuation';
 
 import { duskApiConfig, loadPinnedProtocol } from '../../config/duskProtocol';
@@ -80,6 +81,11 @@ router.get('/owners/:owner/accounts/:kind', asyncRoute(async (req, res) => {
 router.get('/owners/:owner/leverage-valuations/:address', asyncRoute(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json(await currentLeverageValuation(leverageValuationSelection(req.params.owner, req.params.address)));
+}));
+
+router.get('/governance/proposals', asyncRoute(async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await currentGovernanceProposals(governanceSelection(req.query.market)));
 }));
 
 router.get('/changes', asyncRoute(openDuskChangeStream));

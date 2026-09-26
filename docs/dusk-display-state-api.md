@@ -7,7 +7,7 @@ history routes remain available for their existing consumers.
 
 ## Routes and contracts
 
-Both routes are under `/api/dusk/v1`, return `Cache-Control: no-store`, and use the
+All routes are under `/api/dusk/v1`, return `Cache-Control: no-store`, and use the
 standard `{ success: true, deployment, data }` envelope. Public keys must be
 canonical base58. Invalid route selections return 400. A missing or expired
 shared snapshot returns 503; failed captures return an error, never fabricated
@@ -17,6 +17,7 @@ zero positions or a spot-price approximation.
 | --- | --- |
 | `GET /owners/:owner/accounts/:kind` | Complete account snapshot for `borrow`, `leverage`, `yield`, or `referral-accrual` |
 | `GET /owners/:owner/leverage-valuations/:address` | Exact simulated full-close receipt for one leverage position belonging to the owner |
+| `GET /governance/proposals[?market=]` | Complete parameter-proposal snapshot with same-bank market, yLP mint, hLP yLP vault and Clock bytes, for all markets or one |
 
 Every payload includes `schemaVersion`, `sourceSlot`, `observedAt` and `expiresAt`.
 Timestamps are milliseconds since epoch; expiry is exactly 15 seconds after
@@ -49,11 +50,23 @@ Token-2022 and wrapped native-token receipts. The position is read again after
 simulation; concurrent changes invalidate the capture. This endpoint never
 signs or submits a transaction and is not a submission quote.
 
+Governance snapshots use schema `dusk-governance-proposals.v1`, documented in
+[API.md](../API.md#governance-proposals-dusk-governance-proposalsv1). They
+replace the browser's per-client proposal scan: one discovery bank finds every
+proposal, and each market group re-reads its Market, yLP mint, both hLP yLP
+vaults, the Clock and its proposals in one later bank, so tallies never mix
+banks. All accounts are raw `{ address, owner, data }` records; the consumer
+decodes and verifies them with its pinned IDL. `sourceSlot` is the highest of
+the discovery and group slots. A repeated or non-canonical `market` query
+returns 400. More than 500 proposals, or more than 95 in one market, rejects the
+capture.
+
 ## Persistence and rollout
 
 Captures use the existing PostgreSQL `dusk_ingestion.live_snapshots` table and
 cross-process advisory lock. Keys include the deployment identity, wallet and
-account kind or position. Captures are coalesced across replicas with a two-second
+account kind or position, or the governance market selection (`all` or one
+market). Captures are coalesced across replicas with a two-second
 cooldown, including failed attempts, and a 14-second capture deadline. Stored
 payloads are ephemeral confirmed observations, not canonical historical events
 or ingestion cursors. They do not advance finalized history.
