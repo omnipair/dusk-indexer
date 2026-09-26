@@ -105,7 +105,7 @@ export function buildEventHistoryQuery(query: EventHistoryQuery, watermark: stri
   const bind = (value: unknown) => {params.push(value);return `$${params.length}`;};
   const conditions = [
     `o.cluster=$1 AND o.program_id=$2 AND o.idl_hash=$3 AND o.protocol_revision=$4`,
-    `o.commitment='finalized' AND o.observation_id<=$5::bigint AND o.event_name=ANY($6::text[])`,
+    `o.commitment IN ('confirmed','finalized') AND o.observation_id<=$5::bigint AND o.event_name=ANY($6::text[])`,
   ];
   if (window.market) conditions.push(`o.decoded_payload->>'market'=${bind(window.market)}`);
   if (cursor) conditions.push(`(o.slot,o.event_key)<(${bind(cursor.slot)}::bigint,${bind(cursor.key)}::text)`);
@@ -129,7 +129,7 @@ export function buildEventHistoryQuery(query: EventHistoryQuery, watermark: stri
         AND s.market=o.decoded_payload->>'market' AND s.payload=o.decoded_payload)::text AS matching_count
       FROM dusk_ingestion.event_stream s WHERE
         (s.cluster,s.program_id,s.idl_hash,s.protocol_revision,s.event_key)=(c.cluster,c.program_id,c.idl_hash,c.protocol_revision,c.event_key)) history ON true
-    WHERE ${filter} AND c.commitment='finalized'
+    WHERE ${filter} AND c.commitment=o.commitment
       AND ($7::timestamptz IS NULL OR history.block_time>=$7 OR history.block_time IS NULL)
       AND (history.block_time<=$8 OR history.block_time IS NULL)
     ORDER BY o.slot DESC,o.event_key DESC LIMIT $9`;
@@ -167,7 +167,7 @@ export async function readEventHistory(client: PoolClient, query: EventHistoryQu
     pagination: { limit: query.limit, cursor: query.cursor ?? null, nextCursor, hasMore, watermark },
     coverage: { cluster: pin.cluster, programId: pin.dusk.programId, idlSha256: pin.dusk.idlCanonicalSha256,
       protocolRevision: pin.revision, deploymentIdentitySha256: query.deploymentIdentitySha256,
-      commitment: 'finalized', basis: 'canonical-program-events.v1', historyRangeComplete: false,
+      commitment: 'confirmed', basis: 'canonical-program-events.v1', historyRangeComplete: false,
       supportedEvents, firstSlot: String(pin.historyFirstSlot) },
   };
 }

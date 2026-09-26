@@ -62,7 +62,7 @@ async function rejectsAtSavepoint(client: PoolClient, operation: () => Promise<u
 
 test('finalized cash flows replay once, discover late old slots, and preserve event time and earning owner', () => transaction(async (client) => {
   const first = await source(client, { slot: 800000001 });
-  await source(client, { slot: 800000003, commitment: 'confirmed' });
+  await source(client, { slot: 800000003, commitment: 'processed' });
   await source(client, { slot: 800000004, revision: `fixture-other-${randomUUID()}` });
   assert.equal(await projectYieldClaimBatch(client), 1);
   assert.equal(await projectYieldClaimBatch(client), 0);

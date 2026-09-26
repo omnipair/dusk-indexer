@@ -82,7 +82,7 @@ test('API-only releases preserve verified historical USD pricing for activity',(
 test('finalized native trades project once, exclude other revisions and commitments, and retain late backfills',() => transaction(async (client) => {
   await priced(client);
   await source(client);
-  await source(client,{ commitment: 'confirmed' });
+  await source(client,{ commitment: 'processed' });
   await source(client,{ revision: `fixture-other-${randomUUID()}` });
   await source(client,{ name: 'YieldClaimed' });
   assert.equal(await projectMarketActivityBatch(client),1);

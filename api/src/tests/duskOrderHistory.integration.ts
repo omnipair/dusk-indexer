@@ -9,17 +9,24 @@ import {readOrderHistory} from '../services/duskOrderHistory';
 if(process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS!=='true'||!process.env.DATABASE_URL) throw new Error('Disposable database required');
 after(()=>pool.end());
 const pin=loadPinnedProtocol(),first=pin.historyFirstSlot,identity=[pin.cluster,pin.leverageDelegate.programId,pin.leverageDelegate.idlCanonicalSha256,pin.revision];
+const streamIdentity=[pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
 const owner='11111111111111111111111111111111',order=pin.leverageDelegate.programId,market=pin.dusk.programId,block='3'.repeat(44),signature='2'.repeat(88),when=1788307200;
 const instructionKey=(path:number[],sig=signature)=>[...identity,sig,path.join('.')].join('|');
 async function setup(c:PoolClient) {
   const body=JSON.stringify({revision:pin.revision,cluster:{name:pin.cluster,genesisHash:pin.genesisHash},programs:[pin.dusk,pin.leverageDelegate].map(p=>({name:p.name,programId:p.programId,binary:{sha256:p.binarySha256},idl:{canonicalSha256:p.idlCanonicalSha256},deployment:p.deployment}))});
   await c.query('SELECT dusk_ingestion.record_deployment_interval($1,$2,$3,$4,$5,$6)',[pin.cluster,pin.revision,first,first+100,createHash('sha256').update(body).digest('hex'),body]);
   await c.query('INSERT INTO dusk_ingestion.protocol_identities VALUES($1,$2,$3,$4,now()) ON CONFLICT DO NOTHING',identity);
+  await c.query('INSERT INTO dusk_ingestion.protocol_identities VALUES($1,$2,$3,$4,now()) ON CONFLICT DO NOTHING',streamIdentity);
 }
-async function observe(c:PoolClient,path:number[],name='cancel_leverage_order',sig=signature,slot=first+1) {
+/** The stream's cursor is order-history coverage: the last slot it persisted. */
+async function streamed(c:PoolClient,slot:number) {
+  await c.query(`INSERT INTO dusk_ingestion.ingestion_cursors(cluster,program_id,idl_hash,protocol_revision,stream_name,commitment,next_slot,last_observed_slot,last_signature,updated_at)
+    VALUES($1,$2,$3,$4,'helius-atlas-ws','confirmed',$5,$6,$7,now())`,[...streamIdentity,slot+1,slot,signature]);
+}
+async function observe(c:PoolClient,path:number[],name='cancel_leverage_order',sig=signature,slot=first+1,time=when) {
   const named={owner,order,...(name.startsWith('create_')?{market}:{})};
   return (await c.query('SELECT dusk_ingestion.record_order_instruction($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) AS ok',
-    [...identity,instructionKey(path,sig),sig,slot,block,when,path,name,order,owner,name.startsWith('create_')?market:null,Buffer.from([1,2,3]),JSON.stringify({accounts:{named,all:Object.values(named)},arguments:{}})])).rows[0].ok;
+    [...identity,instructionKey(path,sig),sig,slot,block,time,path,name,order,owner,name.startsWith('create_')?market:null,Buffer.from([1,2,3]),JSON.stringify({accounts:{named,all:Object.values(named)},arguments:{}})])).rows[0].ok;
 }
 async function scan(c:PoolClient,receipts:unknown[]) {
   return c.query(`INSERT INTO dusk_ingestion.order_history_scans(cluster,program_id,idl_hash,protocol_revision,from_slot,through_slot,boundary_signature,boundary_slot,through_blockhash,release_block_time,through_block_time,transactions)
@@ -36,9 +43,10 @@ test('same transaction create/cancel history survives account closure and pagina
   assert.equal(await observe(c,[1]),true);
   assert.equal(await observe(c,[0],'create_leverage_order','4'.repeat(88)),true);
   assert.equal(await observe(c,[1],'cancel_leverage_order','4'.repeat(88)),true);
-  await reject(c,()=>scan(c,[]));
-  await scan(c,[receipt([[0],[1]]),receipt([[0],[1]],'4'.repeat(88))]);
-  const page=await readOrderHistory(c,query);assert.equal(page.orders.length,1);assert.equal(page.orders[0].market,market);assert.equal(page.pagination.hasMore,true);
+  await assert.rejects(readOrderHistory(c,query),/stream has not started/);
+  await streamed(c,first+1);
+  const page=await readOrderHistory(c,query);
+  assert.equal(page.coverage.commitment,'confirmed');assert.equal(page.coverage.throughSlot,String(first+1));assert.equal(page.orders.length,1);assert.equal(page.orders[0].market,market);assert.equal(page.pagination.hasMore,true);
   const next=await readOrderHistory(c,{...query,cursor:page.pagination.nextCursor!});assert.equal(next.orders.length,1);assert.equal(next.pagination.hasMore,false);assert.notEqual(next.orders[0].instructionKey,page.orders[0].instructionKey);
   assert.equal((await c.query('SELECT count(*) FROM dusk_ingestion.order_instruction_observations')).rows[0].count,'4');
 }));
@@ -47,7 +55,10 @@ test('contradictory finalized evidence is retained but blocks coverage and reads
   assert.equal((await c.query('SELECT count(*) FROM dusk_ingestion.order_instruction_observations')).rows[0].count,'2');
   await reject(c,()=>scan(c,[receipt([[0]])]));await assert.rejects(readOrderHistory(c,query),/contradictory/);
 }));
-test('a completed empty receipt cannot later hide an observed order',()=>transaction(async c=>{
-  await scan(c,[receipt([],signature,true)]);assert.equal(await observe(c,[0]),false);
-  await assert.rejects(readOrderHistory(c,query),/contradicts completed scan/);
+test('a redelivered instruction keeps its first arrival time; a changed one is a contradiction',()=>transaction(async c=>{
+  assert.equal(await observe(c,[0]),true);
+  assert.equal(await observe(c,[0],'cancel_leverage_order',signature,first+1,when+60),true);
+  const rows=await c.query('SELECT count(*)::int AS count,min(extract(epoch FROM block_time))::bigint AS time FROM dusk_ingestion.order_instruction_observations');
+  assert.equal(rows.rows[0].count,1);assert.equal(Number(rows.rows[0].time),when);
+  assert.equal(await observe(c,[0],'cancel_leverage_order',signature,first+2,when+60),false);
 }));

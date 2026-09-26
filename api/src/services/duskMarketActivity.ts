@@ -42,7 +42,7 @@ export async function projectMarketActivityBatch(client: PoolClient,limit = 500)
       FROM dusk_ingestion.event_stream s WHERE
         (s.cluster,s.program_id,s.idl_hash,s.protocol_revision,s.event_key)=(c.cluster,c.program_id,c.idl_hash,c.protocol_revision,c.event_key)) history ON true
     WHERE c.cluster=$1 AND c.program_id=$2 AND c.idl_hash=$3 AND c.protocol_revision=$4
-      AND c.commitment='finalized' AND o.commitment='finalized' AND o.event_name=ANY($5::text[])
+      AND c.commitment IN ('confirmed','finalized') AND o.commitment=c.commitment AND o.event_name=ANY($5::text[])
       AND NOT EXISTS(SELECT 1 FROM dusk_ingestion.market_activity_events a WHERE
         (a.cluster,a.program_id,a.idl_hash,a.protocol_revision,a.event_key)=(c.cluster,c.program_id,c.idl_hash,c.protocol_revision,c.event_key))
     ORDER BY o.slot,c.event_key LIMIT $6`,[...active,ACTIVITY_EVENTS,limit]);
@@ -104,7 +104,7 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
     WHERE a.cluster=$1 AND a.program_id=$2 AND a.idl_hash=$3 AND a.protocol_revision=$4 AND (
       NOT EXISTS(SELECT 1 FROM dusk_ingestion.canonical_events c WHERE
         (c.cluster,c.program_id,c.idl_hash,c.protocol_revision,c.event_key,c.observation_id)=
-        (a.cluster,a.program_id,a.idl_hash,a.protocol_revision,a.event_key,a.observation_id) AND c.commitment='finalized')
+        (a.cluster,a.program_id,a.idl_hash,a.protocol_revision,a.event_key,a.observation_id) AND c.commitment IN ('confirmed','finalized'))
       OR (SELECT count(*) FROM dusk_ingestion.event_stream s WHERE
         (s.cluster,s.program_id,s.idl_hash,s.protocol_revision,s.event_key)=
         (a.cluster,a.program_id,a.idl_hash,a.protocol_revision,a.event_key))<>1
@@ -120,7 +120,7 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
     JOIN dusk_ingestion.event_observations o USING(cluster,program_id,idl_hash,protocol_revision,event_key,observation_id)
     LEFT JOIN dusk_ingestion.market_activity_events a USING(cluster,program_id,idl_hash,protocol_revision,event_key,observation_id)
     WHERE c.cluster=$1 AND c.program_id=$2 AND c.idl_hash=$3 AND c.protocol_revision=$4
-      AND c.commitment='finalized' AND o.commitment='finalized' AND o.event_name=ANY($5::text[])`,[...active,ACTIVITY_EVENTS]);
+      AND c.commitment IN ('confirmed','finalized') AND o.commitment=c.commitment AND o.event_name=ANY($5::text[])`,[...active,ACTIVITY_EVENTS]);
   const all = emptyMetrics(),byMarket = new Map<string,{ metrics: ReturnType<typeof emptyMetrics>; swaps: number; events: number }>();
   const prices = new Map<string,ActivityPriceBasis>();
   const digest = createHash('sha256').update(JSON.stringify([active,options.deploymentIdentitySha256,
@@ -199,7 +199,7 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
     window: { since: options.since ? new Date(options.since).toISOString() : null,until: new Date(options.until).toISOString(),maxPriceAgeSeconds },
     metrics: metricResponse(all),volumes: volumeResponse(all),events: count,swaps,
     markets: [...byMarket].sort(([a],[b]) => a.localeCompare(b)).map(([market,value]) => ({ market,metrics: metricResponse(value.metrics),volumes: volumeResponse(value.metrics),events: value.events,swaps: value.swaps })),
-    coverage: { cluster: active[0],programId: active[1],idlSha256: active[2],protocolRevision: active[3],commitment: 'finalized' as const,
+    coverage: { cluster: active[0],programId: active[1],idlSha256: active[2],protocolRevision: active[3],commitment: 'confirmed' as const,
       deploymentIdentitySha256: options.deploymentIdentitySha256,basis: 'recorded-economic-events.v1' as const,
       historyRangeComplete: summary.indexed === summary.projected && historyScanCovers(historyScan,options.since,options.until),historyScan,
       totalInterestAccrualAvailable: false as const,feeAllocationAvailable: false as const,
