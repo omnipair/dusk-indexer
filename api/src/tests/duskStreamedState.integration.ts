@@ -3,7 +3,8 @@ import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { PoolClient } from 'pg';
 import pool from '../config/database';
-import { fixtureMarket, key, streamedEvent, streamedIdentity, streamedMarket } from './duskStreamedFixtures';
+import { fixtureMarket, key, streamedEvent, streamedIdentity, streamedMarket, streamedRelease } from './duskStreamedFixtures';
+import { readMarketExposures } from '../services/duskStatisticsSnapshot';
 
 if (process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS !== 'true' || !process.env.DATABASE_URL)
   throw new Error('Set DUSK_ALLOW_DISPOSABLE_DB_TESTS=true and a disposable DATABASE_URL');
@@ -77,4 +78,19 @@ test('market observations expose the crank\'s per-side state',() => transaction(
   const [row] = await rows(client,'streamed_market_observations');
   assert.equal(row.market,market); assert.equal(row.ylp_supply,'42');
   assert.equal(row.base.swap_fee_growth_index_q64,'18446744073709551616');
+}));
+
+test('open interest sums open leverage collateral per market side',() => transaction(async client => {
+  await streamedRelease(client,{ slot: 900_300_000,time: new Date(Date.now()-1000) });
+  await createdMarket(client);
+  const position = (address: string,collateral: string,amount: string) => ({ market,position: address,owner,
+    debt_asset_mint: collateral === fixtureMarket.baseMint ? fixtureMarket.quoteMint : fixtureMarket.baseMint,
+    collateral_asset_mint: collateral,collateral_amount: amount,debt_amount: '1',debt_shares: '1',closeout_value: '1' });
+  await streamed(client,'LeveragePositionOpened',position(key(230),fixtureMarket.baseMint,'100'));
+  await streamed(client,'LeveragePositionOpened',position(key(231),fixtureMarket.quoteMint,'40'));
+  await streamed(client,'LeveragePositionOpened',position(key(232),fixtureMarket.baseMint,'7'));
+  await streamed(client,'LeveragePositionClosed',position(key(232),fixtureMarket.baseMint,'7'));
+  const exposures = await readMarketExposures(client);
+  assert.deepEqual(exposures.markets,[{ market,baseCollateral: '100',quoteCollateral: '40',positions: 2 }]);
+  assert.equal(exposures.sourceSlot,900_300_000); assert.equal(exposures.complete,true);
 }));

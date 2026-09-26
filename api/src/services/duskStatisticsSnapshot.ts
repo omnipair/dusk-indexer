@@ -1,99 +1,31 @@
-import { PublicKey } from '@solana/web3.js';
-import type { Dusk, LeveragePosition } from '@omnipair/dusk-sdk';
+import type { Pool, PoolClient } from 'pg';
+import pool from '../config/database';
+import { loadPinnedProtocol } from '../config/duskProtocol';
 import type { DuskDeploymentEnvelope } from './duskDeploymentService';
+import { readStreamCursor } from './duskHistoryCoverage';
 import { listMarketActivity } from './duskMarketActivity';
-import {
-  boundedDuskRpcRead,
-  deriveLeveragePositionAddress,
-} from './virtualBook/native';
 
-export async function captureMarketExposures(
-  dusk: Dusk,
-  deployment: DuskDeploymentEnvelope,
-  signal?: AbortSignal,
-) {
-  const observedAt = Date.now();
-  if (dusk.program.programId.toBase58() !== deployment.programId)
-    throw new Error('Exposure SDK deployment mismatch');
-  const result = await boundedDuskRpcRead(
-    () =>
-      dusk.program.provider.connection.getProgramAccounts(
-        dusk.program.programId,
-        {
-          commitment: 'confirmed',
-          withContext: true,
-          minContextSlot: deployment.sourceSlot,
-          filters: [
-            { memcmp: dusk.program.coder.accounts.memcmp('leveragePosition') },
-          ],
-        },
-      ),
-    signal,
-  );
-  if (
-    !Number.isSafeInteger(result.context.slot) ||
-    result.context.slot < deployment.sourceSlot ||
-    result.value.length > 10_000
-  )
-    throw new Error('Incomplete market exposure snapshot');
-  const seen = new Set<string>(),
-    byMarket = new Map<
-      string,
-      { baseCollateral: bigint; quoteCollateral: bigint; positions: number }
-    >();
-  for (const { pubkey, account } of result.value) {
-    if (
-      seen.has(pubkey.toBase58()) ||
-      account.executable ||
-      !account.owner.equals(dusk.program.programId)
-    )
-      throw new Error('Invalid exposure account');
-    seen.add(pubkey.toBase58());
-    const p = dusk.program.coder.accounts.decode<LeveragePosition>(
-      'leveragePosition',
-      account.data,
-    );
-    const [address, bump] = deriveLeveragePositionAddress(
-      p.market,
-      p.positionId,
-    );
-    if (
-      !address.equals(pubkey) ||
-      p.bump !== bump ||
-      p.owner.equals(PublicKey.default) ||
-      ![0, 1].includes(p.debtAsset)
-    )
-      throw new Error('Invalid exposure position');
-    const amount = BigInt(p.collateralAmount.toString());
-    if (amount < 0n) throw new Error('Invalid exposure amount');
-    if (!amount) continue;
-    const market = p.market.toBase58(),
-      row = byMarket.get(market) ?? {
-        baseCollateral: 0n,
-        quoteCollateral: 0n,
-        positions: 0,
-      };
-    if (p.debtAsset === 1) row.baseCollateral += amount;
-    else row.quoteCollateral += amount;
-    row.positions++;
-    byMarket.set(market, row);
-  }
-  return {
-    sourceSlot: result.context.slot,
-    observedAt,
-    complete: true,
-    markets: [...byMarket]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([market, row]) => ({
-        market,
-        ...row,
-        baseCollateral: row.baseCollateral.toString(),
-        quoteCollateral: row.quoteCollateral.toString(),
-      })),
-  };
+/** Open interest from streamed leverage positions: collateral of every open
+ * position per market and side. The stream's slot, read after the positions,
+ * covers every event they include. */
+export async function readMarketExposures(client: Pool | PoolClient = pool) {
+  const pin = loadPinnedProtocol();
+  const result = await client.query<{ market: string; base_collateral: string; quote_collateral: string; positions: number }>(`
+    SELECT p.market,
+      COALESCE(sum(p.collateral_amount) FILTER (WHERE p.collateral_asset_mint=m.base_mint),0)::text AS base_collateral,
+      COALESCE(sum(p.collateral_amount) FILTER (WHERE p.collateral_asset_mint=m.quote_mint),0)::text AS quote_collateral,
+      count(*)::int AS positions
+    FROM dusk_ingestion.streamed_leverage_positions p
+    JOIN dusk_ingestion.streamed_markets m USING(cluster,program_id,idl_hash,protocol_revision,market)
+    WHERE p.cluster=$1 AND p.program_id=$2 AND p.idl_hash=$3 AND p.protocol_revision=$4 AND p.open AND p.collateral_amount>0
+    GROUP BY p.market ORDER BY p.market`,[pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision]);
+  const stream = await readStreamCursor(client);
+  if (!stream) throw Object.assign(new Error('The Dusk stream has not started'),{ status: 503 });
+  return { sourceSlot: Number(stream.throughSlot),observedAt: Date.now(),complete: true,
+    markets: result.rows.map((row) => ({ market: row.market,baseCollateral: row.base_collateral,
+      quoteCollateral: row.quote_collateral,positions: row.positions })) };
 }
 export async function captureStatisticsSnapshot(
-  dusk: Dusk,
   range: '24h' | 'all',
   deployment: DuskDeploymentEnvelope,
   signal?: AbortSignal,
@@ -114,7 +46,7 @@ export async function captureStatisticsSnapshot(
       deployment,
       deploymentIdentitySha256: deployment.deploymentIdentitySha256,
     }),
-    captureMarketExposures(dusk, deployment, signal),
+    readMarketExposures(),
   ]);
   let activity = initial;
   const scan = initial.coverage.historyScan;

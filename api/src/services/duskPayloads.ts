@@ -119,7 +119,6 @@ export async function capturePayload(
                 controller.signal,
               )
             : await captureStatisticsSnapshot(
-                dusk,
                 selection.range,
                 deployment,
                 controller.signal,

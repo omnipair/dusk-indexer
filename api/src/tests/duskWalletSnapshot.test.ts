@@ -10,7 +10,6 @@ import {
   captureLeverageValuation,
   DuskLeverageValuationUnavailable,
 } from '../services/duskLeverageValuation';
-import { captureMarketExposures } from '../services/duskStatisticsSnapshot';
 import { displayFixture, displayKey } from './duskDisplayStateFixtures';
 import type { DuskReadBoundary } from '../services/virtualBook/native';
 const pause = () => new Promise<void>((resolve) => setImmediate(resolve));
@@ -162,37 +161,6 @@ test('only a confirmed close instruction rejection is classified as unavailable'
   await assert.rejects(
     captureLeverageValuation(f.dusk, f.selection, f.deployment),
     (error) => !(error instanceof DuskLeverageValuationUnavailable),
-  );
-});
-
-test('exposure capture groups verified collateral and rejects malformed or regressed accounts', async () => {
-  const f = await displayFixture();
-  f.position.bump = f.dusk.get.pda.leveragePosition(
-    f.marketAddress,
-    f.position.positionId,
-  )[1];
-  f.state.discovered[0].account = f.encodeAccount(
-    'leveragePosition',
-    f.position,
-  );
-  const result = await captureMarketExposures(f.dusk, f.deployment);
-  assert.deepEqual(result.markets, [
-    {
-      market: f.marketAddress.toBase58(),
-      baseCollateral: '100',
-      quoteCollateral: '0',
-      positions: 1,
-    },
-  ]);
-  f.state.discovered[0].pubkey = displayKey(99);
-  await assert.rejects(
-    captureMarketExposures(f.dusk, f.deployment),
-    /Invalid exposure/,
-  );
-  f.state.slot = 999;
-  await assert.rejects(
-    captureMarketExposures(f.dusk, f.deployment),
-    /Incomplete/,
   );
 });
 

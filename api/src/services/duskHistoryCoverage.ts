@@ -1,4 +1,4 @@
-import { PoolClient } from 'pg';
+import { Pool, PoolClient } from 'pg';
 import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
 
@@ -19,7 +19,7 @@ export interface StreamCursor {
  * v1 indexer there is no backfill: a reconnect can drop transactions, which
  * `--replay` re-ingests.
  */
-export async function readStreamCursor(client: PoolClient): Promise<StreamCursor | null> {
+export async function readStreamCursor(client: Pool | PoolClient): Promise<StreamCursor | null> {
   const pin = loadPinnedProtocol();
   const result = await client.query<{ through_slot: string | null; updated_at: Date; registered_at: Date }>(
     `SELECT c.last_observed_slot::text AS through_slot,c.updated_at,d.registered_at
