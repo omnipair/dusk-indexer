@@ -12,6 +12,10 @@ import {
   captureLeverageValuation,
   LeverageValuationSelection,
 } from './duskLeverageValuation';
+import {
+  captureGovernanceProposals,
+  GovernanceSelection,
+} from './duskGovernance';
 
 let runtime: ReturnType<typeof createVirtualBookRuntime> | undefined;
 export async function displayRuntime() {
@@ -111,6 +115,18 @@ export function currentLeverageValuation(
       const { dusk } = await displayRuntime();
       return captureWithDeadline((signal) =>
         captureLeverageValuation(dusk, selection, deployment, signal),
+      );
+    },
+  );
+}
+
+export function currentGovernanceProposals(selection: GovernanceSelection) {
+  return currentDisplayState(
+    `governance:proposals:${selection.market ?? 'all'}`,
+    async (deployment) => {
+      const { dusk } = await displayRuntime();
+      return captureWithDeadline((signal) =>
+        captureGovernanceProposals(dusk, selection, deployment, signal),
       );
     },
   );

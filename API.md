@@ -452,9 +452,67 @@ and refuse data from a program they were not built against.
 | `GET /api/dusk/v1/markets/:market/events` | That market's event history |
 | `GET /api/dusk/v1/events` | Global activity feed |
 | `GET /api/dusk/v1/health` | Ingestion counters, cursor lag, envelope status (no envelope wrapper) |
+| `GET /api/dusk/v1/governance/proposals` | Complete confirmed snapshot of every parameter proposal with same-bank market, yLP mint, hLP yLP vault and Clock bytes; `?market=` selects one market |
 
 Feed queries accept `events=Name1,Name2`, `since`/`until` (ISO 8601),
 `limit` (≤500) and `offset`.
+
+### Governance proposals (`dusk-governance-proposals.v1`)
+
+`GET /api/dusk/v1/governance/proposals` covers all markets;
+`GET /api/dusk/v1/governance/proposals?market=<base58 pubkey>` covers one. A
+non-canonical, empty or repeated `market` returns 400. The response is
+`Cache-Control: no-store` and uses the standard
+`{ success: true, deployment, data }` envelope, where `data` is:
+
+```ts
+{
+  schemaVersion: 'dusk-governance-proposals.v1',
+  market: string | null,          // the selection; null for all markets
+  complete: true,
+  sourceSlot: number,             // max of the discovery slot and every group slot
+  observedAt: number,             // ms since epoch, taken when capture starts
+  expiresAt: number,              // exactly observedAt + 15_000
+  markets: Array<{                // markets with at least one proposal, sorted by address
+    address: string,              // market pubkey
+    slot: number,                 // context slot of this group's getMultipleAccounts read
+    market: RawAccount,           // Market account
+    ylpMint: RawAccount,          // the market's yLP mint (Token-2022)
+    hlpYlpVaults: [RawAccount | null, RawAccount | null], // base, quote; null when absent
+    clock: RawAccount,            // SysvarClock at `slot`
+    proposals: RawAccount[],      // ParameterProposal accounts re-read at `slot`, sorted by address
+  }>
+}
+type RawAccount = { address: string; owner: string; data: string } // owner base58, data base64
+```
+
+Accounts are raw bytes, never decoded projections: consumers decode them with
+their pinned IDL and verify proposal PDAs and digests, market identity, vault
+PDAs and token ownership themselves. Addresses sort by UTF-16 code unit
+(`a < b`), which is locale-independent.
+
+Capture runs one `getProgramAccounts` discovery (ParameterProposal
+discriminator, plus a `market` memcmp at offset 8 when selected) at or above the
+deployment slot. Each market group then reads its Market, takes the yLP mint and
+both hLP yLP vault addresses from it, and re-reads the market, mint, vaults,
+Clock and that market's proposals in one `getMultipleAccounts` call at or above
+the market read. The Clock must be owned by the sysvar program, be 40 bytes and
+name the group's slot; proposals must still exist and belong to the market; the
+re-read market must name the same mint and vaults. Up to three market groups are
+read concurrently.
+
+Snapshots are complete or fail: more than 500 proposals, more than 95 proposals
+in one market (the 100-key `getMultipleAccounts` limit less the five market
+accounts), duplicate or foreign accounts, a regressed bank or a changed
+proposal reject the whole capture instead of paging or truncating. An empty
+`markets` array is a valid snapshot.
+
+Captures are stored in `dusk_ingestion.live_snapshots` under
+`display.v1:<deploymentIdentitySha256>:governance:proposals:<market|all>` and
+coalesced across replicas with a two-second cooldown and a 14-second capture
+deadline, like the other display-state reads in
+[docs/dusk-display-state-api.md](docs/dusk-display-state-api.md). A missing or
+expired snapshot returns 503; delivery never renews `expiresAt`.
 
 `GET /api/v2/fork/config` is a compatibility alias for `/deployment`, so
 clients written against the fork lab only change their base URL.
