@@ -36,7 +36,18 @@ impl ObservedTransaction {
     }
 }
 
-/// Decode every Dusk/delegate event a finalized transaction carries.
+/// Where and how firmly a transaction was observed. A streamed update names
+/// no containing block, so its blockhash is a fixed marker; event keys never
+/// include the blockhash, so redelivery still deduplicates.
+pub struct ObservationSource<'a> {
+    pub blockhash: &'a str,
+    pub parent_slot: Option<u64>,
+    pub block_time: Option<i64>,
+    pub commitment: Commitment,
+    pub source: &'a str,
+}
+
+/// Decode every Dusk/delegate event a transaction carries.
 ///
 /// Both transports are walked: Anchor event-CPI (an inner instruction whose
 /// program is the pinned one and whose data opens with the event tag) and
@@ -47,18 +58,16 @@ pub fn decode_transaction(
     decoder: &PinnedIdlDecoder,
     signature: &str,
     transaction: &EncodedConfirmedTransactionWithStatusMeta,
-    containing_blockhash: &str,
-    parent_slot: u64,
-    containing_block_time: Option<i64>,
+    observed: &ObservationSource,
 ) -> Result<ObservedTransaction> {
     let slot = transaction.slot;
     if transaction.block_time.is_some()
-        && containing_block_time.is_some()
-        && transaction.block_time != containing_block_time
+        && observed.block_time.is_some()
+        && transaction.block_time != observed.block_time
     {
-        bail!("FINALIZED_INVARIANT: transaction and block times differ");
+        bail!("transaction and block times differ");
     }
-    let block_time = transaction.block_time.or(containing_block_time);
+    let block_time = transaction.block_time.or(observed.block_time);
     let meta = transaction
         .transaction
         .meta
@@ -74,7 +83,7 @@ pub fn decode_transaction(
         bail!("expected JSON-encoded transaction");
     };
     if ui_transaction.signatures.first().map(String::as_str) != Some(signature) {
-        bail!("FINALIZED_INVARIANT: RPC transaction signature mismatch");
+        bail!("transaction signature mismatch");
     }
     let UiMessage::Raw(message) = &ui_transaction.message else {
         bail!("expected raw (non-parsed) transaction message");
@@ -99,11 +108,11 @@ pub fn decode_transaction(
     let context = TransactionObservationContext {
         transaction_signature: signature.to_owned(),
         slot,
-        blockhash: containing_blockhash.to_owned(),
-        parent_slot: Some(parent_slot),
-        commitment: Commitment::Finalized,
+        blockhash: observed.blockhash.to_owned(),
+        parent_slot: observed.parent_slot,
+        commitment: observed.commitment,
         observed_at_unix_ms: now_unix_ms(),
-        source: "rpc-signature-poll".to_owned(),
+        source: observed.source.to_owned(),
     };
 
     let mut events = Vec::new();

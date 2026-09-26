@@ -1,9 +1,9 @@
 //! Postgres persistence for decoded events, cursors, and the hypertable.
 //!
-//! Finalized-only ingestion writes canonical rows directly: finalized history
-//! cannot fork, so the observation is the canonical record. JSON payloads are
-//! bound as text and cast to `jsonb` in SQL, which keeps this crate off
-//! sqlx's serde feature matrix.
+//! Streamed ingestion writes confirmed events as they land, like the v1
+//! indexer: the observation is the canonical record and nothing revisits it
+//! for forks. JSON payloads are bound as text and cast to `jsonb` in SQL,
+//! which keeps this crate off sqlx's serde feature matrix.
 
 use {
     anyhow::{Context as _, Result},
@@ -15,7 +15,7 @@ use {
     sqlx::PgPool,
 };
 
-const STREAM_NAME: &str = "rpc-signature-poll";
+pub const STREAM_NAME: &str = "helius-atlas-ws";
 
 pub async fn record_deployment(
     pool: &PgPool,
@@ -38,7 +38,7 @@ pub async fn record_deployment(
         .bind(pin.payload())
         .execute(&mut tx)
         .await?;
-    sqlx::query("INSERT INTO dusk_ingestion.ingestion_cursors (cluster,program_id,idl_hash,protocol_revision,stream_name,commitment,next_slot) VALUES ($1,$2,$3,$4,$5,'finalized',$6) ON CONFLICT DO NOTHING")
+    sqlx::query("INSERT INTO dusk_ingestion.ingestion_cursors (cluster,program_id,idl_hash,protocol_revision,stream_name,commitment,next_slot) VALUES ($1,$2,$3,$4,$5,'confirmed',$6) ON CONFLICT DO NOTHING")
         .bind(cluster).bind(DUSK_PROGRAM_ID).bind(DUSK_IDL_SHA256).bind(PROTOCOL_REVISION).bind(STREAM_NAME)
         .bind(i64::try_from(window.first_slot)?).execute(&mut tx).await?;
     tx.commit().await?;
@@ -109,26 +109,21 @@ pub async fn advance_cursor(
     cluster: &str,
     signature: &str,
     slot: u64,
-    window: crate::identity::DeploymentWindow,
+    first_slot: u64,
 ) -> Result<()> {
-    window.require_slot(slot)?;
+    require_release_slot(slot, first_slot)?;
     sqlx::query(
         r#"
         INSERT INTO dusk_ingestion.ingestion_cursors
             (cluster, program_id, idl_hash, protocol_revision, stream_name,
-             commitment, next_slot, last_observed_slot, last_finalized_slot,
-             last_signature, updated_at)
-        VALUES ($1, $2, $3, $4, $5, 'finalized', $6 + 1, $6, $6, $7, now())
+             commitment, next_slot, last_observed_slot, last_signature, updated_at)
+        VALUES ($1, $2, $3, $4, $5, 'confirmed', $6 + 1, $6, $7, now())
         ON CONFLICT (cluster, program_id, idl_hash, protocol_revision, stream_name)
         DO UPDATE SET
             next_slot = GREATEST(dusk_ingestion.ingestion_cursors.next_slot, EXCLUDED.next_slot),
             last_observed_slot = GREATEST(
                 COALESCE(dusk_ingestion.ingestion_cursors.last_observed_slot, 0),
                 EXCLUDED.last_observed_slot
-            ),
-            last_finalized_slot = GREATEST(
-                COALESCE(dusk_ingestion.ingestion_cursors.last_finalized_slot, 0),
-                EXCLUDED.last_finalized_slot
             ),
             last_signature = EXCLUDED.last_signature,
             updated_at = now()
@@ -149,21 +144,25 @@ pub async fn advance_cursor(
     Ok(())
 }
 
-/// Observation + canonical row + hypertable row, idempotently.
+/// Events before the pinned release belong to another deployment.
+pub fn require_release_slot(slot: u64, first_slot: u64) -> Result<()> {
+    if slot < first_slot {
+        anyhow::bail!("slot {slot} precedes the pinned release at {first_slot}");
+    }
+    Ok(())
+}
+
+/// Observation + canonical row + hypertable row, idempotently. `time` is the
+/// block time when the source provides one and arrival time otherwise, as in
+/// the v1 indexer.
 pub async fn persist_event(
     pool: &PgPool,
     event: &DecodedEventEnvelope,
-    block_time: Option<i64>,
-    window: crate::identity::DeploymentWindow,
+    stream_time: DateTime<Utc>,
+    first_slot: u64,
 ) -> Result<()> {
-    window.require_slot(event.observation.slot)?;
+    require_release_slot(event.observation.slot, first_slot)?;
     let record = event.canonical_record();
-    if record.commitment != dusk_indexer_foundation::Commitment::Finalized {
-        anyhow::bail!("finalized persistence requires finalized input");
-    }
-    let stream_time = block_time
-        .and_then(|seconds| Utc.timestamp_opt(seconds, 0).single())
-        .context("canonical block time is unavailable")?;
     let decoded_payload = record
         .decoded_payload
         .as_ref()
@@ -225,7 +224,7 @@ pub async fn persist_event(
               AND protocol_revision = $4 AND event_key = $5 AND blockhash = $6
               AND payload_hash = $7 AND slot = $8 AND parent_slot IS NOT DISTINCT FROM $9
               AND decoded_payload IS NOT DISTINCT FROM $10::jsonb AND raw_event IS NOT DISTINCT FROM $11
-              AND commitment = 'finalized' AND instruction_path = $12 AND event_ordinal = $13
+              AND commitment = $14 AND instruction_path = $12 AND event_ordinal = $13
             "#,
         )
         .bind(&record.cluster)
@@ -236,12 +235,13 @@ pub async fn persist_event(
         .bind(&record.blockhash)
         .bind(&record.payload_hash).bind(record.slot as i64).bind(record.parent_slot.map(|slot| slot as i64))
         .bind(&decoded_payload).bind(&record.raw_event).bind(&instruction_path).bind(i32::from(record.event_ordinal))
+        .bind(commitment_str(record.commitment))
         .fetch_optional(&mut transaction).await?
-        .context("FINALIZED_INVARIANT: repeated observation has contradictory chain facts")?,
+        .context("repeated observation has contradictory chain facts")?,
     };
 
-    // Commit the observation before canonical projection: a contradictory
-    // finalized candidate must remain available for diagnosis after the halt.
+    // Commit the observation before canonical projection, so a contradictory
+    // candidate stays available for diagnosis.
     transaction.commit().await?;
     let mut transaction = pool.begin().await?;
     sqlx::query(
@@ -268,20 +268,29 @@ pub async fn persist_event(
     .await
     .context("upserting canonical event")?;
 
-    // Event time is the containing block time; observation time is diagnostic.
+    // Event time orders history; observation time is diagnostic.
     let market = record
         .decoded_payload
         .as_ref()
         .and_then(|payload| payload.get("market"))
         .and_then(|value| value.as_str())
         .map(str::to_owned);
+    // One stream row per event. Arrival time differs on redelivery, so the
+    // (event_key, time) key alone would admit a second row; the event key
+    // decides, under a lock so a concurrent replay cannot race the stream.
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(&record.event_key)
+        .execute(&mut transaction)
+        .await?;
     sqlx::query(
         r#"
         INSERT INTO dusk_ingestion.event_stream
             (time, cluster, program_id, event_name, market,
              transaction_signature, event_key, slot, payload, idl_hash, protocol_revision)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)
-        ON CONFLICT (event_key, time) DO NOTHING
+        SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11
+        WHERE NOT EXISTS (
+            SELECT 1 FROM dusk_ingestion.event_stream WHERE event_key = $7
+        )
         "#,
     )
     .bind(stream_time)
@@ -309,5 +318,19 @@ fn commitment_str(commitment: dusk_indexer_foundation::Commitment) -> &'static s
         Commitment::Processed => "processed",
         Commitment::Confirmed => "confirmed",
         Commitment::Finalized => "finalized",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::require_release_slot;
+
+    /// Confirmed events stream past the last attested finalized slot; only the
+    /// release's first slot bounds them.
+    #[test]
+    fn only_slots_before_the_release_are_refused() {
+        assert!(require_release_slot(19, 20).is_err());
+        require_release_slot(20, 20).unwrap();
+        require_release_slot(u64::MAX, 20).unwrap();
     }
 }

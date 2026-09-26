@@ -219,8 +219,8 @@ impl Datasource for HeliusWebsocket {
                                 match event_result {
                                     Some(clock_event) => {
                                         last_clock_update = Instant::now();
-                                        if let Some(clock_data) = clock_event.value.decode::<Account>() {
-                                            if let Ok(clock) = bincode::deserialize::<Clock>(&clock_data.data) {
+                                        if let Some(clock_data) = clock_event.value.decode::<Account>()
+                                            && let Ok(clock) = bincode::deserialize::<Clock>(&clock_data.data) {
                                                 let current_slot = clock.slot;
 
                                                 if last_slot > 0 && current_slot > last_slot + MAX_MISSED_BLOCKS {
@@ -240,7 +240,6 @@ impl Datasource for HeliusWebsocket {
                                                     )
                                                     .await
                                                     .unwrap_or_else(|value| log::error!("Error recording metric: {}", value));
-                                            }
                                         }
                                     }
                                     None => {

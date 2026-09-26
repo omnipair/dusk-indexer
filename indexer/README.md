@@ -347,33 +347,44 @@ RUST_LOG=info
 ## Dusk devnet daemon
 
 `dusk-indexer-daemon` (crates/dusk-daemon) ingests the pinned Dusk deployment
-from a live cluster: it polls `getSignaturesForAddress` at finalized
-commitment, decodes every event through the IDL-pinned decoder (event-CPI and
-`Program data:` transports), and persists observation + canonical + stream
-rows idempotently. Unknown or malformed events are persisted with their raw
-bytes rather than dropped.
+the way the v1 indexer ingests Omnipair: a Carbon pipeline fed by a Helius
+Atlas WebSocket `transactionSubscribe` streams every confirmed transaction
+that touches the Dusk or leverage-delegate program. Each transaction is decoded
+whole through the IDL-pinned decoder (event-CPI and `Program data:`
+transports) and persisted as observation + canonical + stream rows at
+`confirmed` commitment, idempotently by event key. Streamed updates carry no
+block, so rows are stamped with arrival time and a fixed blockhash marker.
+
+There is no backfill. The stream starts at the current slot; a dropped
+connection, a deploy or a transaction the processor refuses leaves a gap,
+as in v1. Every dropped transaction is logged with its signature, and
+`--replay <signature>` re-ingests one through the same path. Complete
+program account snapshots run on their own timer, and the deployment is
+attested at startup and before every snapshot.
 
 Environment:
 
 | Variable | Meaning |
 | --- | --- |
 | `DUSK_CLUSTER` | Chain namespace in every event key (e.g. `devnet`) |
-| `DUSK_RPC_URL` | RPC endpoint the poller reads |
+| `DUSK_RPC_URL` | RPC for attestation, account snapshots and `--replay` |
+| `HELIUS_API_KEY` | Helius key for the WebSocket; defaults to the `api-key` in `DUSK_RPC_URL` |
 | `DATABASE_URL` | Postgres; Timescale turns `event_stream` into a hypertable |
-| `DUSK_POLL_INTERVAL_MS` | Poll cadence (default 15000) |
-| `DUSK_SIGNATURE_PAGE_LIMIT` | Signatures per page (default 200) |
+| `DUSK_ACCOUNT_SCAN_INTERVAL_MS` | Account snapshot cadence (default 15000) |
+| `METRICS_PORT` | Prometheus `/metrics` (default 8080) |
 
 Local run:
 
 ```bash
 createdb dusk_indexer_devnet
-psql -d dusk_indexer_devnet -f database/migrations/018_dusk_ingestion_foundation.sql
-psql -d dusk_indexer_devnet -f database/migrations/019_dusk_event_stream.sql
+DATABASE_URL=postgres://localhost/dusk_indexer_devnet DUSK_MIGRATE_ONLY=true \
+  scripts/dusk-indexer-entrypoint.sh
 DUSK_CLUSTER=devnet \
-DUSK_RPC_URL=https://api.devnet.solana.com \
+DUSK_RPC_URL="https://devnet.helius-rpc.com/?api-key=<key>" \
 DATABASE_URL=postgres://localhost/dusk_indexer_devnet \
 cargo run -p dusk-indexer-daemon
 ```
 
-The Railway image (`Dockerfile.dusk-indexer`) applies both migrations from
-its entrypoint before starting, so a fresh database needs no manual step.
+The Railway image (`Dockerfile.dusk-indexer`) applies the manifest's
+migrations from its entrypoint before starting, so a fresh database needs no
+manual step.
