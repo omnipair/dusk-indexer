@@ -25,6 +25,7 @@ import {
 import {
   fetchMarket,
   marketPayload,
+  marketPayloadSourceSlot,
 } from '../../services/duskMarketService';
 import {
   boundedLimit,
@@ -223,9 +224,8 @@ router.get(
     }
     res.json(await withDeploymentRead(async (deployment) => {
       const { account, sourceSlot } = await fetchMarket(address);
-      const payload = await marketPayload(address, account, sourceSlot, deployment.deploymentIdentitySha256);
-      const state = payload.state as Record<string, unknown>;
-      return { data: payload, sourceSlot: Math.max(sourceSlot, Number(state.healthSourceSlot ?? 0)) };
+      const payload = await marketPayload(address, account, sourceSlot, deployment);
+      return { data: payload, sourceSlot: Math.max(sourceSlot, marketPayloadSourceSlot(payload)) };
     }));
   }),
 );

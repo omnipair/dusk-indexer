@@ -1,6 +1,6 @@
 import { duskApiConfig, loadPinnedProtocol } from '../config/duskProtocol';
 import { DuskDeploymentEnvelope } from './duskDeploymentService';
-import { discoverMarkets, marketPayload } from './duskMarketService';
+import { discoverMarkets, marketPayload, marketPayloadSourceSlot } from './duskMarketService';
 import { cache } from '../utils/cache';
 
 /**
@@ -9,13 +9,12 @@ import { cache } from '../utils/cache';
  * list endpoint returns all of them in one page.
  */
 async function deploymentPayload(deployment: DuskDeploymentEnvelope) {
-  const identity = deployment.deploymentIdentitySha256;
   const pinned = loadPinnedProtocol();
   const config = duskApiConfig();
   const { markets, sourceSlot } = await discoverMarkets();
   const projected = await Promise.all(
     markets.map((market) =>
-      marketPayload(market.address, market.account, sourceSlot, identity),
+      marketPayload(market.address, market.account, sourceSlot, deployment),
     ),
   );
   // Deterministic ordering first: getProgramAccounts has none, so without
@@ -32,14 +31,10 @@ async function deploymentPayload(deployment: DuskDeploymentEnvelope) {
     : undefined;
   const primary = pinnedPrimary ?? projected[0];
 
-  const observedSlot = projected.reduce((highest, market) => {
-    const state = market.state as Record<string, unknown>;
-    return Math.max(
-      highest,
-      Number(state.sourceSlot ?? 0),
-      Number(state.healthSourceSlot ?? 0),
-    );
-  }, sourceSlot);
+  const observedSlot = projected.reduce(
+    (highest, market) => Math.max(highest, marketPayloadSourceSlot(market)),
+    sourceSlot,
+  );
 
   return {
     projected,

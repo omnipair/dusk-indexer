@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { BorshCoder, BN } from '@coral-xyz/anchor';
 import { AccountLayout, AccountState, MintLayout, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { PublicKey } from '@solana/web3.js';
-import { currentMarketSnapshot, projectMarketSnapshot } from '../services/duskMarketService';
+import { currentMarketCapacities, currentMarketSnapshot, marketPayloadSourceSlot, projectMarketSnapshot } from '../services/duskMarketService';
+import type { MarketCapacities } from '../services/duskMarketCapacity';
 import { duskRawIdl, LiveMarketSimulationSnapshot } from '../services/duskMarketSimulation';
 import { cache } from '../utils/cache';
 import { portfolioFixture } from './duskPortfolioFixtures';
@@ -40,7 +41,17 @@ function liveFixture() {
       return { address: address.toBase58(),account: { owner: TOKEN_2022_PROGRAM_ID.toBase58(),executable: false,data: raw.toString('base64') } };
     });
   });
-  const snapshot: LiveMarketSimulationSnapshot = { ...group,commitment: 'confirmed',accounts: [...accounts,...vaults],
+  const hlpMints = ['base','quote'].map((side,index) => {
+    const state = market[`${side}_side`],raw = Buffer.alloc(MintLayout.span);
+    market[`${side}_hlp_vault`].hlp_supply = new BN(40+index);
+    market[`${side}_hlp_vault`].last_nav_nad = new BN(90_000_000_000+index);
+    market[`${side}_hlp_vault`].funding_apr_ema_nad = new BN(50_000_000+index);
+    market[`${side}_hlp_vault`].funding_apr_ema_last_slot = new BN(group.slot-10);
+    MintLayout.encode({ mintAuthorityOption: 1,mintAuthority: new PublicKey(group.market),supply: BigInt(40+index),
+      decimals: state.asset_decimals,isInitialized: true,freezeAuthorityOption: 0,freezeAuthority: fixtureKey(0) },raw);
+    return { address: state.hlp_mint.toBase58(),account: { owner: TOKEN_2022_PROGRAM_ID.toBase58(),executable: false,data: raw.toString('base64') } };
+  });
+  const snapshot: LiveMarketSimulationSnapshot = { ...group,commitment: 'confirmed',accounts: [...accounts,...vaults,...hlpMints],
     marketAccount: { ...group.marketAccount,data: encodeFixtureAccount('Market',market).toString('base64') },
     preview: encodeFixtureType('MarketPreview',preview).toString('base64') };
   return { snapshot,market,references: fixture.source.references };
@@ -108,5 +119,49 @@ test('snapshot caching respects a newer discovery or confirmation floor and full
   const newer = await currentMarketSnapshot(market,sample.market,101,identity,capture);
   assert.equal(newer.slot,101); assert.deepEqual(calls,[100,101]);
   await assert.rejects(currentMarketSnapshot(market,sample.market,101,'c'.repeat(64),capture),/identity or slot/);
+  cache.clear();
+});
+
+const capacities = (slot: number): MarketCapacities => ({
+  hlp: { base: { status: 'ready',fundingLimitGross: '1000',fundingLimitNet: '990',sourceSlot: slot+1 },quote: null },
+  borrow: { base: null,quote: { collateralAsset: 'base',referenceCollateralAmount: '1000000000',collateralValueNad: '2500000000',
+    maxDebtByHealth: '10',maxDebtByCash: '20',maxDebtByDailyLimit: '30',maxDebt: '10',maxCfBps: 6000,liquidationCfBps: 7000,sourceSlot: slot+2 } },
+});
+test('hLP vaults and their mint supplies come from the preview bank, with capacity from later previews',() => {
+  const sample = liveFixture(),slot = sample.snapshot.slot;
+  const payload = projectMarketSnapshot(sample.snapshot,sample.references,capacities(slot)) as any;
+  assert.deepEqual(payload.hlp,{ schemaVersion: 'dusk-market-hlp.v1',sourceSlot: slot,
+    base: { mint: sample.market.base_side.hlp_mint.toBase58(),decimals: 9,mintSupply: '40',hlpSupply: '40',lastNavNad: '90000000000',
+      fundingAprEmaNad: '50000000',fundingAprEmaLastSlot: String(slot-10),capacity: capacities(slot).hlp.base },
+    quote: { mint: sample.market.quote_side.hlp_mint.toBase58(),decimals: 6,mintSupply: '41',hlpSupply: '41',lastNavNad: '90000000001',
+      fundingAprEmaNad: '50000001',fundingAprEmaLastSlot: String(slot-10),capacity: null } });
+  assert.deepEqual(payload.borrow,{ schemaVersion: 'dusk-market-borrow.v1',base: null,quote: capacities(slot).borrow.quote });
+  assert.equal(marketPayloadSourceSlot(payload),slot+2,'the envelope must cover the latest capacity preview');
+  const bare = projectMarketSnapshot(sample.snapshot,sample.references) as any;
+  assert.equal(bare.borrow,null); assert.equal(bare.hlp.base.capacity,null); assert.equal(marketPayloadSourceSlot(bare),slot);
+});
+test('a rejected preview publishes no vault values and a foreign hLP mint is refused',() => {
+  const sample = liveFixture();
+  const unavailable = projectMarketSnapshot({ ...sample.snapshot,preview: null,basis: 'rpc-account',previewUnavailable: true },sample.references) as any;
+  assert.equal(unavailable.hlp,null);
+  const mint = sample.snapshot.accounts.find((entry) => entry.address === sample.market.base_side.hlp_mint.toBase58())!;
+  const raw = Buffer.from(mint.account!.data,'base64'),decoded = MintLayout.decode(raw);
+  MintLayout.encode({ ...decoded,mintAuthority: fixtureKey(199) },raw);
+  mint.account = { ...mint.account!,data: raw.toString('base64') };
+  assert.throws(() => projectMarketSnapshot(sample.snapshot,sample.references),/hLP mint authority/);
+  sample.snapshot.accounts = sample.snapshot.accounts.filter((entry) => entry !== mint);
+  assert.throws(() => projectMarketSnapshot(sample.snapshot,sample.references),/valid hLP mint/);
+});
+test('capacity is quoted once per market bank and not at all without a preview payer',async () => {
+  cache.clear(); const sample = liveFixture(),calls: number[] = [];
+  const capture = async (input: { baseHlpMint: string },slot: number) => {
+    assert.equal(input.baseHlpMint,sample.market.base_side.hlp_mint.toBase58()); calls.push(slot); return capacities(slot);
+  };
+  const rpc = () => ({ simulateTransaction: async () => { throw new Error('unused'); } });
+  assert.equal(await currentMarketCapacities(sample.snapshot,null,capture,rpc),null);
+  const first = await currentMarketCapacities(sample.snapshot,fixtureKey(80).toBase58(),capture,rpc);
+  assert.deepEqual(await currentMarketCapacities(sample.snapshot,fixtureKey(80).toBase58(),capture,rpc),first);
+  await currentMarketCapacities({ ...sample.snapshot,slot: sample.snapshot.slot+5 },fixtureKey(80).toBase58(),capture,rpc);
+  assert.deepEqual(calls,[sample.snapshot.slot,sample.snapshot.slot+5]);
   cache.clear();
 });
