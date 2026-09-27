@@ -11,3 +11,7 @@ Deployment-scoped SDK SHA-256: `bc2373ec73ec9b7fac654e0d64df951c63445bb3d0827ec9
 A finalized 0.01 mock-token swap from a dedicated test wallet on the hLP-free `base-quote-2` market emitted one `SwapExecuted` event CPI with both post-trade price, EMA and growth snapshots. The signature and decoded values are in `devnet-swap-event.json`.
 
 The deployment-scoped SDK packaging recipe and compatibility rationale are in `sdk-packaging.md`.
+
+The live Railway API verification is in `live-service-verification.json`. A market created after the new confirmed-event stream began was followed by one liquidity deposit and two signed swaps. The API reports four canonical events for that market, two projected quote-history captures, and two projected activity events with no pending projection. Both swap prices appear in the quote candles. The first swap remains unpriced for activity because it has no strictly prior-slot observation; the second uses the first swap's snapshot. This does not establish historical external-provider price coverage.
+
+The activity and yield-claim workers preserve the database's exact microsecond event time when writing projections. Their focused disposable-PostgreSQL regression tests pass, and all four indexer PR checks pass at commit `3d79748`.
