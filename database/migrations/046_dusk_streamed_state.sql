@@ -60,17 +60,82 @@ SELECT l.cluster,l.program_id,l.idl_hash,l.protocol_revision,l.position,
   l.event_name AS last_event,l.slot AS last_slot,l.time AS last_time
 FROM lifecycle l JOIN state s USING(cluster,program_id,idl_hash,protocol_revision,position);
 
--- Borrow positions: the last BorrowPositionUpdated snapshot is the account.
+-- Borrow positions. Each lending event carries the position's post-state for
+-- what it changes: collateral from the latest collateral or liquidation event,
+-- fixed debt shares from the latest debt or liquidation event, the auction side
+-- from the latest event that reports it (255 is none), and closure from the
+-- latest event overall. A position reopened under the same id is open again.
+CREATE VIEW dusk_ingestion.streamed_borrow_events AS
+SELECT cluster,program_id,idl_hash,protocol_revision,
+  COALESCE(payload->>'position',payload->>'borrow_position') AS position,
+  COALESCE(payload->>'owner',payload->>'borrower') AS owner,payload->>'market' AS market,
+  event_name,slot,observation_id,time,payload
+FROM dusk_ingestion.streamed_events
+WHERE event_name IN ('MarketCollateralDeposited','MarketCollateralWithdrawn','MarketDebtUpdated','BorrowPositionLiquidated',
+    'LiquidationAuctionStarted','LiquidationAuctionCancelled')
+  OR (event_name='DebtFreePositionClosed' AND NOT (payload->>'leverage')::boolean);
+
 CREATE VIEW dusk_ingestion.streamed_borrow_positions AS
-SELECT DISTINCT ON (cluster,program_id,idl_hash,protocol_revision,payload->>'position')
-  cluster,program_id,idl_hash,protocol_revision,payload->>'position' AS position,
-  payload->>'market' AS market,payload->>'owner' AS owner,
-  (payload->>'base_collateral')::numeric AS base_collateral,(payload->>'quote_collateral')::numeric AS quote_collateral,
-  (payload->>'fixed_base_shares')::numeric AS fixed_base_shares,(payload->>'fixed_quote_shares')::numeric AS fixed_quote_shares,
-  NOT COALESCE((payload->>'closed')::boolean,false) AS open,
-  slot AS last_slot,time AS last_time,payload
-FROM dusk_ingestion.streamed_events WHERE event_name='BorrowPositionUpdated'
-ORDER BY cluster,program_id,idl_hash,protocol_revision,payload->>'position',slot DESC,observation_id DESC;
+WITH latest AS (
+  SELECT DISTINCT ON (cluster,program_id,idl_hash,protocol_revision,position)
+    cluster,program_id,idl_hash,protocol_revision,position,owner,market,event_name,slot,time,
+    event_name='DebtFreePositionClosed' OR COALESCE((payload->>'closed')::boolean,false) AS closed
+  FROM dusk_ingestion.streamed_borrow_events
+  ORDER BY cluster,program_id,idl_hash,protocol_revision,position,slot DESC,observation_id DESC
+), collateral AS (
+  SELECT DISTINCT ON (cluster,program_id,idl_hash,protocol_revision,position)
+    cluster,program_id,idl_hash,protocol_revision,position,
+    (payload->>'base_collateral')::numeric AS base_collateral,(payload->>'quote_collateral')::numeric AS quote_collateral
+  FROM dusk_ingestion.streamed_borrow_events
+  WHERE event_name IN ('MarketCollateralDeposited','MarketCollateralWithdrawn','BorrowPositionLiquidated')
+  ORDER BY cluster,program_id,idl_hash,protocol_revision,position,slot DESC,observation_id DESC
+), shares AS (
+  SELECT DISTINCT ON (cluster,program_id,idl_hash,protocol_revision,position)
+    cluster,program_id,idl_hash,protocol_revision,position,
+    (payload->>'fixed_base_shares')::numeric AS fixed_base_shares,(payload->>'fixed_quote_shares')::numeric AS fixed_quote_shares
+  FROM dusk_ingestion.streamed_borrow_events WHERE event_name IN ('MarketDebtUpdated','BorrowPositionLiquidated')
+  ORDER BY cluster,program_id,idl_hash,protocol_revision,position,slot DESC,observation_id DESC
+), health AS (
+  SELECT DISTINCT ON (cluster,program_id,idl_hash,protocol_revision,position)
+    cluster,program_id,idl_hash,protocol_revision,position,
+    (payload->>'global_health_base_contribution_for_quote_debt')::numeric AS base_contribution_for_quote_debt,
+    (payload->>'global_health_quote_contribution_for_base_debt')::numeric AS quote_contribution_for_base_debt,
+    (payload->>'base_liquidation_cf_bps')::int AS base_liquidation_cf_bps,(payload->>'quote_liquidation_cf_bps')::int AS quote_liquidation_cf_bps
+  FROM dusk_ingestion.streamed_borrow_events
+  WHERE event_name IN ('MarketCollateralDeposited','MarketCollateralWithdrawn','MarketDebtUpdated','BorrowPositionLiquidated')
+  ORDER BY cluster,program_id,idl_hash,protocol_revision,position,slot DESC,observation_id DESC
+), auction AS (
+  SELECT DISTINCT ON (cluster,program_id,idl_hash,protocol_revision,position)
+    cluster,program_id,idl_hash,protocol_revision,position,
+    CASE event_name WHEN 'LiquidationAuctionCancelled' THEN 255 ELSE (payload->>'auction_debt_asset')::int END AS auction_debt_asset
+  FROM dusk_ingestion.streamed_borrow_events
+  WHERE event_name IN ('MarketCollateralDeposited','MarketDebtUpdated','BorrowPositionLiquidated',
+    'LiquidationAuctionStarted','LiquidationAuctionCancelled')
+  ORDER BY cluster,program_id,idl_hash,protocol_revision,position,slot DESC,observation_id DESC
+), started AS (
+  SELECT DISTINCT ON (cluster,program_id,idl_hash,protocol_revision,position)
+    cluster,program_id,idl_hash,protocol_revision,position,
+    (payload->>'auction_start_time')::bigint AS auction_start_time,
+    (payload->>'auction_start_price_nad')::numeric AS auction_start_price_nad,
+    (payload->>'auction_floor_price_nad')::numeric AS auction_floor_price_nad
+  FROM dusk_ingestion.streamed_borrow_events WHERE event_name='LiquidationAuctionStarted'
+  ORDER BY cluster,program_id,idl_hash,protocol_revision,position,slot DESC,observation_id DESC
+)
+SELECT l.cluster,l.program_id,l.idl_hash,l.protocol_revision,l.position,l.market,l.owner,
+  COALESCE(c.base_collateral,0) AS base_collateral,COALESCE(c.quote_collateral,0) AS quote_collateral,
+  COALESCE(s.fixed_base_shares,0) AS fixed_base_shares,COALESCE(s.fixed_quote_shares,0) AS fixed_quote_shares,
+  h.base_contribution_for_quote_debt,h.quote_contribution_for_base_debt,h.base_liquidation_cf_bps,h.quote_liquidation_cf_bps,
+  COALESCE(a.auction_debt_asset,255) AS auction_debt_asset,
+  CASE WHEN COALESCE(a.auction_debt_asset,255)<>255 THEN st.auction_start_time END AS auction_start_time,
+  CASE WHEN COALESCE(a.auction_debt_asset,255)<>255 THEN st.auction_start_price_nad END AS auction_start_price_nad,
+  CASE WHEN COALESCE(a.auction_debt_asset,255)<>255 THEN st.auction_floor_price_nad END AS auction_floor_price_nad,
+  NOT l.closed AS open,l.event_name AS last_event,l.slot AS last_slot,l.time AS last_time
+FROM latest l
+LEFT JOIN collateral c USING(cluster,program_id,idl_hash,protocol_revision,position)
+LEFT JOIN shares s USING(cluster,program_id,idl_hash,protocol_revision,position)
+LEFT JOIN health h USING(cluster,program_id,idl_hash,protocol_revision,position)
+LEFT JOIN auction a USING(cluster,program_id,idl_hash,protocol_revision,position)
+LEFT JOIN started st USING(cluster,program_id,idl_hash,protocol_revision,position);
 
 -- LP and hLP balances per owner: mints and burns from liquidity events,
 -- transfers from the Token-2022 transfer hook every LP mint carries.

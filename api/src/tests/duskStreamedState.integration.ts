@@ -47,16 +47,32 @@ test('a leverage position carries its latest post-state and closes on its last e
   assert.equal(row.collateral_amount,'150','the last post-state is kept after close');
 }));
 
-test('a borrow position is its last snapshot and closes with it',() => transaction(async client => {
-  const position = key(220),snapshot = { market,position,owner,base_collateral: '10',quote_collateral: '0',
-    fixed_base_shares: '0',fixed_quote_shares: '5',closed: false };
-  await streamed(client,'BorrowPositionUpdated',snapshot);
-  await streamed(client,'BorrowPositionUpdated',{ ...snapshot,base_collateral: '12',fixed_quote_shares: '7' });
+test('a borrow position folds collateral, debt shares, auctions and closure from lending events',() => transaction(async client => {
+  const position = key(220),health = { global_health_base_contribution_for_quote_debt: '5',global_health_quote_contribution_for_base_debt: '0',
+    base_liquidation_cf_bps: '8000',quote_liquidation_cf_bps: '8500' };
+  await streamed(client,'MarketCollateralDeposited',{ market,position,owner,base_collateral: '10',quote_collateral: '0',auction_debt_asset: '255',...health });
+  await streamed(client,'MarketDebtUpdated',{ market,position,owner,fixed_base_shares: '0',fixed_quote_shares: '7',auction_debt_asset: '255',...health });
   let [row] = await rows(client,'streamed_borrow_positions');
-  assert.equal(row.open,true); assert.equal(row.base_collateral,'12'); assert.equal(row.fixed_quote_shares,'7');
-  await streamed(client,'BorrowPositionUpdated',{ ...snapshot,base_collateral: '0',fixed_quote_shares: '0',closed: true });
+  assert.equal(row.open,true); assert.equal(row.base_collateral,'10'); assert.equal(row.fixed_quote_shares,'7');
+  assert.equal(row.auction_debt_asset,255); assert.equal(row.auction_start_price_nad,null);
+  await streamed(client,'LiquidationAuctionStarted',{ market,position,owner,auction_debt_asset: '1',auction_start_time: '1790000000',
+    auction_start_price_nad: '2000000000',auction_floor_price_nad: '1000000000' });
   [row] = await rows(client,'streamed_borrow_positions');
-  assert.equal(row.open,false);
+  assert.equal(row.auction_debt_asset,1); assert.equal(row.auction_start_price_nad,'2000000000');
+  await streamed(client,'LiquidationAuctionCancelled',{ market,position,owner,debt_asset_side: '1' });
+  [row] = await rows(client,'streamed_borrow_positions');
+  assert.equal(row.auction_debt_asset,255); assert.equal(row.auction_start_time,null);
+  await streamed(client,'BorrowPositionLiquidated',{ market,borrow_position: position,borrower: owner,base_collateral: '4',quote_collateral: '0',
+    fixed_base_shares: '0',fixed_quote_shares: '2',auction_debt_asset: '255',closed: false,...health,base_liquidation_cf_bps: '7000' });
+  [row] = await rows(client,'streamed_borrow_positions');
+  assert.equal(row.base_collateral,'4'); assert.equal(row.fixed_quote_shares,'2'); assert.equal(row.base_liquidation_cf_bps,7000);
+  await streamed(client,'DebtFreePositionClosed',{ market,position,owner,leverage: true });
+  assert.equal((await rows(client,'streamed_borrow_positions'))[0].open,true,'a leverage close is not this position');
+  await streamed(client,'MarketCollateralWithdrawn',{ market,position,owner,base_collateral: '0',quote_collateral: '0',closed: true,...health });
+  [row] = await rows(client,'streamed_borrow_positions');
+  assert.equal(row.open,false); assert.equal(row.last_event,'MarketCollateralWithdrawn');
+  await streamed(client,'MarketCollateralDeposited',{ market,position,owner,base_collateral: '3',quote_collateral: '0',auction_debt_asset: '255',...health });
+  assert.equal((await rows(client,'streamed_borrow_positions'))[0].open,true,'a reopened position under the same id is open');
 }));
 
 test('LP balances follow mints, burns and hook transfers per owner and mint',() => transaction(async client => {

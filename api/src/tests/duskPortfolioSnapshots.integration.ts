@@ -30,8 +30,8 @@ test('portfolio discovery comes from streamed positions and LP holders and keeps
   await streamedMarket(client);
   const { market,ylp } = fixtureMarket,[borrower,trader,closer,holder,leaver] = [211,212,213,214,215].map(key);
   const borrow = key(216),open = key(217),closed = key(218);
-  await streamedEvent(client,'BorrowPositionUpdated',{ market,position: borrow,owner: borrower,base_collateral: '1',quote_collateral: '0',
-    fixed_base_shares: '0',fixed_quote_shares: '0',closed: false });
+  await streamedEvent(client,'MarketCollateralDeposited',{ market,position: borrow,owner: borrower,base_collateral: '1',quote_collateral: '0',
+    auction_debt_asset: '255' });
   const leverage = (position: string,owner: string) => ({ market,position,owner,debt_asset_mint: fixtureMarket.baseMint,
     collateral_asset_mint: fixtureMarket.quoteMint,collateral_amount: '5',debt_amount: '2',debt_shares: '2',closeout_value: '3' });
   await streamedEvent(client,'LeveragePositionOpened',leverage(open,trader));

@@ -43,7 +43,7 @@ Migration 046 derives current protocol state from canonical streamed events, as 
 
 - `streamed_markets` and `streamed_lp_mints`: one row per `MarketCreated`, with its yLP and two hLP mints.
 - `streamed_leverage_positions`: the last lifecycle event decides open or closed; the last `LeveragePositionOpened`/`LeveragePositionUpdated` carries the post-state.
-- `streamed_borrow_positions`: the last `BorrowPositionUpdated` snapshot is the account; `closed` marks its closing instruction.
+- `streamed_borrow_positions`: each lending event carries the position's post-state for what it changes: collateral from the latest `MarketCollateralDeposited`/`MarketCollateralWithdrawn`/`BorrowPositionLiquidated`, fixed debt shares from the latest `MarketDebtUpdated`/`BorrowPositionLiquidated`, the auction from `LiquidationAuctionStarted`/`LiquidationAuctionCancelled` and the events that report its side, and closure from the latest event (`closed`, or `DebtFreePositionClosed` for a borrow position).
 - `streamed_lp_balances`: yLP and hLP balances per owner, from liquidity and hLP events (mints and burns) and `LpTransferred`, which the Token-2022 transfer hook on every LP mint emits for each transfer.
 - `streamed_market_observations`: `MarketObserved` rows from the permissionless `observe_market` crank.
 
