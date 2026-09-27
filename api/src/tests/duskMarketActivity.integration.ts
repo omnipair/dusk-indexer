@@ -145,6 +145,7 @@ test('event-time provider prices precede native references without leaking futur
   const pricedView = await readMarketActivity(client,query);
   assert.equal(pricedView.volumes.spot.observedUsd,'6');
   assert.equal(pricedView.volumes.spot.estimatedObservations,1); // Mainnet price mapped into devnet.
+  assert.equal((await readMarketActivity(client,{ ...query,maxPriceAgeSeconds: 2 })).volumes.spot.observedUsd,'5');
   await storeExternalPrices(client,[{ ...quote,priceUsd: '99',sourceTime: '2026-09-02T00:00:11Z',observedAt: '2026-09-02T00:00:11Z' }],query.deploymentIdentitySha256);
   const historical = await readMarketActivity(client,query);
   assert.equal(historical.volumes.spot.observedUsd,'6');
@@ -200,13 +201,19 @@ test('an unpriced trade makes the observed total unknown while retaining the sep
   assert.equal(view.markets[0].metrics.volume.observedUsd,null);
 }));
 
-test('same-slot and future-time observations cannot replace a historical trade price',() => transaction(async (client) => {
+test('old prior-slot snapshots value quiet markets, while same-slot and future-time snapshots cannot',() => transaction(async (client) => {
   await priced(client);
   await source(client); await projectMarketActivityBatch(client);
   await streamedSwapSnapshot(client,{ slot: activitySlot,time: '2026-09-02T00:00:09Z',baseSpotNad: 5_000_000_000n });
   await streamedSwapSnapshot(client,{ slot: activitySlot-2,time: '2026-09-02T00:00:11Z',baseSpotNad: 10_000_000_000n });
   assert.equal((await readMarketActivity(client,query)).metrics.volume.observedUsd,'5');
-  assert.equal((await readMarketActivity(client,{ ...query,maxPriceAgeSeconds: 9 })).metrics.volume.observedUsd,null);
+  assert.equal((await readMarketActivity(client,{ ...query,maxPriceAgeSeconds: 9 })).metrics.volume.observedUsd,'5');
+}));
+
+test('a prior-slot native snapshot remains usable after more than one quiet hour',() => transaction(async client => {
+  await priced(client,{ time: '2026-09-01T22:00:00Z' });
+  await source(client); await projectMarketActivityBatch(client);
+  assert.equal((await readMarketActivity(client,query)).metrics.volume.observedUsd,'5');
 }));
 
 test('500-row keyset pages retain every event sharing a slot and expose partial projection coverage',() => transaction(async (client) => {

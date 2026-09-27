@@ -57,8 +57,9 @@ export async function listObservedPriceHistory(options: PriceHistoryQuery) {
   finally { client.release(); }
 }
 
-/** Provider quotes are fetched when events land, as the v1 volume enricher
- * prices each swap, and at most this often per mint. */
+/** Provider quotes are fetched when events land, at most this often per mint.
+ * The observation can price later events; it does not reprice the triggering
+ * event, whose block time precedes this provider fetch. */
 export const EXTERNAL_PRICE_REFRESH_MS = 30_000;
 
 /** Refresh provider USD quotes for every referenced asset mint of a created

@@ -52,7 +52,7 @@ test('provider quotes precede on-chain fallback; price provenance stays in the v
   assert.equal(prices.prices[0].priceUsd,'5');
   assert.equal(prices.prices[0].quality,'derived-reference');
   assert.equal(prices.prices[1].quality,'external-observation');
-  const value = valueActivityAmounts(parse('LeveragePositionOpened').amounts,prices,activitySlot,activityTime,60);
+  const value = valueActivityAmounts(parse('LeveragePositionOpened').amounts,prices,activitySlot,activityTime);
   assert.equal(value[0].usd,'10');
   assert.equal(value[0].priceObservationId,'9');
 });

@@ -90,7 +90,7 @@ Program prices come from canonical `SwapExecuted` snapshots at read time: the pr
 
 `protocol/devnet-price-references.json` carries the existing webapp's three explicit devnet display references, with a full protocol identity, effective date and source notes. They are configured demo valuations, not external market prices. Override the path with `DUSK_PRICE_REFERENCES_FILE` when using another reviewed policy. A program/IDL/revision change requires deliberately updating this policy's identity. A configured value prices that specific mint; when only its counterasset has a reference, the program's spot quote derives an estimated reference. Arithmetic uses integers and decimal strings, with derived prices rounded down to 36 decimal places. It never substitutes a reserve ratio for a concentrated curve's price.
 
-`npm run start:prices-worker --prefix api` records provider quotes (Jupiter, with Birdeye as fallback) for every referenced mint in `MarketCreated`. It runs when events land, woken by `dusk_event_ingested`, as the v1 volume enricher prices each swap, and refreshes a mint at most every 30 s. `railway.prices.toml` defines it. `DUSK_PRICE_INTERVAL_MS` no longer exists.
+`npm run start:prices-worker --prefix api` records provider quotes (Jupiter, with Birdeye as fallback) for every referenced mint in `MarketCreated`. It runs when events land, woken by `dusk_event_ingested`, and refreshes a mint at most every 30 s. Unlike the v1 volume enricher, a quote fetched after an event cannot price that same event; it becomes available to later events. `railway.prices.toml` defines the worker. `DUSK_PRICE_INTERVAL_MS` no longer exists.
 
 `GET /api/dusk/v1/prices/:mint` accepts `market`, `at`, `maxAgeSeconds` (1–86400, default 3600), `limit` and `offset`. It returns program-derived prices from every swap snapshot quoting the mint within the window, newest first, with the observation's event key, payload hash, reference and spot quote as evidence (`market-observed.v1`). Missing prices return an empty list and `available: false`; an unknown price stays unknown. Saved preview captures from earlier releases remain readable only through archived quote history.
 
@@ -113,7 +113,8 @@ under a protocol-scoped PostgreSQL lock. Late older-slot events remain eligible,
 and repeated passes do not double count them.
 
 `GET /api/dusk/v1/analytics/activity` accepts `since`, `until`, `market` and
-`maxPriceAgeSeconds` (1–86400, default 3600). It returns protocol-wide and
+`maxPriceAgeSeconds` (1–86400, default 3600, for external provider quotes only).
+It returns protocol-wide and
 per-market observed volume, swap fees, retained fees, compounded fees and
 explicitly reported interest payments under a freshly attested deployment
 envelope. All amounts are decimal strings. Spot swaps and embedded leverage
@@ -124,7 +125,8 @@ referral allocations and fee auctions do not count as newly earned fees.
 
 Valuation prices each event from the latest swap snapshot for its market at
 a strictly earlier slot and a non-future time
-(`latest-observed-prior-slot.v1`), preferring an event-time provider quote.
+(`latest-observed-prior-slot.v1`). Quiet markets have no native snapshot age
+cutoff. Valuation prefers an event-time provider quote.
 Same-slot snapshots are excluded because an event does not say where in its
 slot the trade fell. Arithmetic rounds down to 36 decimal places.
 

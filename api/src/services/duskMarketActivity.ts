@@ -132,7 +132,7 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
       LEFT JOIN LATERAL (SELECT p.event_key,p.slot,p.time,p.payload FROM dusk_ingestion.streamed_market_snapshots p
         WHERE (p.cluster,p.program_id,p.idl_hash,p.protocol_revision)=(a.cluster,a.program_id,a.idl_hash,a.protocol_revision)
           AND p.market=a.market
-          AND p.slot<a.slot AND p.time<=a.block_time AND p.time>=a.block_time-($8::int*interval '1 second')
+          AND p.slot<a.slot AND p.time<=a.block_time
         ORDER BY p.slot DESC,p.observation_id DESC LIMIT 1) p ON true
       LEFT JOIN LATERAL (SELECT jsonb_agg(prices) AS quotes FROM (
         SELECT DISTINCT ON (x.mint) x.observation_id::text AS "observationId",x.mint,x.decimals,x.price_usd::text AS "priceUsd",
@@ -168,7 +168,7 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
       const parsed = parseActivityEvent(row.event_name,row.payload,row.slot,swapBasis);
       if (parsed.market !== row.market) throw new Error('FINALIZED_INVARIANT: activity market changed');
       if (basis) basis = activityPriceBasis(basis,row.external_prices,row.block_time.toISOString(),maxPriceAgeSeconds);
-      const metrics = valueActivityAmounts(parsed.amounts,basis,Number(row.slot),row.block_time.toISOString(),maxPriceAgeSeconds);
+      const metrics = valueActivityAmounts(parsed.amounts,basis,Number(row.slot),row.block_time.toISOString());
       const market = byMarket.get(row.market) ?? { metrics: emptyMetrics(),swaps: 0,events: 0 };
       byMarket.set(row.market,market);
       for (const value of metrics) {

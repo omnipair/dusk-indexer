@@ -14,7 +14,7 @@ function price(): ActivityPriceBasis {
 }
 const parse = (name = 'SwapExecuted',payload = activityPayload(name)) => parseActivityEvent(name,payload,String(activitySlot));
 const value = (payload = activityPayload(),basis: ActivityPriceBasis | null = price()) =>
-  valueActivityAmounts(parse('SwapExecuted',payload).amounts,basis,activitySlot,activityTime,60);
+  valueActivityAmounts(parse('SwapExecuted',payload).amounts,basis,activitySlot,activityTime);
 
 test('trade volume uses the input asset once, while fee components use the actual fee asset',() => {
   const values = value();
@@ -42,7 +42,7 @@ test('reported interest uses the debt mint, and hLP interest uses the funding si
   for (const name of ['MarketDebtUpdated','LeveragePositionClosed','LeveragePositionLiquidated']) {
     const interest = parse(name).amounts.find((entry) => entry.metric === 'reportedInterest')!;
     assert.deepEqual(interest.asset,{ mint: priceFixture().quoteMint });
-    assert.equal(valueActivityAmounts([interest],price(),activitySlot,activityTime,60)[0].usd,'0.25');
+    assert.equal(valueActivityAmounts([interest],price(),activitySlot,activityTime)[0].usd,'0.25');
   }
   assert.equal(parse('MarketDebtUpdated').hasSwap,false);
   for (const name of ['HlpClosed','HlpTerminalLiquidated']) {
@@ -64,13 +64,12 @@ test('missing prices stay unknown; zero fee amounts remain known zero without a 
   assert.ok(zero.slice(1).every((entry) => entry.usd === '0' && entry.priceCaptureId === null));
 });
 
-test('same-slot, future-slot, future-time and stale quotes cannot value an earlier trade',() => {
+test('same-slot and future quotes cannot value an earlier trade; old prior-slot quotes can',() => {
   for (const changed of [{ slot: activitySlot },{ slot: activitySlot+1 },{ slot: -1 },
-    { blockTime: '2026-09-02T00:00:11Z' },{ blockTime: '2026-09-01T23:59:09Z' },{ blockTime: 'invalid' }])
+    { blockTime: '2026-09-02T00:00:11Z' },{ blockTime: 'invalid' }])
     assert.throws(() => value(undefined,{ ...price(),...changed }),/event-time boundary/);
-  assert.equal(value(undefined,{ ...price(),blockTime: '2026-09-01T23:59:10Z' })[0].usd,'5');
-  for (const age of [0,1.5,86401]) assert.throws(() => valueActivityAmounts([],null,activitySlot,activityTime,age),/boundary/);
-  assert.throws(() => valueActivityAmounts([],null,Number.MAX_SAFE_INTEGER+1,activityTime,60),/boundary/);
+  assert.equal(value(undefined,{ ...price(),blockTime: '2026-09-01T23:59:09Z' })[0].usd,'5');
+  assert.throws(() => valueActivityAmounts([],null,Number.MAX_SAFE_INTEGER+1,activityTime),/boundary/);
 });
 
 test('exact u64 trade quantities are not rounded through JavaScript numbers',() => {
@@ -98,7 +97,7 @@ test('a quote cannot substitute mint decimals or price a foreign debt asset',() 
   const wrongDecimals = price(); wrongDecimals.prices[0].decimals = 6;
   assert.throws(() => value(undefined,wrongDecimals),/decimals/);
   const wrongMint = parse('MarketDebtUpdated',{ ...activityPayload('MarketDebtUpdated'),debt_asset_mint: fixtureKey(1).toBase58() });
-  assert.throws(() => valueActivityAmounts(wrongMint.amounts,price(),activitySlot,activityTime,60),/outside its market/);
+  assert.throws(() => valueActivityAmounts(wrongMint.amounts,price(),activitySlot,activityTime),/outside its market/);
   for (const amount of ['0','-1','NaN','Infinity']) {
     const invalid = price(); invalid.prices[0].priceUsd = amount;
     assert.throws(() => value(undefined,invalid));
