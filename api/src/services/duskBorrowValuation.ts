@@ -77,8 +77,8 @@ export interface UnavailableBorrowValuation {
 const CLOCK_OWNER = 'Sysvar1111111111111111111111111111111111111';
 
 /** Open positions for one owner, or every open position with debt, from the
- * streamed snapshots. The stream's slot is read after them, so it covers
- * every event they include. */
+ * position state folded from streamed lending events. The stream's slot is
+ * read after them, so it covers every event they include. */
 export async function readStreamedBorrowPositions(
   selection: { owner: string } | { withDebt: true },
   client: Pool | PoolClient = pool,

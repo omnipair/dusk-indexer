@@ -53,15 +53,23 @@ async function instruction(client: PoolClient, name: string, named: Record<strin
   assert.equal(ok.rows[0].ok, true);
 }
 
-test('borrow discovery keeps open snapshots, per owner or with debt, dated by the stream', () => transaction(async (client) => {
-  const snapshot = (position: string, holder: string, shares: string, closed = false) =>
-    streamedEvent(client, 'BorrowPositionUpdated', { market, position, owner: holder, base_collateral: '10', quote_collateral: '0',
-      fixed_base_shares: '0', fixed_quote_shares: shares, closed });
-  await snapshot(key(211), owner, '5');
-  await snapshot(key(212), owner, '0');
-  await snapshot(key(213), other, '9');
-  await snapshot(key(214), owner, '7');
-  await snapshot(key(214), owner, '0', true);
+test('borrow discovery keeps open positions, per owner or with debt, dated by the stream', () => transaction(async (client) => {
+  const health = { global_health_base_contribution_for_quote_debt: '5', global_health_quote_contribution_for_base_debt: '0',
+    base_liquidation_cf_bps: '8000', quote_liquidation_cf_bps: '8500' };
+  const open = async (position: string, holder: string, shares: string) => {
+    await streamedEvent(client, 'MarketCollateralDeposited', { market, position, owner: holder, base_collateral: '10',
+      quote_collateral: '0', auction_debt_asset: '255', ...health });
+    await streamedEvent(client, 'MarketDebtUpdated', { market, position, owner: holder, fixed_base_shares: '0',
+      fixed_quote_shares: shares, auction_debt_asset: '255', ...health });
+  };
+  await open(key(211), owner, '5');
+  await open(key(212), owner, '0');
+  await open(key(213), other, '9');
+  await open(key(214), owner, '7');
+  await streamedEvent(client, 'MarketDebtUpdated', { market, position: key(214), owner, fixed_base_shares: '0',
+    fixed_quote_shares: '0', auction_debt_asset: '255', ...health });
+  await streamedEvent(client, 'MarketCollateralWithdrawn', { market, position: key(214), owner, base_collateral: '0',
+    quote_collateral: '0', closed: true, ...health });
   const mine = await readStreamedBorrowPositions({ owner }, client);
   assert.deepEqual(mine.positions.map((row) => row.address).sort(), [key(211), key(212)].sort());
   assert.equal(mine.sourceSlot, 900_500_000);
