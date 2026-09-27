@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { readQuoteHistory, readQuoteHistoryRequest } from '../services/duskQuoteHistory';
-import { key, observedMarket, streamedIdentity, streamedObservation } from './duskStreamedFixtures';
+import { key, observedMarket, streamedIdentity, streamedSwapSnapshot } from './duskStreamedFixtures';
 
 if (process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS !== 'true' || !process.env.DATABASE_URL)
   throw new Error('A disposable DATABASE_URL is required');
@@ -20,10 +20,10 @@ async function transaction(work: (client: PoolClient) => Promise<void>) {
 }
 const query = { market: observedMarket.market,side: 'base' as const,since: '2026-09-02T00:00:00Z',until: '2026-09-02T00:03:00Z',
   resolutionSeconds: 60,deploymentIdentitySha256: 'b'.repeat(64) };
-const observe = (client: PoolClient,slot: number,time: string,baseSpotNad: bigint,extra: Parameters<typeof streamedObservation>[1] extends infer O ? Partial<O> : never = {}) =>
-  streamedObservation(client,{ slot,time,baseSpotNad,...extra });
+const observe = (client: PoolClient,slot: number,time: string,baseSpotNad: bigint,extra: Parameters<typeof streamedSwapSnapshot>[1] extends infer O ? Partial<O> : never = {}) =>
+  streamedSwapSnapshot(client,{ slot,time,baseSpotNad,...extra });
 
-test('candles take OHLC from crank quotes in slot order and leave gaps and zero quotes unfilled',() => transaction(async client => {
+test('candles take OHLC from swap snapshots in slot order and leave gaps and zero quotes unfilled',() => transaction(async client => {
   await observe(client,900_600_003,'2026-09-02T00:00:40Z',2_000_000_000n);
   await observe(client,900_600_001,'2026-09-02T00:00:10Z',2_500_000_000n);
   await observe(client,900_600_002,'2026-09-02T00:00:10Z',3_000_000_000n,{ baseEmaNad: 2_400_000_000n });
@@ -38,12 +38,13 @@ test('candles take OHLC from crank quotes in slot order and leave gaps and zero 
   assert.deepEqual(result.binding,{ baseMint: observedMarket.baseMint,quoteMint: observedMarket.quoteMint,baseDecimals: 9,quoteDecimals: 6 });
 }));
 
-test('the other side uses its own quote and a changed binding halts history',() => transaction(async client => {
+test('the other side uses its own quote and bindings come from MarketCreated',() => transaction(async client => {
   await observe(client,900_600_010,'2026-09-02T00:00:10Z',2_500_000_000n,{ quoteSpotNad: 400_000_000n,quoteEmaNad: 410_000_000n });
   const inverse = await readQuoteHistory(client,{ ...query,side: 'quote' });
   assert.equal(inverse.candles[0].close.price,'0.4'); assert.equal(inverse.candles[0].oracleClose?.price,'0.41');
   await observe(client,900_600_011,'2026-09-02T00:00:20Z',2_500_000_000n,{ baseMint: key(170) });
-  await assert.rejects(readQuoteHistory(client,query),/FINALIZED_INVARIANT/);
+  const history = await readQuoteHistory(client,query);
+  assert.equal(history.binding?.baseMint,observedMarket.baseMint);
 }));
 
 test('incremental refresh widens to a late observation\'s bucket and rejects a regressed revision',() => transaction(async client => {

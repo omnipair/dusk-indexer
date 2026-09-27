@@ -10,9 +10,10 @@ Proposals come from their streamed lifecycle events (migration 047):
 `ParameterProposalCreated` carries the proposal's terms, update and metadata;
 `ParameterProposalSupported`, `ParameterProposalSupportWithdrawn` and
 `ParameterProposalQueued` carry totals; `Queued` and `Executed` set status 1
-and 2. Each market's eligible yLP comes from its latest `MarketObserved`
-event, emitted by the permissionless `observe_market` crank with the value the
-program itself computes for sponsorship and queue checks.
+and 2. Each market's eligible yLP is the sum of streamed yLP balances outside
+the market-owned hLP vaults. Locked yLP is the sum of proposal totals. Direct
+Token-2022 burns outside protocol events can overstate eligibility; that is
+conservative for the API display.
 
 ```ts
 {
@@ -21,7 +22,7 @@ program itself computes for sponsorship and queue checks.
   sourceSlot: number,             // the stream's slot; covers every event included
   markets: Array<{                // every market with a proposal, plus the selected market
     address: string,
-    eligibleYlp: string | null,   // null before the market's first observation
+    eligibleYlp: string | null,   // null when MarketCreated has not been streamed
     governanceLockedYlp: string | null,
     observedSlot: number | null,
     observedAt: string | null,

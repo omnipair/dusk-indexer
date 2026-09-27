@@ -45,7 +45,7 @@ Migration 046 derives current protocol state from canonical streamed events, as 
 - `streamed_leverage_positions`: the last lifecycle event decides open or closed; the last `LeveragePositionOpened`/`LeveragePositionUpdated` carries the post-state.
 - `streamed_borrow_positions`: each lending event carries the position's post-state for what it changes: collateral from the latest `MarketCollateralDeposited`/`MarketCollateralWithdrawn`/`BorrowPositionLiquidated`, fixed debt shares from the latest `MarketDebtUpdated`/`BorrowPositionLiquidated`, the auction from `LiquidationAuctionStarted`/`LiquidationAuctionCancelled` and the events that report its side, and closure from the latest event (`closed`, or `DebtFreePositionClosed` for a borrow position).
 - `streamed_lp_balances`: yLP and hLP balances per owner, from liquidity and hLP events (mints and burns) and `LpTransferred`, which the Token-2022 transfer hook on every LP mint emits for each transfer.
-- `streamed_market_observations`: `MarketObserved` rows from the permissionless `observe_market` crank.
+- `streamed_market_snapshots`: post-swap prices, growth indexes, reserves and yLP supply from canonical `SwapExecuted`, joined to `MarketCreated` for asset mints and decimals.
 
 State covers markets created after ingestion of the release began; there is no backfill, so a gap in the stream is a gap in state. The account scan, the LP token scan, `/api/dusk/v1/accounts/:kind` and `/api/dusk/v1/lp-ownership` are removed.
 
@@ -80,23 +80,19 @@ Each bounded transaction selects unprojected `YieldClaimed` events through the f
 
 Coverage reports indexed/projected/pending claim counts for the protocol identity. `projectionComplete` means all currently indexed finalized claims are projected; it does not prove historical ingestion coverage. `ingestionRangeComplete` and `accrualHistoryAvailable` remain false. An empty result must not be rendered as proof that the owner earned or claimed zero. Claimed cash flow is not event-time earned yield, and current LP balances or current token prices are never substituted for historical observations.
 
-## Recorded yield checkpoints
+## Recorded yield growth
 
-Recorded yield growth comes from `MarketObserved` events, which the permissionless `observe_market` crank emits after refreshing a market: its growth indexes, live reserves, yLP supply and spot and EMA quotes, with the program's own values. The yield-checkpoint worker, its account reads and `GET /api/dusk/v1/owners/:owner/yield-checkpoints` are removed; `analytics/yield-rates` reads the observation nearest each boundary within 900 s and prices it from the observation at or before it within 3600 s. Its basis stays `committed-market-growth.v1` and its commitment is `confirmed`. Keeper cadence sets the sample spacing; a market nobody cranks has no recent growth points.
-
-## Market crank
-
-`npm run start:market-crank --prefix api` sends the permissionless `observe_market` for every market whose latest `MarketObserved` is older than `DUSK_CRANK_STALE_SECONDS` (default 60), oldest first and at most `DUSK_CRANK_MAX_MARKETS` (default 20) per pass, every `DUSK_CRANK_INTERVAL_MS` (default 30000), as the v1 cranker sends `update_pair`. Staleness comes from the database; it reads no accounts. It only reports due markets unless `DUSK_CRANK_LIVE=true` and a fee-payer keypair file is mounted at `DUSK_CRANK_KEYPAIR_PATH`. `railway.market-crank.toml` defines it. Its cadence sets the spacing of chart samples, yield growth points and governance eligibility.
+`SwapExecuted` publishes the post-swap price, EMA, reserves, yLP supply and growth indexes for both sides. `analytics/yield-rates` uses the latest canonical swap snapshot at or before each window boundary and prices each growth point from its committed snapshot. A snapshot remains valid until the next swap; there is no snapshot or program-price age cutoff. Its basis remains `committed-market-growth.v1` at `confirmed` commitment. The old yield-checkpoint worker, its account reads and `GET /api/dusk/v1/owners/:owner/yield-checkpoints` remain removed. Interest growth between swaps is reported at the next swap, so a window with no distinct swap snapshots has no measured rate.
 
 ## Dated price observations
 
-Program prices come from `MarketObserved` events at read time: the program's decimal-normalized, curve-aware spot quote per side, under the dated reference policy. Nothing simulates `preview_market` on a timer any more.
+Program prices come from canonical `SwapExecuted` snapshots at read time: the program's decimal-normalized, curve-aware spot quote per side, under the dated reference policy. Nothing simulates `preview_market` on a timer any more.
 
 `protocol/devnet-price-references.json` carries the existing webapp's three explicit devnet display references, with a full protocol identity, effective date and source notes. They are configured demo valuations, not external market prices. Override the path with `DUSK_PRICE_REFERENCES_FILE` when using another reviewed policy. A program/IDL/revision change requires deliberately updating this policy's identity. A configured value prices that specific mint; when only its counterasset has a reference, the program's spot quote derives an estimated reference. Arithmetic uses integers and decimal strings, with derived prices rounded down to 36 decimal places. It never substitutes a reserve ratio for a concentrated curve's price.
 
-`npm run start:prices-worker --prefix api` records provider quotes (Jupiter, with Birdeye as fallback) for every referenced mint that market observations quote. It runs when events land, woken by `dusk_event_ingested`, as the v1 volume enricher prices each swap, and refreshes a mint at most every 30 s. `railway.prices.toml` defines it. `DUSK_PRICE_INTERVAL_MS` no longer exists.
+`npm run start:prices-worker --prefix api` records provider quotes (Jupiter, with Birdeye as fallback) for every referenced mint in `MarketCreated`. It runs when events land, woken by `dusk_event_ingested`, as the v1 volume enricher prices each swap, and refreshes a mint at most every 30 s. `railway.prices.toml` defines it. `DUSK_PRICE_INTERVAL_MS` no longer exists.
 
-`GET /api/dusk/v1/prices/:mint` accepts `market`, `at`, `maxAgeSeconds` (1–86400, default 3600), `limit` and `offset`. It returns program-derived prices from every observation quoting the mint within the window, newest first, with the observation's event key, payload hash, reference and spot quote as evidence (`market-observed.v1`). Missing prices return an empty list and `available: false`; an unknown price stays unknown. Saved preview captures from earlier releases remain readable only through archived quote history.
+`GET /api/dusk/v1/prices/:mint` accepts `market`, `at`, `maxAgeSeconds` (1–86400, default 3600), `limit` and `offset`. It returns program-derived prices from every swap snapshot quoting the mint within the window, newest first, with the observation's event key, payload hash, reference and spot quote as evidence (`market-observed.v1`). Missing prices return an empty list and `available: false`; an unknown price stays unknown. Saved preview captures from earlier releases remain readable only through archived quote history.
 
 ## Recorded market activity
 
@@ -126,10 +122,10 @@ contribute a swap. Fees use their declared input/output asset; retained and
 compounded fees are components of swap fees, not additional fees. Claimed yield,
 referral allocations and fee auctions do not count as newly earned fees.
 
-Valuation prices each event from the latest `MarketObserved` for its market at
-a strictly earlier slot and a non-future time within the age limit
+Valuation prices each event from the latest swap snapshot for its market at
+a strictly earlier slot and a non-future time
 (`latest-observed-prior-slot.v1`), preferring an event-time provider quote.
-Same-slot observations are excluded because an event does not say where in its
+Same-slot snapshots are excluded because an event does not say where in its
 slot the trade fell. Arithmetic rounds down to 36 decimal places.
 
 Each metric distinguishes `observedUsd` from `valuedUsd`. Any unpriced nonzero

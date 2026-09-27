@@ -61,9 +61,8 @@ async function verifyWitness(row: StoredPriceCapture) {
   return verifiedSources.get(key,async () => verifyStoredPriceCapture(row));
 }
 
-/** Program spot quotes the permissionless market crank samples in each
- * MarketObserved event, not trades. Never fill gaps or infer prices from
- * reserves. Each witness is the observation's id and payload hash. */
+/** Program spot quotes sampled after swaps. Never fill gaps or infer prices
+ * from reserves. Each witness is the event observation's id and payload hash. */
 export async function readQuoteHistory(client: PoolClient, query: QuoteHistoryQuery) {
   const window = quoteHistorySelection(query),pin = loadPinnedProtocol();
   const witness = (value: { id: string; hash: string; price: string; time: string; slot: string }) =>
@@ -73,9 +72,9 @@ export async function readQuoteHistory(client: PoolClient, query: QuoteHistoryQu
       (payload->$6::text->>'spot_price_nad')::numeric AS price,(payload->$6::text->>'price_ema_nad')::numeric AS oracle,
       payload->'base'->>'asset_mint' AS base_mint,payload->'quote'->>'asset_mint' AS quote_mint,
       (payload->'base'->>'asset_decimals')::int AS base_decimals,(payload->'quote'->>'asset_decimals')::int AS quote_decimals
-    FROM dusk_ingestion.streamed_events
-    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND event_name='MarketObserved'
-      AND payload->>'market'=$5 AND time>=$7::timestamptz AND time<$8::timestamptz AND slot>=$9
+    FROM dusk_ingestion.streamed_market_snapshots
+    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
+      AND market=$5 AND time>=$7::timestamptz AND time<$8::timestamptz AND slot>=$9
   ), coverage AS (
     SELECT count(*)::text AS captures,min(slot)::text AS first_slot,max(slot)::text AS last_slot,
       min(block_time) AS first_time,max(block_time) AS last_time,COALESCE(max(observation_id),0)::text AS watermark,
@@ -130,8 +129,8 @@ export async function readQuoteHistory(client: PoolClient, query: QuoteHistoryQu
  * older one, so a client refresh can widen to its bucket. */
 export async function observedQuoteRevision(client: PoolClient,market: string,pin = loadPinnedProtocol()) {
   const result = await client.query<{ revision: string }>(`SELECT COALESCE(max(observation_id),0)::text AS revision
-    FROM dusk_ingestion.streamed_events WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
-      AND event_name='MarketObserved' AND payload->>'market'=$5`,[...protocolIdentity(pin),market]);
+    FROM dusk_ingestion.streamed_market_snapshots WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
+      AND market=$5`,[...protocolIdentity(pin),market]);
   return result.rows[0].revision;
 }
 
@@ -240,9 +239,9 @@ export async function readQuoteHistoryRequest(client: PoolClient,query: QuoteHis
     if (refresh) {
       if (BigInt(refresh.afterRevision)>BigInt(revision)) throw Object.assign(new Error('Quote history revision regressed'),{ status:409 });
       const changes = await client.query<{ earliest: Date | null }>(`
-        SELECT min(time) AS earliest FROM dusk_ingestion.streamed_events
-        WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND event_name='MarketObserved'
-          AND payload->>'market'=$5 AND observation_id>$6 AND time<$8::timestamptz AND time>=$7::timestamptz`,
+        SELECT min(time) AS earliest FROM dusk_ingestion.streamed_market_snapshots
+        WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
+          AND market=$5 AND observation_id>$6 AND time<$8::timestamptz AND time>=$7::timestamptz`,
         [...protocolIdentity(),query.market,refresh.afterRevision,requested.since,requested.until]);
       // Always include the previously partial last bucket. This covers samples
       // already ingested beyond the previous exclusive `until`, even with no

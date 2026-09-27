@@ -55,10 +55,26 @@ FROM dusk_ingestion.streamed_events
 WHERE event_name IN ('ParameterProposalSupported','ParameterProposalSupportWithdrawn')
 GROUP BY cluster,program_id,idl_hash,protocol_revision,payload->>'proposal',payload->>'supporter';
 
--- The latest crank observation per market.
-CREATE VIEW dusk_ingestion.streamed_latest_market_observations AS
-SELECT DISTINCT ON (cluster,program_id,idl_hash,protocol_revision,payload->>'market')
-  cluster,program_id,idl_hash,protocol_revision,payload->>'market' AS market,slot,time,payload
-FROM dusk_ingestion.streamed_events WHERE event_name='MarketObserved'
-ORDER BY cluster,program_id,idl_hash,protocol_revision,payload->>'market',slot DESC,observation_id DESC;
+-- The latest swap snapshot per market.
+CREATE VIEW dusk_ingestion.streamed_latest_market_snapshots AS
+SELECT DISTINCT ON (cluster,program_id,idl_hash,protocol_revision,market)
+  cluster,program_id,idl_hash,protocol_revision,market,event_key,observation_id,slot,time,signature,payload_hash,payload
+FROM dusk_ingestion.streamed_market_snapshots
+ORDER BY cluster,program_id,idl_hash,protocol_revision,market,slot DESC,observation_id DESC;
+
+-- Each market's eligible direct yLP, folded from LP deltas: every yLP balance
+-- except the two hLP yLP vaults, which the market PDA owns. Proposal support
+-- burns yLP and a withdrawal mints it back, neither an LP movement, so
+-- supporters' locked yLP stays counted, as the program's live supply plus
+-- governance-locked minus vault yLP. Locked yLP sums the market's proposals.
+CREATE VIEW dusk_ingestion.streamed_governance_markets AS
+SELECT m.cluster,m.program_id,m.idl_hash,m.protocol_revision,m.market,
+  COALESCE(b.eligible_ylp,0) AS eligible_ylp,COALESCE(p.governance_locked_ylp,0) AS governance_locked_ylp
+FROM dusk_ingestion.streamed_markets m
+LEFT JOIN (SELECT cluster,program_id,idl_hash,protocol_revision,market,sum(amount) AS eligible_ylp
+  FROM dusk_ingestion.streamed_lp_balances WHERE kind='ylp' AND owner<>market
+  GROUP BY cluster,program_id,idl_hash,protocol_revision,market) b USING(cluster,program_id,idl_hash,protocol_revision,market)
+LEFT JOIN (SELECT cluster,program_id,idl_hash,protocol_revision,market,sum(total_locked::numeric) AS governance_locked_ylp
+  FROM dusk_ingestion.streamed_governance_proposals
+  GROUP BY cluster,program_id,idl_hash,protocol_revision,market) p USING(cluster,program_id,idl_hash,protocol_revision,market);
 COMMIT;

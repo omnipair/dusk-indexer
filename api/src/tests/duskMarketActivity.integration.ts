@@ -6,7 +6,7 @@ import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
 import { projectMarketActivityBatch, readMarketActivity } from '../services/duskMarketActivity';
-import { streamedObservation, useFixtureReferences } from './duskStreamedFixtures';
+import { streamedSwapSnapshot, useFixtureReferences } from './duskStreamedFixtures';
 import { activityMarket, activityPayload, activitySlot, activityTime } from './duskActivityFixtures';
 import { priceFixture } from './duskPriceFixtures';
 import { fixtureKey } from './duskYieldCheckpointFixtures';
@@ -59,11 +59,13 @@ async function rejectsAtSavepoint(client: PoolClient,operation: () => Promise<un
   await assert.rejects(operation(),message);
   await client.query('ROLLBACK TO SAVEPOINT expected_failure');
 }
-/** A crank observation ten seconds before the trade: one base quotes 2.5
- * quote, and the quote mint is referenced at $1. */
+/** A swap snapshot before the activity window: one base quotes 2.5 quote,
+ * and the quote mint is referenced at $1. The swap is projected but excluded
+ * from the requested window's activity totals. */
 async function priced(client: PoolClient,options: { slot?: number; time?: string; baseSpotNad?: bigint } = {}) {
-  await streamedObservation(client,{ slot: options.slot ?? 900000001,time: options.time ?? '2026-09-02T00:00:00.000Z',
+  await streamedSwapSnapshot(client,{ slot: options.slot ?? 900000001,time: options.time ?? '2026-09-01T23:59:59.000Z',
     baseSpotNad: options.baseSpotNad ?? 2_500_000_000n });
+  await projectMarketActivityBatch(client);
 }
 test('native trades project once, exclude other revisions and processed observations, and retain late backfills',() => transaction(async (client) => {
   await priced(client);
@@ -90,6 +92,15 @@ test('native trades project once, exclude other revisions and processed observat
   assert.notEqual(after.coverage.selectionHash,before.coverage.selectionHash);
   assert.equal((await readMarketActivity(client,{ ...query,since: activityTime })).events,1);
   assert.equal((await readMarketActivity(client,query)).coverage.selectionHash,after.coverage.selectionHash);
+}));
+
+test('a price-bearing swap inside the selected window is also activity',() => transaction(async client => {
+  await priced(client);
+  await streamedSwapSnapshot(client,{ slot: activitySlot-1,time: '2026-09-02T00:00:05Z' });
+  assert.equal(await projectMarketActivityBatch(client),1);
+  const result = await readMarketActivity(client,query);
+  assert.equal(result.events,1);
+  assert.equal(result.swaps,1);
 }));
 
 test('leverage swaps, margin-only changes and reported interest are distinct economic observations',() => transaction(async (client) => {
@@ -191,9 +202,9 @@ test('an unpriced trade makes the observed total unknown while retaining the sep
 
 test('same-slot and future-time observations cannot replace a historical trade price',() => transaction(async (client) => {
   await priced(client);
-  await priced(client,{ slot: activitySlot,time: '2026-09-02T00:00:09Z',baseSpotNad: 5_000_000_000n });
-  await priced(client,{ slot: activitySlot-2,time: '2026-09-02T00:00:11Z',baseSpotNad: 10_000_000_000n });
   await source(client); await projectMarketActivityBatch(client);
+  await streamedSwapSnapshot(client,{ slot: activitySlot,time: '2026-09-02T00:00:09Z',baseSpotNad: 5_000_000_000n });
+  await streamedSwapSnapshot(client,{ slot: activitySlot-2,time: '2026-09-02T00:00:11Z',baseSpotNad: 10_000_000_000n });
   assert.equal((await readMarketActivity(client,query)).metrics.volume.observedUsd,'5');
   assert.equal((await readMarketActivity(client,{ ...query,maxPriceAgeSeconds: 9 })).metrics.volume.observedUsd,null);
 }));

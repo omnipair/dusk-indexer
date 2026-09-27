@@ -11,21 +11,22 @@ const identity = (pin = loadPinnedProtocol()) => [pin.cluster,pin.dusk.programId
 
 export interface PriceHistoryQuery { mint: string; market?: string; at: string; maxAgeSeconds: number; limit: number; offset: number }
 
-/** Program-derived USD prices for a mint from every market observation that
- * quotes it within the window, newest first, under the dated reference policy. */
+/** Program-derived USD prices for a mint from every swap snapshot of a market
+ * that quotes it within the window, newest first, under the dated reference
+ * policy. */
 export async function readObservedPriceHistory(client: PoolClient,options: PriceHistoryQuery) {
   if (!Number.isFinite(Date.parse(options.at)) || !Number.isSafeInteger(options.maxAgeSeconds) || options.maxAgeSeconds<1 || options.maxAgeSeconds>86400)
     throw new Error('Invalid price history time range');
   const pin = loadPinnedProtocol(),active = identity(pin),mint = new PublicKey(options.mint).toBase58();
   const values: unknown[] = [...active,mint,new Date(options.at).toISOString(),options.maxAgeSeconds];
-  const where = [`cluster=$1`,`program_id=$2`,`idl_hash=$3`,`protocol_revision=$4`,`event_name='MarketObserved'`,
+  const where = [`cluster=$1`,`program_id=$2`,`idl_hash=$3`,`protocol_revision=$4`,
     `$5 IN (payload->'base'->>'asset_mint',payload->'quote'->>'asset_mint')`,
     `time<=$6::timestamptz`,`time>=$6::timestamptz-($7::int*interval '1 second')`];
-  if (options.market) { values.push(new PublicKey(options.market).toBase58()); where.push(`payload->>'market'=$${values.length}`); }
+  if (options.market) { values.push(new PublicKey(options.market).toBase58()); where.push(`market=$${values.length}`); }
   const filter = where.join(' AND ');
-  const total = await client.query<{ total: string }>(`SELECT count(*)::text AS total FROM dusk_ingestion.streamed_events WHERE ${filter}`,values);
+  const total = await client.query<{ total: string }>(`SELECT count(*)::text AS total FROM dusk_ingestion.streamed_market_snapshots WHERE ${filter}`,values);
   const rows = await client.query<{ observation_id: string; event_key: string; slot: string; time: Date; payload: unknown; payload_hash: string }>(
-    `SELECT observation_id::text,event_key,slot::text,time,payload,payload_hash FROM dusk_ingestion.streamed_events WHERE ${filter}
+    `SELECT observation_id::text,event_key,slot::text,time,payload,payload_hash FROM dusk_ingestion.streamed_market_snapshots WHERE ${filter}
      ORDER BY time DESC,slot DESC,observation_id DESC LIMIT $${values.length+1} OFFSET $${values.length+2}`,[...values,options.limit,options.offset]);
   const references = activePriceReferences();
   const observations = rows.rows.flatMap((row) => {
@@ -60,15 +61,15 @@ export async function listObservedPriceHistory(options: PriceHistoryQuery) {
  * prices each swap, and at most this often per mint. */
 export const EXTERNAL_PRICE_REFRESH_MS = 30_000;
 
-/** Refresh provider USD quotes for every referenced mint the market
- * observations quote, skipping mints refreshed within the interval. */
+/** Refresh provider USD quotes for every referenced asset mint of a created
+ * market, skipping mints refreshed within the interval. */
 export async function refreshExternalPrices(): Promise<number> {
   const pin = loadPinnedProtocol(),active = identity(pin),references = activePriceReferences();
-  const observed = await pool.query<{ payload: Record<string,Record<string,unknown>> }>(`SELECT payload
-    FROM dusk_ingestion.streamed_latest_market_observations WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4`,active);
+  const markets = await pool.query<{ base_mint: string; quote_mint: string; base_decimals: number; quote_decimals: number }>(`
+    SELECT base_mint,quote_mint,base_decimals,quote_decimals FROM dusk_ingestion.streamed_markets
+    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND base_decimals IS NOT NULL AND quote_decimals IS NOT NULL`,active);
   const assets = new Map<string,number>();
-  for (const { payload } of observed.rows)
-    for (const side of [payload.base,payload.quote]) assets.set(String(side.asset_mint),Number(side.asset_decimals));
+  for (const row of markets.rows) { assets.set(row.base_mint,row.base_decimals); assets.set(row.quote_mint,row.quote_decimals); }
   const targets = externalPriceTargets(pin.cluster,references,[...assets].map(([mint,decimals]) => ({ mint,decimals })));
   if (!targets.length) return 0;
   const recent = await pool.query<{ mint: string }>(`SELECT DISTINCT mint FROM dusk_ingestion.price_observations

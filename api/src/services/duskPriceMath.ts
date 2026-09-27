@@ -85,8 +85,7 @@ export function projectMarketPrices(input: {
   } });
 }
 
-/** A MarketObserved event's mints and decimals, checked against the market's
- * MarketCreated mints when the caller has them. */
+/** Normalized swap snapshot mints and decimals from MarketCreated. */
 export function observedMarketBindings(value: unknown,created?: { baseMint: string; quoteMint: string }) {
   const observation = fields(value),base = fields(observation.base),quote = fields(observation.quote);
   const bound = { baseMint: key(base.asset_mint),quoteMint: key(quote.asset_mint),
@@ -96,8 +95,7 @@ export function observedMarketBindings(value: unknown,created?: { baseMint: stri
   return bound;
 }
 
-/** USD prices from a MarketObserved event: the program's own spot quotes at
- * the observed state, under the dated reference policy. */
+/** USD prices from a canonical post-swap snapshot and the dated references. */
 export function projectObservedPrices(input: {
   pin: DuskPinnedProtocol; observation: unknown; blockTime: string; references: unknown;
   created?: { baseMint: string; quoteMint: string };

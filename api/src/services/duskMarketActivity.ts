@@ -129,9 +129,9 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
       SELECT a.*,a.observation_id::text,a.slot::text,p.event_key AS price_key,p.slot::text AS price_slot,p.time AS price_time,
         p.payload AS price_payload,COALESCE(external.quotes,'[]'::jsonb) AS external_prices
       FROM dusk_ingestion.market_activity_events a
-      LEFT JOIN LATERAL (SELECT p.event_key,p.slot,p.time,p.payload FROM dusk_ingestion.streamed_events p
+      LEFT JOIN LATERAL (SELECT p.event_key,p.slot,p.time,p.payload FROM dusk_ingestion.streamed_market_snapshots p
         WHERE (p.cluster,p.program_id,p.idl_hash,p.protocol_revision)=(a.cluster,a.program_id,a.idl_hash,a.protocol_revision)
-          AND p.event_name='MarketObserved' AND p.payload->>'market'=a.market
+          AND p.market=a.market
           AND p.slot<a.slot AND p.time<=a.block_time AND p.time>=a.block_time-($8::int*interval '1 second')
         ORDER BY p.slot DESC,p.observation_id DESC LIMIT 1) p ON true
       LEFT JOIN LATERAL (SELECT jsonb_agg(prices) AS quotes FROM (

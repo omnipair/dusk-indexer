@@ -1,5 +1,5 @@
 /**
- * Saved preview price captures, from before prices came from MarketObserved
+ * Saved preview price captures, from before prices came from swap snapshots
  * events. Only archived quote history reads them; nothing writes new ones.
  */
 import { nativeFields } from './duskPortfolioMath';

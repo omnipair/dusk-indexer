@@ -31,9 +31,10 @@ export async function streamedEvent(client: PoolClient,name: string,payload: Rec
     [streamedIdentity[0],streamedIdentity[1],name,payload.market ?? null,signature,eventKey,slot,JSON.stringify(payload),streamedIdentity[2],streamedIdentity[3],time ?? null]);
   return { eventKey,signature,slot };
 }
-export async function streamedMarket(client: PoolClient,market = fixtureMarket) {
+export async function streamedMarket(client: PoolClient,market = fixtureMarket,slot?: number) {
   return streamedEvent(client,'MarketCreated',{ market: market.market,base_mint: market.baseMint,quote_mint: market.quoteMint,
-    ylp_mint: market.ylp,base_hlp_mint: market.baseHlp,quote_hlp_mint: market.quoteHlp,config: {} });
+    ylp_mint: market.ylp,base_hlp_mint: market.baseHlp,quote_hlp_mint: market.quoteHlp,
+    base_decimals: '9',quote_decimals: '6',config: {} },slot);
 }
 
 /** The release as the daemon registers it, and its stream cursor. */
@@ -52,26 +53,31 @@ export async function streamedRelease(client: PoolClient,cursor: { slot: number 
  * fixtureKey(113) with 6, yLP fixtureKey(114). */
 export const observedMarket = { market: checkpointFixture().source().market,baseMint: key(112),quoteMint: key(113),ylp: key(114) };
 
-/** One MarketObserved event, as the permissionless crank emits it. */
-export async function streamedObservation(client: PoolClient,options: {
+/** A created market and one canonical post-swap market snapshot. */
+export async function streamedSwapSnapshot(client: PoolClient,options: {
   time: string; slot?: number; market?: string; baseMint?: string; quoteMint?: string; ylp?: string;
   baseSpotNad?: bigint; quoteSpotNad?: bigint; baseEmaNad?: bigint; quoteEmaNad?: bigint;
   ylpSupply?: bigint; baseReserve?: bigint; quoteReserve?: bigint;
   baseSwapIndex?: bigint; baseInterestIndex?: bigint; quoteSwapIndex?: bigint; quoteInterestIndex?: bigint;
-  eligibleYlp?: bigint; governanceLockedYlp?: bigint;
 }) {
-  const side = (mint: string,decimals: number,reserve: bigint,spot: bigint,ema: bigint,swap: bigint,interest: bigint) => ({
-    asset_mint: mint,asset_decimals: String(decimals),live_reserve: reserve.toString(),spot_price_nad: spot.toString(),
-    price_ema_nad: ema.toString(),swap_fee_growth_index_q64: swap.toString(),interest_growth_index_q64: interest.toString(),
-    borrow_index_nad: '1000000000' });
+  const side = (spot: bigint,ema: bigint,swap: bigint,interest: bigint) => ({
+    spot_price_nad: spot.toString(),price_ema_nad: ema.toString(),
+    swap_fee_growth_index_q64: swap.toString(),interest_growth_index_q64: interest.toString() });
   const market = options.market ?? observedMarket.market;
-  return streamedEvent(client,'MarketObserved',{ market,slot: String(options.slot ?? 0),ylp_mint: options.ylp ?? observedMarket.ylp,
+  const exists = await client.query(`SELECT 1 FROM dusk_ingestion.streamed_markets
+    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND market=$5`,[...streamedIdentity,market]);
+  if (!exists.rowCount) await streamedMarket(client,{ market,baseMint: options.baseMint ?? observedMarket.baseMint,
+    quoteMint: options.quoteMint ?? observedMarket.quoteMint,ylp: options.ylp ?? observedMarket.ylp,
+    baseHlp: key(115),quoteHlp: key(116) },options.slot === undefined ? undefined : options.slot-1);
+  return streamedEvent(client,'SwapExecuted',{ market,slot: String(options.slot ?? 0),trader: key(117),
+    asset_in_side: '0',fee_asset_side: '0',amount_in: '1',amount_out: '0',gross_amount_out: '0',
+    amount_in_after_fee: '1',base_fee: '0',divergence_fee: '0',volatility_fee: '0',retained_fee: '0',compounded_fee: '0',
     ylp_supply: (options.ylpSupply ?? 1_000_000n).toString(),
-    eligible_ylp: (options.eligibleYlp ?? 0n).toString(),governance_locked_ylp: (options.governanceLockedYlp ?? 0n).toString(),
-    base: side(options.baseMint ?? observedMarket.baseMint,9,options.baseReserve ?? 0n,options.baseSpotNad ?? 2_500_000_000n,
-      options.baseEmaNad ?? 0n,options.baseSwapIndex ?? 3n*Q64,options.baseInterestIndex ?? 2n*Q64),
-    quote: side(options.quoteMint ?? observedMarket.quoteMint,6,options.quoteReserve ?? 0n,options.quoteSpotNad ?? 0n,
-      options.quoteEmaNad ?? 0n,options.quoteSwapIndex ?? 3n*Q64,options.quoteInterestIndex ?? 2n*Q64),
+    base_live_reserve: (options.baseReserve ?? 0n).toString(),quote_live_reserve: (options.quoteReserve ?? 0n).toString(),
+    base: side(options.baseSpotNad ?? 2_500_000_000n,options.baseEmaNad ?? 0n,
+      options.baseSwapIndex ?? 3n*Q64,options.baseInterestIndex ?? 2n*Q64),
+    quote: side(options.quoteSpotNad ?? 0n,options.quoteEmaNad ?? 0n,
+      options.quoteSwapIndex ?? 3n*Q64,options.quoteInterestIndex ?? 2n*Q64),
   },options.slot,options.time);
 }
 

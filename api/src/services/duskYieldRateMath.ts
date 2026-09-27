@@ -40,9 +40,8 @@ export function marketGrowthPoint(input: {
     basis: 'committed-market-growth.v1',supply: supply!.toString(),assets };
 }
 
-/** A MarketObserved event as a committed growth point. The permissionless
- * crank refreshes the market, then emits its growth indexes, live reserves and
- * yLP supply, so the point is committed state, not a hypothetical preview. */
+/** A canonical post-swap snapshot as a committed growth point. Its growth
+ * indexes, reserves and yLP supply are post-transaction state. */
 export function observedGrowthPoint(input: {
   pin: DuskPinnedProtocol; marketAddress: string; observation: unknown;
   slot: number; blockTime: string; deploymentIdentitySha256: string;

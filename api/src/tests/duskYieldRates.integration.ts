@@ -5,7 +5,7 @@ import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
 import { readYieldRates } from '../services/duskYieldRates';
 import { Q64 } from './duskYieldCheckpointFixtures';
-import { key, observedMarket, streamedIdentity, streamedObservation, useFixtureReferences } from './duskStreamedFixtures';
+import { key, observedMarket, streamedIdentity, streamedSwapSnapshot, useFixtureReferences } from './duskStreamedFixtures';
 
 if (process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS !== 'true' || !process.env.DATABASE_URL)
   throw new Error('A disposable DATABASE_URL is required');
@@ -23,15 +23,15 @@ async function transaction(work: (client: PoolClient) => Promise<void>) {
     await work(client);
   } finally { await client.query('ROLLBACK'); client.release(); }
 }
-/** Crank observations at both boundaries: one quote per base, the quote mint
+/** Swap snapshots at both boundaries: one quote per base, the quote mint
  * referenced at $1, and a day of swap and interest growth. */
-async function seed(client: PoolClient,options: { start?: boolean; mints?: { baseMint: string; quoteMint: string } } = {}) {
+async function seed(client: PoolClient,options: { start?: boolean; startTime?: string; mints?: { baseMint: string; quoteMint: string } } = {}) {
   const common = { baseReserve: 100_000_000_000n,quoteReserve: 100_000_000n,ylpSupply: 1_000_000n,baseSpotNad: 1_000_000_000n,...options.mints };
-  if (options.start !== false) await streamedObservation(client,{ ...common,slot: 900_000_010,time: query.since });
-  await streamedObservation(client,{ ...common,slot: 900_200_010,time: query.until,baseSwapIndex: 4n*Q64,quoteInterestIndex: 2n*Q64+Q64/2n });
+  if (options.start !== false) await streamedSwapSnapshot(client,{ ...common,slot: 900_000_010,time: options.startTime ?? query.since });
+  await streamedSwapSnapshot(client,{ ...common,slot: 900_200_010,time: query.until,baseSwapIndex: 4n*Q64,quoteInterestIndex: 2n*Q64+Q64/2n });
 }
 
-test('yield rates come from crank observations at each boundary and their own quotes',() => transaction(async client => {
+test('yield rates come from swap snapshots at each boundary and their own quotes',() => transaction(async client => {
   await seed(client);
   const data = await readYieldRates(client,query);
   assert.equal(data.markets.length,1);
@@ -47,6 +47,15 @@ test('yield rates come from crank observations at each boundary and their own qu
   assert.equal(data.coverage.selectionHash,(await readYieldRates(client,query)).coverage.selectionHash);
 }));
 
+test('a quiet market keeps its last committed snapshot beyond the old age bounds',() => transaction(async client => {
+  await seed(client,{ startTime: '2026-08-31T22:00:00Z' });
+  const data = await readYieldRates(client,query);
+  assert.equal(data.markets.length,1);
+  assert.equal(data.markets[0].provenance.startSlot,'900000010');
+  assert.equal(data.window.maxSnapshotAgeSeconds,null);
+  assert.equal(data.window.maxPriceAgeSeconds,null);
+}));
+
 test('unpriced growth retains token index deltas without a fabricated USD rate',() => transaction(async client => {
   await seed(client,{ mints: { baseMint: key(150),quoteMint: key(151) } });
   const data = await readYieldRates(client,query);
@@ -56,7 +65,7 @@ test('unpriced growth retains token index deltas without a fabricated USD rate',
   assert.equal(data.markets[0].rates.deltas[0].swapIndexDeltaQ64,Q64.toString());
 }));
 
-test('one-sided, stale and different-market windows remain unmeasured',() => transaction(async client => {
+test('one-sided and different-market windows remain unmeasured',() => transaction(async client => {
   await seed(client,{ start: false });
   assert.equal((await readYieldRates(client,query)).markets.length,0);
   assert.equal((await readYieldRates(client,{ ...query,since: query.until,until: '2026-09-03T01:00:00Z' })).markets.length,0);

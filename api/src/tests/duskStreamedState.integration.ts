@@ -5,7 +5,6 @@ import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { fixtureMarket, key, streamedEvent, streamedIdentity, streamedMarket, streamedRelease } from './duskStreamedFixtures';
 import { readMarketExposures } from '../services/duskStatisticsSnapshot';
-import { staleObservedMarkets } from '../services/duskMarketCrank';
 
 if (process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS !== 'true' || !process.env.DATABASE_URL)
   throw new Error('Set DUSK_ALLOW_DISPOSABLE_DB_TESTS=true and a disposable DATABASE_URL');
@@ -28,6 +27,7 @@ test('markets and their three LP mints come from MarketCreated',() => transactio
   await createdMarket(client);
   const [created] = await rows(client,'streamed_markets');
   assert.equal(created.market,market); assert.equal(created.ylp_mint,ylp);
+  assert.equal(created.base_decimals,9); assert.equal(created.quote_decimals,6);
   const mints = (await rows(client,'streamed_lp_mints','ORDER BY kind')).map(row => [row.kind,row.lp_mint]);
   assert.deepEqual(mints,[['base_hlp',baseHlp],['quote_hlp',quoteHlp],['ylp',ylp]]);
 }));
@@ -88,13 +88,19 @@ test('LP balances follow mints, burns and hook transfers per owner and mint',() 
   assert.deepEqual(balances,[['quote_hlp','owner','30'],['ylp','owner','700'],['ylp','other','200']]);
 }));
 
-test('market observations expose the crank\'s per-side state',() => transaction(async client => {
-  const side = { live_reserve: '5',spot_price_nad: '1000000000',price_ema_nad: '990000000',
-    swap_fee_growth_index_q64: '18446744073709551616',interest_growth_index_q64: '0',borrow_index_nad: '1000000000' };
-  await streamed(client,'MarketObserved',{ market,slot: '1',ylp_supply: '42',base: side,quote: side });
-  const [row] = await rows(client,'streamed_market_observations');
-  assert.equal(row.market,market); assert.equal(row.ylp_supply,'42');
-  assert.equal(row.base.swap_fee_growth_index_q64,'18446744073709551616');
+test('swap snapshots join the created market decimals and latest state',() => transaction(async client => {
+  await createdMarket(client);
+  const side = { spot_price_nad: '1000000000',price_ema_nad: '990000000',
+    swap_fee_growth_index_q64: '18446744073709551616',interest_growth_index_q64: '0' };
+  await streamed(client,'SwapExecuted',{ market,slot: '1',ylp_supply: '42',base_live_reserve: '5',quote_live_reserve: '6',base: side,quote: side });
+  const [row] = await rows(client,'streamed_market_snapshots');
+  assert.equal(row.market,market); assert.equal(row.payload.ylp_supply,'42');
+  assert.equal(row.payload.base.asset_mint,fixtureMarket.baseMint);
+  assert.equal(row.payload.base.asset_decimals,'9');
+  assert.equal(row.payload.base.live_reserve,'5');
+  assert.equal(row.payload.base.swap_fee_growth_index_q64,'18446744073709551616');
+  const [latest] = await rows(client,'streamed_latest_market_snapshots');
+  assert.equal(latest.event_key,row.event_key);
 }));
 
 test('open interest sums open leverage collateral per market side',() => transaction(async client => {
@@ -110,14 +116,4 @@ test('open interest sums open leverage collateral per market side',() => transac
   const exposures = await readMarketExposures(client);
   assert.deepEqual(exposures.markets,[{ market,baseCollateral: '100',quoteCollateral: '40',positions: 2 }]);
   assert.equal(exposures.sourceSlot,900_300_000); assert.equal(exposures.complete,true);
-}));
-
-test('the crank takes unobserved and stale markets first, and skips fresh ones',() => transaction(async client => {
-  const stale = { ...fixtureMarket,market: key(260) },fresh = { ...fixtureMarket,market: key(261) },never = { ...fixtureMarket,market: key(262) };
-  for (const each of [stale,fresh,never]) await createdMarket(client,each);
-  await streamed(client,'MarketObserved',{ market: stale.market },undefined,new Date(Date.now()-600_000).toISOString());
-  await streamed(client,'MarketObserved',{ market: fresh.market },undefined,new Date(Date.now()-5_000).toISOString());
-  const due = await staleObservedMarkets(client,60,20);
-  assert.deepEqual(due.filter(row => [stale,fresh,never].some(m => m.market === row.market)).map(row => row.market),[never.market,stale.market]);
-  assert.equal((await staleObservedMarkets(client,60,1)).length,1);
 }));

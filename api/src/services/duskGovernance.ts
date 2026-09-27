@@ -40,8 +40,9 @@ interface ProposalRow {
   execution_deadline: string | null; executed_at: string | null; created_slot: string; last_slot: string;
 }
 
-/** Proposals and each market's eligible yLP, from streamed events. The
- * stream's slot is read last, so it covers every event included. */
+/** Proposals and each market's eligible and locked yLP, from streamed events:
+ * LP deltas and proposal totals. The stream's slot is read last, so it covers
+ * every event included. */
 export async function readGovernanceProposals(client: PoolClient,market: string | null) {
   const pin = loadPinnedProtocol(),identity = [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
   const proposals = await client.query<ProposalRow>(`SELECT proposal,market,created,total_locked,status,eligible_supply_at_queue,queued_support,
@@ -51,23 +52,24 @@ export async function readGovernanceProposals(client: PoolClient,market: string 
     ORDER BY market,proposal`,[...identity,market]);
   if (proposals.rows.length>5000) throw new Error('Governance proposals exceed the bounded response');
   const addresses = [...new Set([...proposals.rows.map((row) => row.market),...(market ? [market] : [])])].sort();
-  const observations = await client.query<{ market: string; slot: string; time: Date; payload: unknown }>(`SELECT market,slot::text,time,payload
-    FROM dusk_ingestion.streamed_latest_market_observations
+  const governed = await client.query<{ market: string; eligible_ylp: string; governance_locked_ylp: string }>(`SELECT market,
+      eligible_ylp::text,governance_locked_ylp::text FROM dusk_ingestion.streamed_governance_markets
     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND market=ANY($5::text[])`,[...identity,addresses]);
   const stream = await readStreamCursor(client);
   if (!stream) throw Object.assign(new Error('The Dusk stream has not started'),{ status: 503 });
-  const observed = new Map(observations.rows.map((row) => [row.market,row]));
+  const known = new Map(governed.rows.map((row) => [row.market,row]));
   return {
     schemaVersion: 'dusk-governance-proposals.v2' as const,
     market,
     sourceSlot: Number(stream.throughSlot),
+    // A market without MarketCreated is unknown. A known market's values fold
+    // every event, so they are complete through the stream's cursor.
     markets: addresses.map((address) => {
-      const row = observed.get(address);
+      const row = known.get(address);
       if (!row) return { address,eligibleYlp: null,governanceLockedYlp: null,observedSlot: null,observedAt: null };
-      const payload = fields(row.payload);
-      return { address,eligibleYlp: integer(payload.eligible_ylp,'eligible yLP'),
-        governanceLockedYlp: integer(payload.governance_locked_ylp,'locked yLP'),
-        observedSlot: Number(row.slot),observedAt: row.time.toISOString() };
+      return { address,eligibleYlp: integer(row.eligible_ylp,'eligible yLP'),
+        governanceLockedYlp: integer(row.governance_locked_ylp,'locked yLP'),
+        observedSlot: Number(stream.throughSlot),observedAt: stream.time.toISOString() };
     }),
     proposals: proposals.rows.map((row) => {
       const created = fields(row.created),metadata = fields(created.metadata);

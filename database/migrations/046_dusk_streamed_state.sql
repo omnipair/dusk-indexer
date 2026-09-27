@@ -17,12 +17,13 @@ JOIN dusk_ingestion.event_observations o USING(cluster,program_id,idl_hash,proto
 JOIN dusk_ingestion.event_stream s USING(cluster,program_id,idl_hash,protocol_revision,event_key)
 WHERE c.commitment IN ('confirmed','finalized') AND o.commitment=c.commitment;
 
--- One row per market, from MarketCreated.
+-- One row per market, from MarketCreated, with its asset mints' decimals.
 CREATE VIEW dusk_ingestion.streamed_markets AS
 SELECT DISTINCT ON (cluster,program_id,idl_hash,protocol_revision,payload->>'market')
   cluster,program_id,idl_hash,protocol_revision,payload->>'market' AS market,
   payload->>'base_mint' AS base_mint,payload->>'quote_mint' AS quote_mint,payload->>'ylp_mint' AS ylp_mint,
   payload->>'base_hlp_mint' AS base_hlp_mint,payload->>'quote_hlp_mint' AS quote_hlp_mint,
+  (payload->>'base_decimals')::int AS base_decimals,(payload->>'quote_decimals')::int AS quote_decimals,
   slot AS created_slot,time AS created_at,payload
 FROM dusk_ingestion.streamed_events WHERE event_name='MarketCreated'
 ORDER BY cluster,program_id,idl_hash,protocol_revision,payload->>'market',slot,observation_id;
@@ -172,10 +173,21 @@ SELECT cluster,program_id,idl_hash,protocol_revision,market,lp_mint,kind,owner,
 FROM dusk_ingestion.streamed_lp_movements
 GROUP BY cluster,program_id,idl_hash,protocol_revision,market,lp_mint,kind,owner;
 
--- Market observations from the permissionless crank.
-CREATE VIEW dusk_ingestion.streamed_market_observations AS
-SELECT cluster,program_id,idl_hash,protocol_revision,event_key,observation_id,slot,time,signature,
-  payload->>'market' AS market,(payload->>'ylp_supply')::numeric AS ylp_supply,
-  payload->'base' AS base,payload->'quote' AS quote
-FROM dusk_ingestion.streamed_events WHERE event_name='MarketObserved';
+-- Market state after every AMM execution. Each SwapExecuted carries both
+-- sides' post-swap spot and EMA quotes and yLP growth indexes, the live
+-- reserves and the yLP supply; the market's MarketCreated gives its mints and
+-- decimals. `payload` is one normalized shape for the price, chart and yield
+-- readers. A swap decoded without that state is not a snapshot.
+CREATE VIEW dusk_ingestion.streamed_market_snapshots AS
+SELECT e.cluster,e.program_id,e.idl_hash,e.protocol_revision,e.event_key,e.observation_id,e.slot,e.time,e.signature,
+  e.payload_hash,m.market,
+  jsonb_build_object('market',m.market,'ylp_mint',m.ylp_mint,'slot',e.payload->>'slot','ylp_supply',e.payload->>'ylp_supply',
+    'base',(e.payload->'base')||jsonb_build_object('asset_mint',m.base_mint,'asset_decimals',m.base_decimals::text,
+      'live_reserve',e.payload->>'base_live_reserve'),
+    'quote',(e.payload->'quote')||jsonb_build_object('asset_mint',m.quote_mint,'asset_decimals',m.quote_decimals::text,
+      'live_reserve',e.payload->>'quote_live_reserve')) AS payload
+FROM dusk_ingestion.streamed_events e
+JOIN dusk_ingestion.streamed_markets m ON (m.cluster,m.program_id,m.idl_hash,m.protocol_revision,m.market)=
+  (e.cluster,e.program_id,e.idl_hash,e.protocol_revision,e.payload->>'market')
+WHERE e.event_name='SwapExecuted' AND e.payload ?& ARRAY['ylp_supply','base','quote'];
 COMMIT;
