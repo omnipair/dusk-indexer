@@ -253,7 +253,7 @@ mod tests {
         });
         let capacity = Arc::new(Semaphore::new(1));
         let mut stream = subscribe(
-            reqwest::Url::parse(&format!("http://{address}/api/dusk/v1/deployment")).unwrap(),
+            reqwest::Url::parse(&format!("http://{address}/api/dusk/v1/config")).unwrap(),
             Arc::new(pin),
             capacity.clone(),
             DuskPayloadsRequest {

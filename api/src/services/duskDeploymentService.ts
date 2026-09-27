@@ -260,8 +260,9 @@ export async function withDeployment<T>(
  * covers its highest slot. */
 export async function withDeploymentRead<T>(
   read: (deployment: DuskDeploymentEnvelope) => Promise<{ data: T; sourceSlot: number }>,
+  minimumSourceSlot = 0,
 ): Promise<{ success: true; data: T; deployment: DuskDeploymentEnvelope }> {
-  const before = await deploymentEnvelope();
+  const before = await deploymentEnvelope(minimumSourceSlot);
   const { data, sourceSlot } = await read(before);
   const after = await deploymentEnvelope(Math.max(sourceSlot, before.sourceSlot));
   if (before.deploymentIdentitySha256 !== after.deploymentIdentitySha256) {

@@ -35,7 +35,6 @@ if (V1_ENABLED) {
 }
 
 const DUSK_ENDPOINTS = {
-  deployment: 'GET /api/dusk/v1/deployment',
   markets: 'GET /api/dusk/v1/markets?limit=100&offset=0',
   'market-detail': 'GET /api/dusk/v1/markets/{market}',
   'market-events':
