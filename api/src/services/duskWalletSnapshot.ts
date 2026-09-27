@@ -228,6 +228,7 @@ export async function captureWalletSnapshot(
     valuations,
     oracleValuations,
     borrowValuations,
+    lpBalances: { basis: 'streamed-events.v1' as const, sourceSlot: hlpBalances.sourceSlot, balances: hlpBalances.lpBalances },
     hlpPositions,
     orders: {
       owner,

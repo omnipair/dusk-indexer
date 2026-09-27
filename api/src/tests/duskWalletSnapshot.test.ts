@@ -94,7 +94,7 @@ async function fixture() {
     }),
     borrowPositions: async () => ({ positions: [], sourceSlot: 1010 }),
     borrowValuation: walletCaptureDependencies.borrowValuation,
-    hlpBalances: async () => ({ balances: [], sourceSlot: 1010 }),
+    hlpBalances: async () => ({ balances: [], lpBalances: [], sourceSlot: 1010 }),
     hlpPositions: walletCaptureDependencies.hlpPositions,
   };
   const capture = () =>
@@ -189,7 +189,8 @@ test('wallet frames value streamed borrow positions at or after the stream and c
     market: f.marketAddress.toBase58(), side: 'quote' as const, hlpMint: displayKey(96).toBase58(), walletBalance: '7',
     protectedBalance: '0', hasStopLoss: false, hasStopRate: false, principalNavPerTokenNad: '1000000000', sourceSlot: 1040,
   };
-  f.deps.hlpBalances = async () => ({ balances: [{ market: hlp.market, side: 'quote', hlpMint: hlp.hlpMint, amount: '7' }], sourceSlot: 1015 });
+  f.deps.hlpBalances = async () => ({ balances: [{ market: hlp.market, side: 'quote', hlpMint: hlp.hlpMint, amount: '7' }],
+    lpBalances: [{ market: hlp.market, kind: 'quote_hlp', lpMint: hlp.hlpMint, amount: '7' }], sourceSlot: 1015 });
   f.deps.hlpPositions = async (_dusk, holdings, orders, payer, minSlot) => {
     assert.equal(holdings.length, 1);
     assert.deepEqual(orders, []);
@@ -200,6 +201,8 @@ test('wallet frames value streamed borrow positions at or after the stream and c
   const result = await f.capture();
   assert.deepEqual(result.borrowValuations, [{ status: 'unavailable', ...position, sourceSlot: 1030, reason: 'preview-rejected' }]);
   assert.deepEqual(result.hlpPositions, [hlp]);
+  assert.deepEqual(result.lpBalances, { basis: 'streamed-events.v1', sourceSlot: 1015,
+    balances: [{ market: hlp.market, kind: 'quote_hlp', lpMint: hlp.hlpMint, amount: '7' }] });
   assert.equal(result.sourceSlot, 1040);
   f.deps.borrowValuation = async () => {
     throw new Error('RPC timeout');

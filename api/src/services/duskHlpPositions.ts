@@ -27,6 +27,13 @@ export interface StreamedHlpBalance {
   amount: string;
 }
 
+export interface StreamedLpBalance {
+  market: string;
+  kind: 'ylp' | 'base_hlp' | 'quote_hlp';
+  lpMint: string;
+  amount: string;
+}
+
 export interface HlpPosition {
   market: string;
   side: 'base' | 'quote';
@@ -45,27 +52,32 @@ export interface HlpPosition {
 
 const U64_MAX = (1n << 64n) - 1n;
 
-/** The owner's non-zero hLP balances from streamed mints, burns and hook
+/** The owner's non-zero LP balances from streamed mints, burns and hook
  * transfers. The stream's slot is read after them and covers them. */
 export async function readStreamedHlpBalances(
   owner: string,
   client: Pool | PoolClient = pool,
-): Promise<{ balances: StreamedHlpBalance[]; sourceSlot: number }> {
+): Promise<{ balances: StreamedHlpBalance[]; lpBalances: StreamedLpBalance[]; sourceSlot: number }> {
   const pin = loadPinnedProtocol();
   const result = await client.query<{ market: string; kind: string; lp_mint: string; amount: string }>(
     `SELECT market,kind,lp_mint,amount::text FROM dusk_ingestion.streamed_lp_balances
     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND owner=$5
-      AND kind IN ('base_hlp','quote_hlp') AND amount>0
+      AND kind IN ('ylp','base_hlp','quote_hlp') AND amount>0
     ORDER BY market,kind`,
     [pin.cluster, pin.dusk.programId, pin.dusk.idlCanonicalSha256, pin.revision, owner],
   );
   const stream = await readStreamCursor(client);
   if (!stream) throw Object.assign(new Error('The Dusk stream has not started'), { status: 503 });
+  const lpBalances = result.rows.map((row): StreamedLpBalance => {
+    if (!/^[1-9]\d*$/.test(row.amount) || BigInt(row.amount) > U64_MAX) throw new Error('Invalid streamed LP balance');
+    if (row.kind !== 'ylp' && row.kind !== 'base_hlp' && row.kind !== 'quote_hlp') throw new Error('Invalid streamed LP kind');
+    return { market: row.market, kind: row.kind, lpMint: row.lp_mint, amount: row.amount };
+  });
   return {
-    balances: result.rows.map((row) => {
-      if (!/^[1-9]\d*$/.test(row.amount) || BigInt(row.amount) > U64_MAX) throw new Error('Invalid streamed hLP balance');
-      return { market: row.market, side: row.kind === 'base_hlp' ? 'base' : 'quote', hlpMint: row.lp_mint, amount: row.amount };
-    }),
+    balances: lpBalances.filter((row) => row.kind !== 'ylp').map((row) => ({
+      market: row.market, side: row.kind === 'base_hlp' ? 'base' as const : 'quote' as const, hlpMint: row.lpMint, amount: row.amount,
+    })),
+    lpBalances,
     sourceSlot: Number(stream.throughSlot),
   };
 }

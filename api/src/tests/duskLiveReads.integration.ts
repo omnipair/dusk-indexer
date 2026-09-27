@@ -83,8 +83,9 @@ test('hLP holdings are the owner\'s non-zero hLP balances by vault side', () => 
   await streamedEvent(client, 'HlpOpened', { market, owner, asset_side: '0', hlp_amount: '40', ylp_amount: '1' });
   await streamedEvent(client, 'HlpOpened', { market, owner, asset_side: '1', hlp_amount: '15', ylp_amount: '1' });
   await streamedEvent(client, 'HlpClosed', { market, owner, asset_side: '1', hlp_amount: '15', ylp_amount: '1' });
-  const { balances, sourceSlot } = await readStreamedHlpBalances(owner, client);
+  const { balances, lpBalances, sourceSlot } = await readStreamedHlpBalances(owner, client);
   assert.deepEqual(balances, [{ market, side: 'base', hlpMint: baseHlp, amount: '40' }]);
+  assert.deepEqual(lpBalances.map(({ kind, lpMint }) => [kind, lpMint]), [['base_hlp', baseHlp], ['ylp', ylp]]);
   assert.equal(sourceSlot, 900_500_000);
 }));
 

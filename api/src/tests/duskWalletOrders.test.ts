@@ -121,7 +121,7 @@ async function fixture() {
       readDuskOrders({ ...options, previewPayer: undefined }),
     borrowPositions: async () => ({ positions: [], sourceSlot: 1010 }),
     borrowValuation: walletCaptureDependencies.borrowValuation,
-    hlpBalances: async () => ({ balances: [], sourceSlot: 1010 }),
+    hlpBalances: async () => ({ balances: [], lpBalances: [], sourceSlot: 1010 }),
     hlpPositions: walletCaptureDependencies.hlpPositions,
   };
   return { ...f, deployment, boundary, deps, raw, marketInfo, order, infos };
@@ -169,4 +169,35 @@ test('backend order capture rejects a wrong owner and missing market evidence', 
     }),
     /market is unavailable/,
   );
+});
+
+test('an inconsistent RPC Clock retries the complete order batch and never accepts a wrong bank', async () => {
+  const f = await fixture();
+  const connection = f.dusk.program.provider.connection;
+  const original = connection.getMultipleAccountsInfoAndContext;
+  let attempts = 0;
+  connection.getMultipleAccountsInfoAndContext = (async (keys, options) => {
+    const result = await original(keys, options);
+    attempts++;
+    if (attempts > 2) return result;
+    const stale = { ...result.value[0]!, data: Buffer.from(result.value[0]!.data) };
+    stale.data.writeBigUInt64LE(1009n);
+    return { ...result, value: [stale, ...result.value.slice(1)] };
+  }) as typeof connection.getMultipleAccountsInfoAndContext;
+  const orders = await readDuskOrders({ dusk: f.dusk, boundary: f.boundary,
+    deployment: f.deployment, owner: f.selection.owner, kinds: ['leverageEntryOrder'] });
+  assert.equal(orders.entry.length, 1);
+  assert.equal(attempts, 3);
+
+  attempts = 0;
+  connection.getMultipleAccountsInfoAndContext = (async (keys, options) => {
+    const result = await original(keys, options);
+    attempts++;
+    const stale = { ...result.value[0]!, data: Buffer.from(result.value[0]!.data) };
+    stale.data.writeBigUInt64LE(1009n);
+    return { ...result, value: [stale, ...result.value.slice(1)] };
+  }) as typeof connection.getMultipleAccountsInfoAndContext;
+  await assert.rejects(readDuskOrders({ dusk: f.dusk, boundary: f.boundary,
+    deployment: f.deployment, owner: f.selection.owner, kinds: ['leverageEntryOrder'] }), /Invalid order Clock/);
+  assert.equal(attempts, 3);
 });

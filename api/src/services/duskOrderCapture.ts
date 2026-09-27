@@ -186,37 +186,39 @@ export async function readDuskOrders(options: {
           keys.set(key.toBase58(), key);
       }
       const addresses = [...keys.values()];
-      const response = await boundedDuskRpcRead(
-        () =>
-          connection.getMultipleAccountsInfoAndContext(addresses, {
-            commitment: 'confirmed',
-            minContextSlot: floor,
-          }),
-        signal,
-      );
+      // RPC replicas can briefly return a Clock account from another bank
+      // while advertising a newer context slot. Re-read the whole batch so
+      // orders, market and Clock still come from one accepted bank.
+      let response: Awaited<ReturnType<typeof connection.getMultipleAccountsInfoAndContext>> | undefined;
+      let readFloor = floor;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const candidate = await boundedDuskRpcRead(
+          () => connection.getMultipleAccountsInfoAndContext(addresses, {
+            commitment: 'confirmed', minContextSlot: readFloor,
+          }), signal,
+        );
+        const candidateSlot = candidate.context.slot;
+        if (!Number.isSafeInteger(candidateSlot) || candidateSlot < readFloor || candidate.value.length !== addresses.length)
+          throw new Error('Order detail is behind confirmed state');
+        const candidateClock = candidate.value[0];
+        if (candidateClock && !candidateClock.executable &&
+          candidateClock.owner.toBase58() === 'Sysvar1111111111111111111111111111111111111' &&
+          candidateClock.data.length === 40 && candidateClock.data.readBigUInt64LE(0) === BigInt(candidateSlot) &&
+          candidateClock.data.readBigInt64LE(32) > 0n) {
+          response = candidate;
+          break;
+        }
+        readFloor = candidateSlot;
+        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+      }
+      if (!response) throw new Error('Invalid order Clock');
       const slot = response.context.slot;
-      if (
-        !Number.isSafeInteger(slot) ||
-        slot < floor ||
-        response.value.length !== addresses.length
-      )
-        throw new Error('Order detail is behind confirmed state');
       floor = slot;
       const infos = new Map(
         addresses.map((key, index) => [key.toBase58(), response.value[index]]),
       );
-      const clock = infos.get(SYSVAR_CLOCK_PUBKEY.toBase58());
-      if (
-        !clock ||
-        clock.executable ||
-        clock.owner.toBase58() !==
-          'Sysvar1111111111111111111111111111111111111' ||
-        clock.data.length !== 40 ||
-        clock.data.readBigUInt64LE(0) !== BigInt(slot)
-      )
-        throw new Error('Invalid order Clock');
+      const clock = infos.get(SYSVAR_CLOCK_PUBKEY.toBase58())!;
       const unixTimestamp = clock.data.readBigInt64LE(32);
-      if (unixTimestamp <= 0n) throw new Error('Invalid order time');
       for (const { pubkey, raw } of batch) {
         const info = infos.get(pubkey.toBase58());
         if (!info) continue; // Cancelled/executed between discovery and detail.
