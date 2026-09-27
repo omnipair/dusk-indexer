@@ -127,6 +127,17 @@ const capacities = (slot: number): MarketCapacities => ({
   borrow: { base: null,quote: { collateralAsset: 'base',referenceCollateralAmount: '1000000000',collateralValueNad: '2500000000',
     maxDebtByHealth: '10',maxDebtByCash: '20',maxDebtByDailyLimit: '30',maxDebt: '10',maxCfBps: 6000,liquidationCfBps: 7000,sourceSlot: slot+2 } },
 });
+test('the fee family\'s schedule beyond the base fee is published with the AMM config',() => {
+  const sample = liveFixture();
+  Object.assign(sample.market.config.amm,{ swap_fee_collect_mode: 2,compounding_fee_bps: 150,launch_fee_start_bps: 900,
+    launch_fee_duration_seconds: new BN('9007199254740993'),launch_fee_decay_mode: 1,launch_rate_limit_reference_nad: new BN(5) });
+  const payload = projectMarketSnapshot({ ...sample.snapshot,
+    marketAccount: { ...sample.snapshot.marketAccount,data: encodeFixtureAccount('Market',sample.market).toString('base64') } },sample.references) as any;
+  assert.equal(payload.config.amm.swapFeeCollectMode,2); assert.equal(payload.config.amm.compoundingFeeBps,150);
+  assert.equal(payload.config.amm.launchFeeStartBps,900); assert.equal(payload.config.amm.launchFeeDurationSeconds,'9007199254740993');
+  assert.equal(payload.config.amm.launchFeeDecayMode,1); assert.equal(payload.config.amm.launchRateLimitReferenceNad,'5');
+  assert.equal(payload.config.amm.launchMarketNumberOfPeriods,0);
+});
 test('hLP vaults and their mint supplies come from the preview bank, with capacity from later previews',() => {
   const sample = liveFixture(),slot = sample.snapshot.slot;
   const payload = projectMarketSnapshot(sample.snapshot,sample.references,capacities(slot)) as any;

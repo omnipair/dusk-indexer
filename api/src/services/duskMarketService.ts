@@ -207,6 +207,22 @@ function marketConfigPayload(marketAccount: unknown): Record<string, unknown> {
       volatilityFeeCoefficientNad: stringValue(
         field(amm, 'volatilityFeeCoefficientNad', 'volatility_fee_coefficient_nad'),
       ),
+      // The fee family's governed values beyond the base fee: a proposal
+      // drafted without them would reset the collection mode, compounding
+      // share and launch schedule.
+      swapFeeCollectMode: numberValue(field(amm, 'swapFeeCollectMode', 'swap_fee_collect_mode')),
+      compoundingFeeBps: numberValue(field(amm, 'compoundingFeeBps', 'compounding_fee_bps')),
+      launchFeeStartBps: numberValue(field(amm, 'launchFeeStartBps', 'launch_fee_start_bps')),
+      launchFeeDurationSeconds: stringValue(field(amm, 'launchFeeDurationSeconds', 'launch_fee_duration_seconds')),
+      launchFeeDecayMode: numberValue(field(amm, 'launchFeeDecayMode', 'launch_fee_decay_mode')),
+      launchMarketPriceStepBps: numberValue(field(amm, 'launchMarketPriceStepBps', 'launch_market_price_step_bps')),
+      launchMarketNumberOfPeriods: numberValue(field(amm, 'launchMarketNumberOfPeriods', 'launch_market_number_of_periods')),
+      launchMarketReductionFactorBps: numberValue(field(amm, 'launchMarketReductionFactorBps', 'launch_market_reduction_factor_bps')),
+      launchRateLimitAsset: numberValue(field(amm, 'launchRateLimitAsset', 'launch_rate_limit_asset')),
+      launchRateLimitReferenceNad: stringValue(field(amm, 'launchRateLimitReferenceNad', 'launch_rate_limit_reference_nad')),
+      launchRateLimitIncrementBps: numberValue(field(amm, 'launchRateLimitIncrementBps', 'launch_rate_limit_increment_bps')),
+      launchRateLimitMaxFeeBps: numberValue(field(amm, 'launchRateLimitMaxFeeBps', 'launch_rate_limit_max_fee_bps')),
+      launchRateLimitDurationSeconds: stringValue(field(amm, 'launchRateLimitDurationSeconds', 'launch_rate_limit_duration_seconds')),
       reserved: Array.from(
         (field<number[]>(amm, 'reserved') ?? []) as number[],
       ).map((byte) => Number(byte)),
