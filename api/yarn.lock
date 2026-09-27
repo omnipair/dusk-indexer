@@ -210,10 +210,10 @@
   resolved "https://registry.npmjs.org/@noble/hashes/-/hashes-1.8.0.tgz"
   integrity sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==
 
-"@omnipair/dusk-sdk@file:vendor/dusk-sdk-2.10.1-devnet.20260918.tgz":
-  version "2.10.1-devnet.20260918"
-  resolved "file:vendor/dusk-sdk-2.10.1-devnet.20260918.tgz"
-  integrity sha512-eF7hjGc1+yoyr+xAk/9g74+udE8B+YQMQY+iNNcDWTY4oJwqLQ2Gd/h3Nuex9dz9pajzM9Ff6+R5UW/aqls5cg==
+"@omnipair/dusk-sdk@file:vendor/dusk-sdk-2.10.2-devnet.20260927.tgz":
+  version "2.10.2-devnet.20260927"
+  resolved "file:vendor/dusk-sdk-2.10.2-devnet.20260927.tgz"
+  integrity sha512-qNeMN7wFQz8Z0m6LuzMYnDmhUYNJlY8qlWvDOwM6lUrxklqvqMI6M5IBuPaPehtjP0inQaCcWUtJzBTxWwLzLw==
   dependencies:
     "@coral-xyz/anchor" ">=0.30.0"
     "@solana/spl-token" "^0.4.0"

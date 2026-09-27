@@ -1,0 +1,95 @@
+{
+  "sourceCommit": "5644e5db86d63311b35b8373992f8fa210ef3ccf",
+  "artifactSha256": "7d16d18d70514ed5d883908619c72be30c436926ae6ddd366f6b2dd5b8f3efc9",
+  "genesisHash": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+  "before": [
+    {
+      "name": "dusk",
+      "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
+      "binary": {
+        "path": "on-chain (devnet)",
+        "sha256": "6183b7a393bad1a8a6cafada81c9e572b99d423ce27c098c2213112fa460741c"
+      },
+      "idl": {
+        "path": "protocol/idl/dusk.json",
+        "sha256": "84c781342dec1684c3d1562295a9cea6046c44eadcab350d39becaf2b0c5256e",
+        "canonicalSha256": "f913d04e43342f7936665d0736a958315f3e57a8633c19fa88a920217f7ad542"
+      },
+      "deployment": {
+        "programData": "FH3oEMmx2n7YMeEsrLM8dzr7FxuZLQgMacwQF6ZHdWk",
+        "deploySlot": 500313561,
+        "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+        "allocatedBinaryBytes": 2581712
+      }
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv",
+      "binary": {
+        "path": "on-chain (devnet)",
+        "sha256": "7903449634d559bba246d779a993b2afd27050e48692702d6714ac6f3a713858"
+      },
+      "idl": {
+        "path": "protocol/idl/leverage_delegate.json",
+        "sha256": "b2d39d3575f72ad334a0f853784bdb5909ddead5e0ebf3dc84ccd5253eccdce3",
+        "canonicalSha256": "d9caaebbe1839263ad91dab2eab43ff628f612bc25c02e0746b33a8a32631f27"
+      },
+      "deployment": {
+        "programData": "8y1gTuEN5t417sBWNbeerGFQ5v49MpRmxVBgVDatnJjv",
+        "deploySlot": 497831834,
+        "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+        "allocatedBinaryBytes": 901880
+      }
+    }
+  ],
+  "after": [
+    {
+      "name": "dusk",
+      "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
+      "binary": {
+        "path": "on-chain (devnet)",
+        "sha256": "7d16d18d70514ed5d883908619c72be30c436926ae6ddd366f6b2dd5b8f3efc9"
+      },
+      "idl": {
+        "path": "protocol/idl/dusk.json",
+        "sha256": "5c2839cd1f022b9ab83cfbe135306f5efb3e4eb19a9abeac39fe0277d0c577d0",
+        "canonicalSha256": "72cfca415c1638045c46aef9e184b2e5280b3568bc5f61234bc03ce2081439d7"
+      },
+      "deployment": {
+        "programData": "FH3oEMmx2n7YMeEsrLM8dzr7FxuZLQgMacwQF6ZHdWk",
+        "deploySlot": 504809896,
+        "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+        "allocatedBinaryBytes": 2652240
+      }
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv",
+      "binary": {
+        "path": "on-chain (devnet)",
+        "sha256": "7903449634d559bba246d779a993b2afd27050e48692702d6714ac6f3a713858"
+      },
+      "idl": {
+        "path": "protocol/idl/leverage_delegate.json",
+        "sha256": "b2d39d3575f72ad334a0f853784bdb5909ddead5e0ebf3dc84ccd5253eccdce3",
+        "canonicalSha256": "d9caaebbe1839263ad91dab2eab43ff628f612bc25c02e0746b33a8a32631f27"
+      },
+      "deployment": {
+        "programData": "8y1gTuEN5t417sBWNbeerGFQ5v49MpRmxVBgVDatnJjv",
+        "deploySlot": 497831834,
+        "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+        "allocatedBinaryBytes": 901880
+      }
+    }
+  ],
+  "transaction": {
+    "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
+    "signature": "4HWwJa71qXNwWC4KTb3t9Ni96ALarAo9LNMUUrifS1whr1oURmo3oh4mWBWGwgG5NJWNdwzn6kP5645RGdVrKE2R"
+  },
+  "finalizedReadback": {
+    "binarySha256": "7d16d18d70514ed5d883908619c72be30c436926ae6ddd366f6b2dd5b8f3efc9",
+    "allocatedBinaryBytes": 2652240,
+    "byteForByteMatch": true
+  },
+  "verified": true
+}

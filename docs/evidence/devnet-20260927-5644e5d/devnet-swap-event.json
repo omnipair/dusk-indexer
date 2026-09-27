@@ -1,0 +1,24 @@
+{
+  "transactionSignature": "b5o2FRvwAtTfWQRMa3dcGJPv4trcdVcjno9NcLK5mTnU2cqYdbm29nWjuthQBw5wecZ4gxAwiE7aafjWuxna1US",
+  "slot": 504814959,
+  "commitment": "finalized",
+  "market": "HYVQ4BtLT1dq25YndvumPnxo5BRwcTwW8iqgd2Lv9bXE",
+  "input": {
+    "asset": "base",
+    "amount": "0.01",
+    "kind": "devnet mock token"
+  },
+  "source": "SwapExecuted Anchor event CPI decoded with the deployed Dusk IDL",
+  "base": {
+    "spot_price_nad": "1064324127",
+    "price_ema_nad": "1064325222",
+    "swap_fee_growth_index_q64": "5689003542448136",
+    "interest_growth_index_q64": "0"
+  },
+  "quote": {
+    "spot_price_nad": "939563404",
+    "price_ema_nad": "939562437",
+    "swap_fee_growth_index_q64": "6917529027641081",
+    "interest_growth_index_q64": "0"
+  }
+}

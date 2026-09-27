@@ -1,0 +1,72 @@
+{
+  "oldCanonicalIdl": "f913d04e43342f7936665d0736a958315f3e57a8633c19fa88a920217f7ad542",
+  "newCanonicalIdl": "72cfca415c1638045c46aef9e184b2e5280b3568bc5f61234bc03ce2081439d7",
+  "accountLayoutsUnchanged": true,
+  "changes": {
+    "instructions": {
+      "added": [
+        "donate_collateral",
+        "repay_leverage",
+        "withdraw_all_collateral",
+        "withdraw_repaid_leverage"
+      ],
+      "removed": [],
+      "changed": [
+        "add_leverage_margin",
+        "initialize_yield_accounts",
+        "repay",
+        "start_liquidation_auction"
+      ]
+    },
+    "accounts": {
+      "added": [],
+      "removed": [],
+      "changed": []
+    },
+    "events": {
+      "added": [
+        "BorrowInterestAccrued",
+        "BorrowInterestPaid",
+        "DebtFreePositionClosed",
+        "LiquidationAuctionCancelled",
+        "LiquidationAuctionStarted",
+        "LpTransferred"
+      ],
+      "removed": [],
+      "changed": []
+    },
+    "types": {
+      "added": [
+        "BorrowInterestAccrued",
+        "BorrowInterestPaid",
+        "DebtFreePositionClosed",
+        "DebtSource",
+        "DonateCollateralArgs",
+        "LiquidationAuctionCancelled",
+        "LiquidationAuctionStarted",
+        "LpTransferred",
+        "MarketSideSnapshot",
+        "SwapOrigin",
+        "WithdrawAllCollateralArgs",
+        "WithdrawRepaidLeverageArgs"
+      ],
+      "removed": [],
+      "changed": [
+        "BorrowPositionLiquidated",
+        "LeveragePositionUpdated",
+        "LeverageSwapReceipt",
+        "MarketCollateralDeposited",
+        "MarketCollateralWithdrawn",
+        "MarketCreated",
+        "MarketDebtUpdated",
+        "ParameterProposalCreated",
+        "SwapExecuted"
+      ]
+    },
+    "errors": {
+      "added": [],
+      "removed": [],
+      "changed": []
+    }
+  }
+}

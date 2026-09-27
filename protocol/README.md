@@ -9,14 +9,16 @@ Never hand-edit generated IDLs. A protocol upgrade vendors a new revision, runs
 replay/reconciliation checks, and deliberately switches the active identity.
 The legacy Omnipair decoder cannot decode Dusk accounts or events.
 
-The current pin is `devnet-2026-09-18-1fa72d3`, built from merged Dusk PR #30
-(`1fa72d35973efedd47a157775cdd0d1ef3ae90d9`). Dusk was upgraded at finalized
-slot 499930981; the unchanged leverage delegate remains at slot 497831834.
-Both upgrade authorities are unchanged. The complete ProgramData payload was
-read back and compared with the zero-padded tested build. Evidence and the
-previous pin are retained in `docs/evidence/devnet-1fa72d3/`.
+The current pin is `devnet-2026-09-27-5644e5d`, built from Dusk PR #40
+(`5644e5db86d63311b35b8373992f8fa210ef3ccf`). Dusk was upgraded at
+finalized slot 504809896; the unchanged leverage delegate remains at slot
+497831834. The Dusk binary was dumped at finalized commitment and matched
+the tested build byte for byte. Evidence and the previous pin are in
+`docs/evidence/devnet-20260927-5644e5d/` and `protocol/archive/`.
 
-The generated IDL adds `preview_borrow_position_capacity`. Existing instruction
-signatures, account layouts, types, events and errors are unchanged. The SDK is
-2.8.0. Historical observations retain their original identities; new captures,
-projections and cursors use the new revision without relabeling old records.
+The generated IDL adds post-swap price, EMA and growth snapshots, asset
+decimals in `MarketCreated`, and lifecycle events. Account layouts are
+unchanged. The deployment-scoped SDK package is `2.10.2-devnet.20260927`:
+it carries this Dusk IDL and the unchanged deployed delegate IDL. Historical
+observations retain their original identities; new captures, projections and
+cursors use the new revision without relabeling old records.

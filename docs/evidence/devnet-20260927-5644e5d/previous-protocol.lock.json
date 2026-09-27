@@ -1,15 +1,15 @@
 {
   "$schema": "./protocol/schemas/protocol-lock.schema.json",
   "schemaVersion": 1,
-  "revision": "devnet-2026-09-27-5644e5d",
+  "revision": "devnet-2026-09-18-932018a",
   "status": "deployed",
-  "generatedAt": "2026-09-27T14:19:35.099Z",
+  "generatedAt": "2026-09-18T11:27:07.674Z",
   "source": {
     "repository": "https://github.com/omnipair/dusk",
-    "branch": "feat/market-observed-event",
-    "gitCommit": "5644e5db86d63311b35b8373992f8fa210ef3ccf",
-    "worktreeFingerprintSha256": "205e3adbe8bf2b3de2b49d7ef3550925e5baeec61e4bcc6c16113ace2345873c",
-    "note": "Dusk PR #40 event snapshot source was built and upgraded on devnet. Finalized ProgramData bytes match the tested binary exactly at slot 504809896. SDK 2.10.2-devnet.20260927 was packaged from follow-up commit c60160b; no program source changed. The unchanged delegate retains its previous pin. Historical observations keep their original identities. The deployment-scoped SDK retains the pinned delegate IDL and omits undeployed protection methods."
+    "branch": "main",
+    "gitCommit": "932018addb546e5906d345e3358d7980ddacc742",
+    "worktreeFingerprintSha256": "98ee1bd93aaffdff2c7c3fed2546ecc139245f5dd0eb8762d709f5d6f76c065b",
+    "note": "Merged PR #34 adds the read-only hLP deposit-capacity preview. Finalized read-back verifies Dusk; the unchanged delegate keeps its existing deployment. Public release evidence is in docs/evidence/devnet-932018a/. Historical observations retain their original identities."
   },
   "cluster": {
     "name": "devnet",
@@ -21,18 +21,18 @@
       "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
       "binary": {
         "path": "on-chain (devnet)",
-        "sha256": "7d16d18d70514ed5d883908619c72be30c436926ae6ddd366f6b2dd5b8f3efc9"
+        "sha256": "6183b7a393bad1a8a6cafada81c9e572b99d423ce27c098c2213112fa460741c"
       },
       "idl": {
         "path": "protocol/idl/dusk.json",
-        "sha256": "5c2839cd1f022b9ab83cfbe135306f5efb3e4eb19a9abeac39fe0277d0c577d0",
-        "canonicalSha256": "72cfca415c1638045c46aef9e184b2e5280b3568bc5f61234bc03ce2081439d7"
+        "sha256": "84c781342dec1684c3d1562295a9cea6046c44eadcab350d39becaf2b0c5256e",
+        "canonicalSha256": "f913d04e43342f7936665d0736a958315f3e57a8633c19fa88a920217f7ad542"
       },
       "deployment": {
         "programData": "FH3oEMmx2n7YMeEsrLM8dzr7FxuZLQgMacwQF6ZHdWk",
-        "deploySlot": 504809896,
+        "deploySlot": 500313561,
         "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
-        "allocatedBinaryBytes": 2652240
+        "allocatedBinaryBytes": 2581712
       }
     },
     {
@@ -57,7 +57,7 @@
   ],
   "sdk": {
     "package": "@omnipair/dusk-sdk",
-    "version": "2.10.2-devnet.20260927",
-    "sha256": "bc2373ec73ec9b7fac654e0d64df951c63445bb3d0827ec902d437a5e13210e4"
+    "version": "2.9.0",
+    "sha256": "18651e3036217438ba17a907b647b1780d45ab9a74a68ae84b7e538214b02b43"
   }
 }

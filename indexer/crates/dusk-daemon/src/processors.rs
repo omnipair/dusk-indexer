@@ -375,7 +375,12 @@ mod tests {
         let record = observed.events[0].canonical_record();
         assert_eq!(record.commitment, Commitment::Confirmed);
         assert_eq!(record.blockhash, STREAM_BLOCKHASH);
-        assert_eq!(record.slot, 504_079_196);
+        assert_eq!(record.slot, 504_814_959);
+        let payload = record.decoded_payload.as_ref().unwrap();
+        assert_eq!(payload["base"]["spot_price_nad"], "1064324127");
+        assert_eq!(payload["quote"]["spot_price_nad"], "939563404");
+        assert_eq!(payload["base"]["price_ema_nad"], "1064325222");
+        assert_eq!(payload["quote"]["price_ema_nad"], "939562437");
         assert!(record.event_key.contains(&signature));
     }
 }

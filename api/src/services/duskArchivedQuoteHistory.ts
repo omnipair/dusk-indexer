@@ -11,10 +11,12 @@ import { QuoteHistoryQuery, quoteHistoryState, readCapturedQuoteHistory } from '
 
 export const ARCHIVED_QUOTE_REVISION = 'devnet-2026-09-13-9973dea';
 export const PREVIOUS_QUOTE_REVISION = 'devnet-2026-09-18-1fa72d3';
-const ACTIVE_REVISION = 'devnet-2026-09-18-932018a';
+export const RECENT_QUOTE_REVISION = 'devnet-2026-09-18-932018a';
+const ACTIVE_REVISION = 'devnet-2026-09-27-5644e5d';
 const successors: Record<string, string> = {
   [ARCHIVED_QUOTE_REVISION]: PREVIOUS_QUOTE_REVISION,
-  [PREVIOUS_QUOTE_REVISION]: ACTIVE_REVISION,
+  [PREVIOUS_QUOTE_REVISION]: RECENT_QUOTE_REVISION,
+  [RECENT_QUOTE_REVISION]: ACTIVE_REVISION,
 };
 
 /** Historical display only. Each release keeps its original tuple, envelope,

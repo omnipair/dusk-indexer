@@ -107,9 +107,10 @@ test('leverage swaps, margin-only changes and reported interest are distinct eco
   await priced(client);
   for (const name of ['LeveragePositionOpened','LeveragePositionUpdated','LeveragePositionClosed','LeveragePositionLiquidated','MarketDebtUpdated','HlpClosed','HlpTerminalLiquidated'])
     await source(client,{ name,fields: name === 'LeveragePositionUpdated' ? { ...activityPayload(name),swap: null } : undefined });
-  assert.equal(await projectMarketActivityBatch(client),7);
+  for (let swap = 0; swap < 3; swap++) await source(client,{ name: 'SwapExecuted' });
+  assert.equal(await projectMarketActivityBatch(client),10);
   const view = await readMarketActivity(client,query);
-  assert.equal(view.events,7); assert.equal(view.swaps,3);
+  assert.equal(view.events,10); assert.equal(view.swaps,3);
   assert.equal(view.metrics.volume.observedUsd,'15');
   assert.equal(view.metrics.swapFees.observedUsd,'0.39');
   assert.equal(view.metrics.reportedInterest.observedUsd,'1.25');
@@ -119,10 +120,11 @@ test('leverage swaps, margin-only changes and reported interest are distinct eco
 test('product totals survive replay and distinguish exposure, new credit and repayments',() => transaction(async client => {
   await priced(client);
   await source(client,{ name: 'LeveragePositionOpened' });
+  await source(client,{ name: 'SwapExecuted' });
   await source(client,{ name: 'MarketDebtUpdated' });
   await source(client,{ name: 'MarketDebtUpdated',fields: { ...activityPayload('MarketDebtUpdated'),debt_delta: '-2000000' } });
   await source(client,{ name: 'LeveragePositionUpdated',fields: { ...activityPayload('LeveragePositionUpdated'),swap: null,borrowed_amount: '0' } });
-  assert.equal(await projectMarketActivityBatch(client),4);
+  assert.equal(await projectMarketActivityBatch(client),5);
   assert.equal(await projectMarketActivityBatch(client),0);
   const view = await readMarketActivity(client,query);
   assert.equal(view.volumes.spot.observedUsd,'5');
