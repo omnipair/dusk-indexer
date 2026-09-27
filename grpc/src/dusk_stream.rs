@@ -406,4 +406,60 @@ mod tests {
             now.timestamp_millis() - 1001
         ));
     }
+
+    #[tokio::test]
+    async fn config_observation_requests_and_validates_the_notice_slot() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let pin: Value = serde_json::from_str(PIN).unwrap();
+        let now = chrono::Utc::now();
+        let mut deployment = json!({
+            "schemaVersion": "dusk-deployment.v2",
+            "network": pin["cluster"]["name"],
+            "genesisHash": pin["cluster"]["genesisHash"],
+            "commitment": "confirmed",
+            "sourceSlot": 500000000,
+            "observedAt": now.to_rfc3339(),
+            "deploymentIdentitySha256": "a".repeat(64)
+        });
+        for (name, fields) in [
+            ("dusk", ["programId", "programDataAddress", "programDataSlot", "programUpgradeAuthority", "programBinarySha256", "idlSha256", "idlRawSha256"]),
+            ("leverage_delegate", ["leverageDelegateProgramId", "leverageDelegateProgramDataAddress", "leverageDelegateProgramDataSlot", "leverageDelegateUpgradeAuthority", "leverageDelegateBinarySha256", "leverageDelegateIdlSha256", "leverageDelegateIdlRawSha256"]),
+        ] {
+            let program = pin["programs"].as_array().unwrap().iter().find(|p| p["name"] == name).unwrap();
+            for (field, value) in fields.iter().zip([
+                program["programId"].clone(),
+                program["deployment"]["programData"].clone(),
+                json!(program["deployment"]["deploySlot"].as_u64().unwrap().to_string()),
+                program["deployment"]["upgradeAuthority"].clone(),
+                program["binary"]["sha256"].clone(),
+                program["idl"]["canonicalSha256"].clone(),
+                program["idl"]["sha256"].clone(),
+            ]) {
+                deployment[*field] = value;
+            }
+        }
+        let body = json!({ "success": true, "data": {}, "deployment": deployment }).to_string();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 4096];
+            let size = socket.read(&mut request).await.unwrap();
+            assert!(std::str::from_utf8(&request[..size]).unwrap()
+                .contains("/api/dusk/v1/config?minimumSourceSlot=500000000"));
+            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}", body.len(), body).as_bytes()).await.unwrap();
+        });
+        let (_sender, receiver) = watch::channel(Notice::default());
+        let stream = DuskStream {
+            receiver,
+            client: reqwest::Client::new(),
+            endpoint: reqwest::Url::parse(&format!("http://{address}/api/dusk/v1/config")).unwrap(),
+            pin: Arc::new(pin),
+            capacity: Arc::new(Semaphore::new(1)),
+            observation: Arc::new(Mutex::new(None)),
+        };
+        assert_eq!(stream.read_envelope(500000000).await.unwrap()["sourceSlot"], 500000000);
+        server.await.unwrap();
+    }
 }
