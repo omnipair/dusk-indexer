@@ -305,16 +305,15 @@ fn get_discriminator(attrs: &[syn::Attribute]) -> Option<quote::__private::Token
             attr.parse_meta().ok().and_then(|meta| {
                 if let Meta::List(list) = meta {
                     list.nested.iter().find_map(|nested| {
-                        if let NestedMeta::Meta(Meta::NameValue(nv)) = nested {
-                            if nv.path.is_ident("discriminator") {
-                                if let Lit::Str(lit_str) = &nv.lit {
-                                    let disc_str = lit_str.value();
-                                    let disc_bytes = hex::decode(disc_str.trim_start_matches("0x"))
-                                        .expect("Invalid hex string");
-                                    let disc_array = disc_bytes.as_slice();
-                                    return Some(quote! { &[#(#disc_array),*] });
-                                }
-                            }
+                        if let NestedMeta::Meta(Meta::NameValue(nv)) = nested
+                            && nv.path.is_ident("discriminator")
+                            && let Lit::Str(lit_str) = &nv.lit
+                        {
+                            let disc_str = lit_str.value();
+                            let disc_bytes = hex::decode(disc_str.trim_start_matches("0x"))
+                                .expect("Invalid hex string");
+                            let disc_array = disc_bytes.as_slice();
+                            return Some(quote! { &[#(#disc_array),*] });
                         }
                         None
                     })

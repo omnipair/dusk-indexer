@@ -24,3 +24,4 @@
 041_dusk_quote_series.sql
 042_dusk_event_history_performance.sql
 043_dusk_live_snapshots.sql
+044_dusk_streamed_ingestion.sql

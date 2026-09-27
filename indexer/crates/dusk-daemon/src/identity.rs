@@ -18,15 +18,6 @@ pub struct DeploymentWindow {
     pub first_slot: u64,
     pub through_slot: u64,
 }
-impl DeploymentWindow {
-    pub fn require_slot(&self, slot: u64) -> Result<()> {
-        if slot < self.first_slot || slot > self.through_slot {
-            bail!("FINALIZED_INVARIANT: transaction is outside the attested deployment interval");
-        }
-        Ok(())
-    }
-}
-
 #[derive(Default)]
 pub struct Attestation {
     verified_binary: bool,
@@ -233,15 +224,7 @@ mod tests {
         assert!(verify_accounts(&pin, &headers, slot, slot, false).is_err());
     }
     #[test]
-    fn release_window_excludes_upgrade_slot_and_unattested_future() {
+    fn an_unattested_deployment_has_no_window() {
         assert!(Attestation::default().window().is_err());
-        let window = DeploymentWindow {
-            first_slot: 20,
-            through_slot: 30,
-        };
-        assert!(window.require_slot(19).is_err());
-        window.require_slot(20).unwrap();
-        window.require_slot(30).unwrap();
-        assert!(window.require_slot(31).is_err());
     }
 }

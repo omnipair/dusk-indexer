@@ -103,22 +103,21 @@ pub async fn persist(
     signature: &str,
     slot: u64,
     blockhash: &str,
-    block_time: Option<i64>,
+    event_time: i64,
     instruction: &OrderInstruction,
 ) -> Result<String> {
     let key = format!("{cluster}|{LEVERAGE_DELEGATE_PROGRAM_ID}|{LEVERAGE_DELEGATE_IDL_SHA256}|{PROTOCOL_REVISION}|{signature}|{}", instruction.path.iter().map(u16::to_string).collect::<Vec<_>>().join("."));
-    let time = block_time.context("order history requires finalized block time")?;
     // The SQL function persists evidence first; a contradiction remains inspectable
     // and halts ingestion.
     let consistent: bool = sqlx::query_scalar("SELECT dusk_ingestion.record_order_instruction($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)")
         .bind(cluster).bind(LEVERAGE_DELEGATE_PROGRAM_ID).bind(LEVERAGE_DELEGATE_IDL_SHA256).bind(PROTOCOL_REVISION)
-        .bind(&key).bind(signature).bind(i64::try_from(slot)?).bind(blockhash).bind(time)
+        .bind(&key).bind(signature).bind(i64::try_from(slot)?).bind(blockhash).bind(event_time)
         .bind(instruction.path.iter().map(|v| i32::from(*v)).collect::<Vec<_>>())
         .bind(&instruction.name).bind(&instruction.order).bind(&instruction.owner).bind(&instruction.market)
         .bind(&instruction.raw).bind(serde_json::to_string(&json!({"accounts":instruction.accounts,"arguments":instruction.arguments}))?)
         .fetch_one(pool).await?;
     if !consistent {
-        bail!("FINALIZED_INVARIANT: contradictory order instruction {key}");
+        bail!("contradictory order instruction {key}");
     }
     Ok(key)
 }

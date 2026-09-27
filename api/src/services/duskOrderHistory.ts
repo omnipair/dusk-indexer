@@ -3,6 +3,7 @@ import { PublicKey } from '@solana/web3.js';
 import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
+import { readStreamCursor } from './duskHistoryCoverage';
 
 export const CLOSED_ORDER_INSTRUCTIONS = [
   'cancel_leverage_order','after_close_order',
@@ -46,9 +47,10 @@ export async function readOrderHistory(client: PoolClient, query: OrderHistoryQu
     USING(cluster,program_id,idl_hash,protocol_revision) WHERE o.cluster=$1 AND o.program_id=$2 AND o.idl_hash=$3 AND o.protocol_revision=$4
     AND o.slot BETWEEN s.from_slot AND s.through_slot AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(s.transactions) r WHERE r->>'signature'=o.signature AND (r->>'slot')::bigint=o.slot AND r->>'blockhash'=o.blockhash AND r->'instructionKeys' ? o.instruction_key) LIMIT 1`,identity);
   if (late.rowCount) throw new Error('FINALIZED_INVARIANT: order history contradicts completed scan');
-  const scan=await client.query<{through_slot:string;through_block_time:Date;release_block_time:Date;completed_at:Date}>(`SELECT through_slot::text,through_block_time,release_block_time,completed_at FROM dusk_ingestion.order_history_scans
-    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 ORDER BY through_slot DESC LIMIT 1`,identity);
-  if (!scan.rows[0]) throw Object.assign(new Error('Delegate order-history scan has not completed'),{status:503});
+  // Coverage is the stream's cursor. Instructions stream with the Dusk
+  // program's transactions.
+  const streamed=await readStreamCursor(client);
+  if (!streamed) throw Object.assign(new Error('Delegate order-history stream has not started'),{status:503});
   const latest=(await client.query<{watermark:string}>(`SELECT COALESCE(max(observation_id),0)::text AS watermark FROM dusk_ingestion.order_instruction_observations WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4`,identity)).rows[0].watermark;
   if (cursor && BigInt(cursor.watermark)>BigInt(latest)) invalid();
   const watermark=cursor?.watermark??latest;
@@ -67,14 +69,13 @@ export async function readOrderHistory(client: PoolClient, query: OrderHistoryQu
     ORDER BY o.slot DESC,o.instruction_key DESC LIMIT $12`,[...identity,watermark,window.owner,CLOSED_ORDER_INSTRUCTIONS,window.until,window.market,cursor?.slot??null,cursor?.key??null,query.limit+1]);
   const page=rows.rows.slice(0,query.limit), last=page.at(-1), hasMore=rows.rows.length>query.limit;
   const nextCursor=hasMore&&last?Buffer.from(JSON.stringify({scope,watermark,slot:last.slot,key:last.instruction_key})).toString('base64url'):null;
-  const scanned=scan.rows[0];
   return {schemaVersion:'dusk-order-history.v1',window,
     orders:page.map(row=>({instructionKey:row.instruction_key,observationId:row.observation_id,instructionName:row.instruction_name,
       order:row.order_address,owner:row.owner_address,market:row.market,signature:row.signature,slot:row.slot,blockhash:row.blockhash,instructionPath:row.instruction_path,time:row.block_time.toISOString()})),
     pagination:{limit:query.limit,cursor:query.cursor??null,nextCursor,hasMore,watermark},
     coverage:{cluster:pin.cluster,programId:pin.leverageDelegate.programId,idlSha256:pin.leverageDelegate.idlCanonicalSha256,protocolRevision:pin.revision,
-      deploymentIdentitySha256:query.deploymentIdentitySha256,commitment:'finalized',basis:'finalized-delegate-instructions.v1',historyRangeComplete:false,
-      firstSlot:String(pin.historyFirstSlot),throughSlot:scanned.through_slot,throughTime:scanned.through_block_time.toISOString(),completedAt:scanned.completed_at.toISOString()},
+      deploymentIdentitySha256:query.deploymentIdentitySha256,commitment:'confirmed',basis:'confirmed-delegate-instructions.v1',historyRangeComplete:false,
+      firstSlot:String(pin.historyFirstSlot),throughSlot:streamed.throughSlot,throughTime:streamed.time.toISOString(),completedAt:streamed.time.toISOString()},
   };
 }
 export async function listOrderHistory(query:OrderHistoryQuery) {

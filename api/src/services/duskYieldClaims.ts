@@ -69,7 +69,7 @@ export async function projectYieldClaimBatch(client: PoolClient, limit = 500): P
       (s.cluster,s.program_id,s.idl_hash,s.protocol_revision,s.event_key)=
       (c.cluster,c.program_id,c.idl_hash,c.protocol_revision,c.event_key)) history ON true
     WHERE c.cluster=$1 AND c.program_id=$2 AND c.idl_hash=$3 AND c.protocol_revision=$4
-      AND c.commitment='finalized' AND o.commitment='finalized' AND o.event_name='YieldClaimed'
+      AND c.commitment IN ('confirmed','finalized') AND o.commitment=c.commitment AND o.event_name='YieldClaimed'
       AND NOT EXISTS (SELECT 1 FROM dusk_ingestion.yield_claims y WHERE
         (y.cluster,y.program_id,y.idl_hash,y.protocol_revision,y.event_key)=
         (c.cluster,c.program_id,c.idl_hash,c.protocol_revision,c.event_key))
@@ -123,9 +123,9 @@ export async function readYieldClaims(client: PoolClient, options: YieldClaimQue
     JOIN dusk_ingestion.event_observations o USING(cluster,program_id,idl_hash,protocol_revision,event_key,observation_id)
     LEFT JOIN dusk_ingestion.yield_claims y USING(cluster,program_id,idl_hash,protocol_revision,event_key,observation_id)
     WHERE c.cluster=$1 AND c.program_id=$2 AND c.idl_hash=$3 AND c.protocol_revision=$4
-      AND c.commitment='finalized' AND o.commitment='finalized' AND o.event_name='YieldClaimed'`, active);
+      AND c.commitment IN ('confirmed','finalized') AND o.commitment=c.commitment AND o.event_name='YieldClaimed'`, active);
   const summary = coverage.rows[0];
-  const provenance = { cluster: active[0], programId: active[1], idlSha256: active[2], protocolRevision: active[3], commitment: 'finalized' as const };
+  const provenance = { cluster: active[0], programId: active[1], idlSha256: active[2], protocolRevision: active[3], commitment: 'confirmed' as const };
   return {
     claims: rows.rows.map((row) => ({ ...parseYieldClaim(row.payload, row.slot), eventKey: row.event_key,
       signature: row.signature, blockTime: (row.block_time as Date).toISOString(),

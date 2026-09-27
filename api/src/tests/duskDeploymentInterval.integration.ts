@@ -47,14 +47,15 @@ async function rejected(client:PoolClient,work:()=>Promise<unknown>) {
   await client.query('ROLLBACK TO SAVEPOINT expected_rejection');
 }
 
-test('registered release accepts interval boundaries and rejects old, future and foreign-IDL events',()=>transaction(async(client,value)=>{
+// Streamed confirmed events land past the last attested finalized slot.
+test('registered release accepts events from its first slot on and rejects old and foreign-IDL events',()=>transaction(async(client,value)=>{
   await register(client,value);
   await source(client,value,value.first); await source(client,value,value.through);
   await rejected(client,()=>source(client,value,value.first-1));
-  await rejected(client,()=>source(client,value,value.through+1));
+  await source(client,value,value.through+1);
   const foreign='b'.repeat(64); await identity(client,value,foreign);
   await rejected(client,()=>source(client,value,value.first,foreign));
-  assert.equal((await client.query('SELECT count(*) FROM dusk_ingestion.event_observations WHERE protocol_revision=$1',[value.revision])).rows[0].count,'2');
+  assert.equal((await client.query('SELECT count(*) FROM dusk_ingestion.event_observations WHERE protocol_revision=$1',[value.revision])).rows[0].count,'3');
 }));
 
 test('deployment identity is immutable and the verified upper bound only advances',()=>transaction(async(client,value)=>{
@@ -77,13 +78,13 @@ test('contaminated current-revision history blocks registration and remains unch
   assert.equal((await client.query('SELECT count(*) FROM dusk_ingestion.deployment_intervals WHERE protocol_revision=$1',[value.revision])).rows[0].count,'0');
 }));
 
-test('cursor registration starts at the deployment floor and cannot advance outside its interval',()=>transaction(async(client,value)=>{
+test('cursor registration starts at the deployment floor and streams past the verified bound',()=>transaction(async(client,value)=>{
   await register(client,value);
   const args=[pinned.cluster,pinned.dusk.programId,pinned.dusk.idlCanonicalSha256,value.revision];
   await client.query(`INSERT INTO dusk_ingestion.ingestion_cursors(cluster,program_id,idl_hash,protocol_revision,stream_name,commitment,next_slot)
     VALUES($1,$2,$3,$4,'test','finalized',$5)`,[...args,value.first]);
   await rejected(client,()=>client.query(`UPDATE dusk_ingestion.ingestion_cursors SET next_slot=$2,last_observed_slot=$3,last_finalized_slot=$3,last_signature='old' WHERE protocol_revision=$1`,[value.revision,value.first,value.first-1]));
-  await rejected(client,()=>client.query(`UPDATE dusk_ingestion.ingestion_cursors SET next_slot=$2,last_observed_slot=$3,last_finalized_slot=$3,last_signature='future' WHERE protocol_revision=$1`,[value.revision,value.through+2,value.through+1]));
+  await client.query(`UPDATE dusk_ingestion.ingestion_cursors SET next_slot=$2,last_observed_slot=$3,last_finalized_slot=$3,last_signature='future' WHERE protocol_revision=$1`,[value.revision,value.through+2,value.through+1]);
   await client.query(`UPDATE dusk_ingestion.ingestion_cursors SET next_slot=$2,last_observed_slot=$3,last_finalized_slot=$3,last_signature='valid' WHERE protocol_revision=$1`,[value.revision,value.first+1,value.first]);
   assert.equal((await client.query('SELECT last_signature FROM dusk_ingestion.ingestion_cursors WHERE protocol_revision=$1',[value.revision])).rows[0].last_signature,'valid');
 }));

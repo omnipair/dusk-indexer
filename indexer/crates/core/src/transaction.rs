@@ -254,7 +254,7 @@ pub fn parse_instructions<T: InstructionDecoderCollection>(
             });
         } else {
             for inner_ix in nested_ix.inner_instructions.iter() {
-                parsed_instructions.extend(parse_instructions(&[inner_ix.clone()]));
+                parsed_instructions.extend(parse_instructions(std::slice::from_ref(inner_ix)));
             }
         }
     }
