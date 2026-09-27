@@ -13,8 +13,6 @@ use {
 const PIN: &str = include_str!("../../protocol/protocol.lock.json");
 const BATCH: Duration = Duration::from_millis(250);
 const HEARTBEAT: Duration = Duration::from_secs(2);
-// /config carries the market catalog as well as the deployment envelope.
-const MAX_CONFIG_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 type Updates = Pin<Box<dyn Stream<Item = Result<DuskChange, Status>> + Send>>;
 #[derive(Clone, Copy, Debug, Default)]
 struct Notice {
@@ -231,7 +229,7 @@ impl DuskStream {
             .map_err(|_| fail())?;
         let mut bytes = Vec::new();
         while let Some(chunk) = response.chunk().await.map_err(|_| fail())? {
-            if bytes.len() + chunk.len() > MAX_CONFIG_RESPONSE_BYTES {
+            if bytes.len() + chunk.len() > 16_384 {
                 return Err(fail());
             }
             bytes.extend_from_slice(&chunk);

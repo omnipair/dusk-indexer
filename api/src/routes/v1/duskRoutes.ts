@@ -213,10 +213,17 @@ router.get(
     if (raw !== undefined &&
         (typeof raw !== 'string' || !/^(0|[1-9][0-9]*)$/.test(raw) || !Number.isSafeInteger(Number(raw))))
       throw Object.assign(new Error('Invalid minimum source slot'), { status: 400 });
+    // The gRPC producer needs only an envelope covering its notice. Building
+    // the market catalog for every heartbeat would delay and duplicate reads.
+    if (raw !== undefined) {
+      res.set('Cache-Control', 'no-store').json({ success: true, data: null,
+        deployment: await deploymentEnvelope(Number(raw)) });
+      return;
+    }
     res.set('Cache-Control', 'no-store').json(await withDeploymentRead(async (deployment) => {
       const { config, sourceSlot } = await deploymentSnapshot(deployment);
       return { data: config, sourceSlot };
-    }, raw === undefined ? 0 : Number(raw)));
+    }));
   }),
 );
 
