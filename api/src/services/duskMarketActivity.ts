@@ -22,7 +22,7 @@ function activeSwapBasis() {
 }
 interface ActivitySource {
   event_key: string; observation_id: string; signature: string; slot: string;
-  event_name: string; market: string; blockhash: string; block_time: Date; payload: unknown;
+  event_name: string; market: string; blockhash: string; block_time: Date; block_time_exact: string; payload: unknown;
 }
 
 /** Replay and live ingestion share this source-keyed, replica-serialized path. */
@@ -33,7 +33,7 @@ export async function projectMarketActivityBatch(client: PoolClient,limit = 500)
   const result = await client.query<ActivitySource & { stream_count: string; matching_count: string }>(`
     SELECT c.event_key,o.observation_id::text,o.event_name,o.transaction_signature AS signature,o.slot::text,
       o.blockhash,o.decoded_payload AS payload,o.decoded_payload->>'market' AS market,
-      history.block_time,history.stream_count,history.matching_count
+      history.block_time,history.block_time::text AS block_time_exact,history.stream_count,history.matching_count
     FROM dusk_ingestion.canonical_events c
     JOIN dusk_ingestion.event_observations o USING(cluster,program_id,idl_hash,protocol_revision,event_key,observation_id)
     LEFT JOIN LATERAL (SELECT min(s.time) AS block_time,count(*)::text AS stream_count,
@@ -47,13 +47,13 @@ export async function projectMarketActivityBatch(client: PoolClient,limit = 500)
         (a.cluster,a.program_id,a.idl_hash,a.protocol_revision,a.event_key)=(c.cluster,c.program_id,c.idl_hash,c.protocol_revision,c.event_key))
     ORDER BY o.slot,c.event_key LIMIT $6`,[...active,ACTIVITY_EVENTS,limit]);
   for (const row of result.rows) {
-    if (row.stream_count !== '1' || row.matching_count !== '1' || !(row.block_time instanceof Date) || !Number.isFinite(row.block_time.getTime()))
+    if (row.stream_count !== '1' || row.matching_count !== '1' || !(row.block_time instanceof Date) || !Number.isFinite(row.block_time.getTime()) || typeof row.block_time_exact !== 'string')
       throw new Error('FINALIZED_INVARIANT: activity event lacks one matching event-time record');
     const parsed = parseActivityEvent(row.event_name,row.payload,row.slot,swapBasis);
     await client.query(`INSERT INTO dusk_ingestion.market_activity_events
       (cluster,program_id,idl_hash,protocol_revision,event_key,observation_id,event_name,market,signature,slot,blockhash,block_time,payload)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-      [...active,row.event_key,row.observation_id,row.event_name,parsed.market,row.signature,row.slot,row.blockhash,row.block_time,JSON.stringify(row.payload)]);
+      [...active,row.event_key,row.observation_id,row.event_name,parsed.market,row.signature,row.slot,row.blockhash,row.block_time_exact,JSON.stringify(row.payload)]);
   }
   return result.rows.length;
 }

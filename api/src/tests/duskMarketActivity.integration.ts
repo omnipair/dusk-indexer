@@ -94,6 +94,14 @@ test('native trades project once, exclude other revisions and processed observat
   assert.equal((await readMarketActivity(client,query)).coverage.selectionHash,after.coverage.selectionHash);
 }));
 
+test('microsecond event time survives the projection and exact source guard',() => transaction(async client => {
+  const key = await source(client,{ time: '2026-09-02T00:00:10.123456Z' });
+  assert.equal(await projectMarketActivityBatch(client),1);
+  const saved = await client.query(`SELECT to_char(block_time AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS.US') AS exact_time
+    FROM dusk_ingestion.market_activity_events WHERE event_key=$1`,[key]);
+  assert.equal(saved.rows[0].exact_time,'2026-09-02 00:00:10.123456');
+}));
+
 test('a price-bearing swap inside the selected window is also activity',() => transaction(async client => {
   await priced(client);
   await streamedSwapSnapshot(client,{ slot: activitySlot-1,time: '2026-09-02T00:00:05Z' });

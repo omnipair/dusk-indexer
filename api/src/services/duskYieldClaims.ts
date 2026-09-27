@@ -47,7 +47,7 @@ export function parseYieldClaim(value: unknown, sourceSlot: string) {
 
 interface ClaimSource {
   event_key: string; observation_id: string; signature: string; slot: string;
-  blockhash: string; block_time: Date | null; payload: unknown; stream_count: string; matching_stream_count: string;
+  blockhash: string; block_time: Date | null; block_time_exact: string | null; payload: unknown; stream_count: string; matching_stream_count: string;
 }
 
 /** Caller owns a transaction. The same path handles newly ingested and replayed events. */
@@ -59,7 +59,7 @@ export async function projectYieldClaimBatch(client: PoolClient, limit = 500): P
   await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`dusk:yield-claims:${JSON.stringify(active)}`]);
   const sources = await client.query<ClaimSource>(`SELECT c.event_key,o.observation_id::text,
     o.transaction_signature AS signature,o.slot::text,o.blockhash,o.decoded_payload AS payload,
-    history.block_time,history.stream_count,history.matching_stream_count
+    history.block_time,history.block_time::text AS block_time_exact,history.stream_count,history.matching_stream_count
     FROM dusk_ingestion.canonical_events c
     JOIN dusk_ingestion.event_observations o USING(cluster,program_id,idl_hash,protocol_revision,event_key,observation_id)
     LEFT JOIN LATERAL (SELECT min(s.time) AS block_time,count(*)::text AS stream_count,
@@ -75,14 +75,14 @@ export async function projectYieldClaimBatch(client: PoolClient, limit = 500): P
         (c.cluster,c.program_id,c.idl_hash,c.protocol_revision,c.event_key))
     ORDER BY o.slot,c.event_key LIMIT $5`, [...active, limit]);
   for (const row of sources.rows) {
-    if (row.stream_count !== '1' || row.matching_stream_count !== '1' || !(row.block_time instanceof Date) || !Number.isFinite(row.block_time.getTime()))
+    if (row.stream_count !== '1' || row.matching_stream_count !== '1' || !(row.block_time instanceof Date) || !Number.isFinite(row.block_time.getTime()) || typeof row.block_time_exact !== 'string')
       throw new Error(`FINALIZED_INVARIANT: yield claim ${row.event_key} lacks one matching event-time record`);
     const claim = parseYieldClaim(row.payload, row.slot);
     await client.query(`INSERT INTO dusk_ingestion.yield_claims
       (cluster,program_id,idl_hash,protocol_revision,event_key,observation_id,signature,slot,blockhash,block_time,
        owner,market,lp_mint,asset_mint,recipient,token_kind,swap_fee_amount,interest_amount,recipient_credit,payload)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
-      [...active,row.event_key,row.observation_id,row.signature,row.slot,row.blockhash,row.block_time,
+      [...active,row.event_key,row.observation_id,row.signature,row.slot,row.blockhash,row.block_time_exact,
         claim.owner,claim.market,claim.lpMint,claim.assetMint,claim.recipient,claim.tokenKind === 'ylp' ? 0 : 1,
         claim.swapFeeAmount,claim.interestAmount,claim.recipientCredit,JSON.stringify(row.payload)]);
   }
