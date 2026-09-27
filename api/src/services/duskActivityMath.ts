@@ -124,11 +124,10 @@ export interface ActivityExternalPrice {
 
 /** Direct provider quote, then on-chain ratio to a provider quote, then the
  * captured devnet reference. No current quote is applied to a past event. */
-export function activityPriceBasis(basis: ActivityPriceBasis,external: ActivityExternalPrice[],eventTime: string,maxAgeSeconds: number): ActivityPriceBasis {
+export function activityPriceBasis(basis: ActivityPriceBasis,external: ActivityExternalPrice[],eventTime: string): ActivityPriceBasis {
   const valid = external.filter((price) => {
     const time = Date.parse(price.sourceTime),observed = Date.parse(price.observedAt),event = Date.parse(eventTime);
-    return Number.isFinite(time) && Number.isFinite(observed) && time<=observed && observed<=event
-      && time>=event-maxAgeSeconds*1000;
+    return Number.isFinite(time) && Number.isFinite(observed) && time<=observed && observed<=event;
   });
   const prices = (['base','quote'] as const).flatMap((side) => {
     const mint = side === 'base' ? basis.bound.baseMint : basis.bound.quoteMint;

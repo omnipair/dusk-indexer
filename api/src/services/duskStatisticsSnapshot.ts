@@ -31,14 +31,12 @@ export async function captureStatisticsSnapshot(
   signal?: AbortSignal,
 ) {
   const now = Date.now(),
-    until = new Date(now).toISOString(),
-    maxPriceAgeSeconds = 3600;
+    until = new Date(now).toISOString();
   let request = {
     ...(range === '24h'
       ? { since: new Date(now - 86_400_000).toISOString() }
       : {}),
     until,
-    maxPriceAgeSeconds,
   };
   const [initial, exposures] = await Promise.all([
     listMarketActivity({
@@ -62,7 +60,6 @@ export async function captureStatisticsSnapshot(
       request = {
         since: new Date(start).toISOString(),
         until: new Date(end).toISOString(),
-        maxPriceAgeSeconds,
       };
       activity = await listMarketActivity({
         ...request,

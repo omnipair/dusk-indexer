@@ -51,8 +51,8 @@ or on-chain fallback unless explicitly mapped.
 
 Every event uses the latest prior-slot native swap snapshot, even when a quiet
 market has not swapped recently. Provider observations must have been recorded
-no later than the event and must meet `maxPriceAgeSeconds`; that bound applies
-only to provider prices. A worker quote fetched after an event can price later
+no later than the event; the latest eligible observation remains available until
+a newer one arrives. A worker quote fetched after an event can price later
 events, but is never applied retroactively to the triggering event. Provider
 observation IDs and native capture IDs participate in the
 selection hash. A missing historical

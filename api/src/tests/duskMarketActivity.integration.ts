@@ -18,7 +18,7 @@ after(() => pool.end());
 useFixtureReferences();
 const pin = loadPinnedProtocol(),active = [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
 const query = { market: activityMarket,since: '2026-09-02T00:00:00Z',until: '2026-09-02T00:01:00Z',
-  deploymentIdentitySha256: 'b'.repeat(64),maxPriceAgeSeconds: 60 };
+  deploymentIdentitySha256: 'b'.repeat(64) };
 
 async function source(client: PoolClient,options: {
   slot?: number; name?: string; commitment?: string; revision?: string; fields?: Record<string,unknown>; time?: string; omitStream?: boolean;
@@ -141,11 +141,10 @@ test('event-time provider prices precede native references without leaking futur
     priceUsd: '3',provider: 'jupiter' as const,sourceTime: '2026-09-02T00:00:06Z',observedAt: '2026-09-02T00:00:06Z' };
   await storeExternalPrices(client,[quote],'c'.repeat(64));
   assert.equal((await readMarketActivity(client,query)).volumes.spot.observedUsd,'5');
-  await storeExternalPrices(client,[{ ...quote,sourceTime: '2026-09-02T00:00:07Z',observedAt: '2026-09-02T00:00:07Z' }],query.deploymentIdentitySha256);
+  await storeExternalPrices(client,[{ ...quote,sourceTime: '2026-09-01T22:00:00Z',observedAt: '2026-09-01T22:00:00Z' }],query.deploymentIdentitySha256);
   const pricedView = await readMarketActivity(client,query);
   assert.equal(pricedView.volumes.spot.observedUsd,'6');
   assert.equal(pricedView.volumes.spot.estimatedObservations,1); // Mainnet price mapped into devnet.
-  assert.equal((await readMarketActivity(client,{ ...query,maxPriceAgeSeconds: 2 })).volumes.spot.observedUsd,'5');
   await storeExternalPrices(client,[{ ...quote,priceUsd: '99',sourceTime: '2026-09-02T00:00:11Z',observedAt: '2026-09-02T00:00:11Z' }],query.deploymentIdentitySha256);
   const historical = await readMarketActivity(client,query);
   assert.equal(historical.volumes.spot.observedUsd,'6');
@@ -207,7 +206,6 @@ test('old prior-slot snapshots value quiet markets, while same-slot and future-t
   await streamedSwapSnapshot(client,{ slot: activitySlot,time: '2026-09-02T00:00:09Z',baseSpotNad: 5_000_000_000n });
   await streamedSwapSnapshot(client,{ slot: activitySlot-2,time: '2026-09-02T00:00:11Z',baseSpotNad: 10_000_000_000n });
   assert.equal((await readMarketActivity(client,query)).metrics.volume.observedUsd,'5');
-  assert.equal((await readMarketActivity(client,{ ...query,maxPriceAgeSeconds: 9 })).metrics.volume.observedUsd,'5');
 }));
 
 test('a prior-slot native snapshot remains usable after more than one quiet hour',() => transaction(async client => {

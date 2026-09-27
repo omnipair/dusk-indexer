@@ -309,13 +309,10 @@ router.get('/analytics/activity',asyncRoute(async (req,res) => {
     }
     catch { throw Object.assign(new Error('Invalid activity market'),{ status: 400 }); }
   }
-  const maxPriceAgeSeconds = req.query.maxPriceAgeSeconds === undefined ? 3600 : Number(req.query.maxPriceAgeSeconds);
-  if (since && since>until || req.query.maxPriceAgeSeconds !== undefined &&
-    (typeof req.query.maxPriceAgeSeconds !== 'string' || !/^[1-9]\d*$/.test(req.query.maxPriceAgeSeconds))
-    || !Number.isSafeInteger(maxPriceAgeSeconds) || maxPriceAgeSeconds<1 || maxPriceAgeSeconds>86400)
+  if (since && since>until || req.query.maxPriceAgeSeconds !== undefined)
     throw Object.assign(new Error('Invalid activity time range'),{ status: 400 });
   res.json(await withDeploymentRead(async (deployment) => {
-    const data = await listMarketActivity({ since,until,market,maxPriceAgeSeconds,deployment,deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
+    const data = await listMarketActivity({ since,until,market,deployment,deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
     const sourceSlot = Math.max(Number(data.coverage.lastSourceSlot ?? 0),Number(data.coverage.historyScan?.throughSlot ?? 0));
     if (!Number.isSafeInteger(sourceSlot) || sourceSlot<0) throw new Error('Invalid activity source slot');
     return { data,sourceSlot };

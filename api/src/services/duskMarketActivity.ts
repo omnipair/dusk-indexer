@@ -68,7 +68,7 @@ export async function projectFinalizedMarketActivity(limit = 500) {
   finally { client.release(); }
 }
 
-export interface MarketActivityQuery extends HistoryDeploymentQuery { since?: string; until: string; market?: string; maxPriceAgeSeconds?: number }
+export interface MarketActivityQuery extends HistoryDeploymentQuery { since?: string; until: string; market?: string }
 type MetricAccumulator = { valued: bigint; unpriced: number; observations: number; estimated: number };
 function emptyMetrics() {
   return Object.fromEntries(ACTIVITY_METRICS.map((metric) => [metric,{ valued: 0n,unpriced: 0,observations: 0,estimated: 0 }])) as Record<ActivityMetric,MetricAccumulator>;
@@ -88,9 +88,8 @@ function volumeResponse(metrics: ReturnType<typeof emptyMetrics>) {
 
 /** Caller owns a repeatable-read transaction. Range coverage is the stream's cursor. */
 export async function readMarketActivity(client: PoolClient,options: MarketActivityQuery) {
-  const active = identity(),swapBasis = activeSwapBasis(),maxPriceAgeSeconds = options.maxPriceAgeSeconds ?? 3600;
-  if (!/^[0-9a-f]{64}$/.test(options.deploymentIdentitySha256) || !Number.isFinite(Date.parse(options.until)) || options.since && (!Number.isFinite(Date.parse(options.since)) || Date.parse(options.since)>Date.parse(options.until))
-    || !Number.isSafeInteger(maxPriceAgeSeconds) || maxPriceAgeSeconds<1 || maxPriceAgeSeconds>86400)
+  const active = identity(),swapBasis = activeSwapBasis();
+  if (!/^[0-9a-f]{64}$/.test(options.deploymentIdentitySha256) || !Number.isFinite(Date.parse(options.until)) || options.since && (!Number.isFinite(Date.parse(options.since)) || Date.parse(options.since)>Date.parse(options.until)))
     throw new Error('Invalid native activity time range');
   if (options.market !== undefined && new PublicKey(options.market).toBase58() !== options.market)
     throw new Error('Invalid native activity market');
@@ -120,7 +119,7 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
   const all = emptyMetrics(),byMarket = new Map<string,{ metrics: ReturnType<typeof emptyMetrics>; swaps: number; events: number }>();
   const prices = new Map<string,ActivityPriceBasis>();
   const digest = createHash('sha256').update(JSON.stringify([active,options.deploymentIdentitySha256,
-    options.since ? new Date(options.since).toISOString() : null,new Date(options.until).toISOString(),options.market ?? null,maxPriceAgeSeconds]));
+    options.since ? new Date(options.since).toISOString() : null,new Date(options.until).toISOString(),options.market ?? null]));
   let afterSlot = '-1',afterKey = '',count = 0,swaps = 0,firstSourceSlot: string | null = null,lastSourceSlot: string | null = null;
   const references = activePriceReferences();
   do {
@@ -144,14 +143,13 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
           AND x.mint IN (p.payload->'base'->>'asset_mint',p.payload->'quote'->>'asset_mint') AND x.quality='external-observation'
           AND (x.source LIKE 'dusk-provider.v1:jupiter:%' OR x.source LIKE 'dusk-provider.v1:birdeye:%')
           AND x.source_evidence->>'basis'='dusk-provider.v1' AND x.source_evidence->>'sourceCluster'='mainnet-beta'
-          AND x.source_evidence->>'deploymentIdentitySha256'=ANY($11::text[])
+          AND x.source_evidence->>'deploymentIdentitySha256'=ANY($10::text[])
           AND x.source_time<=a.block_time AND x.observed_at<=a.block_time
-          AND x.source_time>=a.block_time-($8::int*interval '1 second')
         ORDER BY x.mint,x.source_time DESC,x.observation_id DESC) prices) external ON true
       WHERE a.cluster=$1 AND a.program_id=$2 AND a.idl_hash=$3 AND a.protocol_revision=$4
         AND ($5::timestamptz IS NULL OR a.block_time>=$5) AND a.block_time<=$6
-        AND ($7::text IS NULL OR a.market=$7) AND (a.slot,a.event_key)>($9::bigint,$10::text)
-      ORDER BY a.slot,a.event_key LIMIT 500`,[...active,options.since ?? null,options.until,options.market ?? null,maxPriceAgeSeconds,afterSlot,afterKey,deployments]);
+        AND ($7::text IS NULL OR a.market=$7) AND (a.slot,a.event_key)>($8::bigint,$9::text)
+      ORDER BY a.slot,a.event_key LIMIT 500`,[...active,options.since ?? null,options.until,options.market ?? null,afterSlot,afterKey,deployments]);
     if (!page.rows.length) break;
     for (const row of page.rows) {
       let basis: ActivityPriceBasis | null = null;
@@ -167,7 +165,7 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
       }
       const parsed = parseActivityEvent(row.event_name,row.payload,row.slot,swapBasis);
       if (parsed.market !== row.market) throw new Error('FINALIZED_INVARIANT: activity market changed');
-      if (basis) basis = activityPriceBasis(basis,row.external_prices,row.block_time.toISOString(),maxPriceAgeSeconds);
+      if (basis) basis = activityPriceBasis(basis,row.external_prices,row.block_time.toISOString());
       const metrics = valueActivityAmounts(parsed.amounts,basis,Number(row.slot),row.block_time.toISOString());
       const market = byMarket.get(row.market) ?? { metrics: emptyMetrics(),swaps: 0,events: 0 };
       byMarket.set(row.market,market);
@@ -191,7 +189,7 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
   digest.update(JSON.stringify(historyScan));
   return {
     schemaVersion: 'dusk-market-activity.v1' as const,
-    window: { since: options.since ? new Date(options.since).toISOString() : null,until: new Date(options.until).toISOString(),maxPriceAgeSeconds },
+    window: { since: options.since ? new Date(options.since).toISOString() : null,until: new Date(options.until).toISOString() },
     metrics: metricResponse(all),volumes: volumeResponse(all),events: count,swaps,
     markets: [...byMarket].sort(([a],[b]) => a.localeCompare(b)).map(([market,value]) => ({ market,metrics: metricResponse(value.metrics),volumes: volumeResponse(value.metrics),events: value.events,swaps: value.swaps })),
     coverage: { cluster: active[0],programId: active[1],idlSha256: active[2],protocolRevision: active[3],commitment: 'confirmed' as const,

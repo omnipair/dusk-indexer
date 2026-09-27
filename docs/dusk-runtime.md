@@ -112,8 +112,7 @@ signing key or submit transactions. Each transaction projects at most 500 events
 under a protocol-scoped PostgreSQL lock. Late older-slot events remain eligible,
 and repeated passes do not double count them.
 
-`GET /api/dusk/v1/analytics/activity` accepts `since`, `until`, `market` and
-`maxPriceAgeSeconds` (1–86400, default 3600, for external provider quotes only).
+`GET /api/dusk/v1/analytics/activity` accepts `since`, `until` and `market`.
 It returns protocol-wide and
 per-market observed volume, swap fees, retained fees, compounded fees and
 explicitly reported interest payments under a freshly attested deployment
@@ -126,7 +125,9 @@ referral allocations and fee auctions do not count as newly earned fees.
 Valuation prices each event from the latest swap snapshot for its market at
 a strictly earlier slot and a non-future time
 (`latest-observed-prior-slot.v1`). Quiet markets have no native snapshot age
-cutoff. Valuation prefers an event-time provider quote.
+cutoff. Valuation prefers the latest provider quote captured no later than the
+event, without a provider age cutoff. A quote captured after an event cannot
+price that event retroactively.
 Same-slot snapshots are excluded because an event does not say where in its
 slot the trade fell. Arithmetic rounds down to 36 decimal places.
 
