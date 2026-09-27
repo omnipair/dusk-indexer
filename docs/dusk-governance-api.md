@@ -30,11 +30,11 @@ program itself computes for sponsorship and queue checks.
     address: string, market: string, proposer: string,
     nonce: string, family: number, familyRevision: string,
     digest: string,               // 64-character lowercase hex
-    update: unknown,              // decoded MarketParameterUpdate: { variant, fields }
+    update: unknown,              // decoded MarketParameterUpdate: { variant, fields }, fields an array for tuple variants
     metadata: { version: number, title: string, descriptionUri: string, descriptionSha256: string, descriptionLen: number },
     sponsorshipFloor: string, initialSupport: string, totalLocked: string,
     status: number,               // ParameterProposalStatus: Collecting, Queued, Executed, Cancelled, Expired, Stale
-    eligibleSupplyAtQueue: string | null,
+    eligibleSupplyAtQueue: string | null, queuedSupport: string | null, // total locked when queued
     queuedAt: number | null, executeAfter: number | null,
     executionDeadline: number | null, executedAt: number | null, // unix seconds
     createdSlot: number, lastSlot: number,

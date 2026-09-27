@@ -36,7 +36,8 @@ WITH created AS (
 )
 SELECT c.cluster,c.program_id,c.idl_hash,c.protocol_revision,c.proposal,c.payload->>'market' AS market,
   c.payload AS created,COALESCE(l.total_locked,c.payload->>'initial_support') AS total_locked,s.status,
-  q.payload->>'eligible_supply' AS eligible_supply_at_queue,(q.payload->>'queued_at')::bigint AS queued_at,
+  q.payload->>'eligible_supply' AS eligible_supply_at_queue,q.payload->>'total_locked' AS queued_support,
+  (q.payload->>'queued_at')::bigint AS queued_at,
   (q.payload->>'execute_after')::bigint AS execute_after,(q.payload->>'execution_deadline')::bigint AS execution_deadline,
   (e.payload->>'executed_at')::bigint AS executed_at,c.created_slot,s.last_slot
 FROM created c

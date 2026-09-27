@@ -27,20 +27,16 @@ const small = (value: unknown,label: string): number => {
   if (!Number.isSafeInteger(parsed)) throw new Error(`Invalid governance ${label}`);
   return parsed;
 };
-/** The decoder renders byte arrays element-wise as decimal strings. */
+/** The decoder renders a `[u8; N]` array as one `0x`-prefixed hex string. */
 function hex32(value: unknown,label: string): string {
-  if (!Array.isArray(value) || value.length !== 32) throw new Error(`Invalid governance ${label}`);
-  return Buffer.from(value.map((byte) => {
-    const parsed = Number(byte);
-    if (typeof byte !== 'string' || !Number.isInteger(parsed) || parsed<0 || parsed>255) throw new Error(`Invalid governance ${label}`);
-    return parsed;
-  })).toString('hex');
+  if (typeof value !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(value)) throw new Error(`Invalid governance ${label}`);
+  return value.slice(2).toLowerCase();
 }
 const nullableInteger = (value: string | null) => value === null ? null : Number(value);
 
 interface ProposalRow {
   proposal: string; market: string; created: unknown; total_locked: string; status: number;
-  eligible_supply_at_queue: string | null; queued_at: string | null; execute_after: string | null;
+  eligible_supply_at_queue: string | null; queued_support: string | null; queued_at: string | null; execute_after: string | null;
   execution_deadline: string | null; executed_at: string | null; created_slot: string; last_slot: string;
 }
 
@@ -48,7 +44,7 @@ interface ProposalRow {
  * stream's slot is read last, so it covers every event included. */
 export async function readGovernanceProposals(client: PoolClient,market: string | null) {
   const pin = loadPinnedProtocol(),identity = [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
-  const proposals = await client.query<ProposalRow>(`SELECT proposal,market,created,total_locked,status,eligible_supply_at_queue,
+  const proposals = await client.query<ProposalRow>(`SELECT proposal,market,created,total_locked,status,eligible_supply_at_queue,queued_support,
       queued_at::text,execute_after::text,execution_deadline::text,executed_at::text,created_slot::text,last_slot::text
     FROM dusk_ingestion.streamed_governance_proposals
     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND ($5::text IS NULL OR market=$5)
@@ -89,7 +85,7 @@ export async function readGovernanceProposals(client: PoolClient,market: string 
         initialSupport: integer(created.initial_support,'initial support'),
         totalLocked: integer(row.total_locked,'total locked'),
         status: row.status,
-        eligibleSupplyAtQueue: row.eligible_supply_at_queue,
+        eligibleSupplyAtQueue: row.eligible_supply_at_queue,queuedSupport: row.queued_support,
         queuedAt: nullableInteger(row.queued_at),executeAfter: nullableInteger(row.execute_after),
         executionDeadline: nullableInteger(row.execution_deadline),executedAt: nullableInteger(row.executed_at),
         createdSlot: Number(row.created_slot),lastSlot: Number(row.last_slot),
