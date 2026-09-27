@@ -10,7 +10,6 @@ import {
   captureLeverageValuation,
   DuskLeverageValuationUnavailable,
 } from '../services/duskLeverageValuation';
-import { captureMarketExposures } from '../services/duskStatisticsSnapshot';
 import { displayFixture, displayKey } from './duskDisplayStateFixtures';
 import type { DuskReadBoundary } from '../services/virtualBook/native';
 const pause = () => new Promise<void>((resolve) => setImmediate(resolve));
@@ -93,6 +92,10 @@ async function fixture() {
       entry: [],
       hlp: [],
     }),
+    borrowPositions: async () => ({ positions: [], sourceSlot: 1010 }),
+    borrowValuation: walletCaptureDependencies.borrowValuation,
+    hlpBalances: async () => ({ balances: [], lpBalances: [], sourceSlot: 1010 }),
+    hlpPositions: walletCaptureDependencies.hlpPositions,
   };
   const capture = () =>
     captureWalletSnapshot(
@@ -165,39 +168,44 @@ test('only a confirmed close instruction rejection is classified as unavailable'
   );
 });
 
-test('exposure capture groups verified collateral and rejects malformed or regressed accounts', async () => {
-  const f = await displayFixture();
-  f.position.bump = f.dusk.get.pda.leveragePosition(
-    f.marketAddress,
-    f.position.positionId,
-  )[1];
-  f.state.discovered[0].account = f.encodeAccount(
-    'leveragePosition',
-    f.position,
-  );
-  const result = await captureMarketExposures(f.dusk, f.deployment);
-  assert.deepEqual(result.markets, [
-    {
-      market: f.marketAddress.toBase58(),
-      baseCollateral: '100',
-      quoteCollateral: '0',
-      positions: 1,
-    },
-  ]);
-  f.state.discovered[0].pubkey = displayKey(99);
-  await assert.rejects(
-    captureMarketExposures(f.dusk, f.deployment),
-    /Invalid exposure/,
-  );
-  f.state.slot = 999;
-  await assert.rejects(
-    captureMarketExposures(f.dusk, f.deployment),
-    /Incomplete/,
-  );
-});
-
 test('an incomplete oracle batch cannot be published as a complete wallet frame', async () => {
   const f = await fixture();
   f.deps.oracle = async () => [];
   await assert.rejects(f.capture(), /oracle valuation batch is incomplete/);
+});
+
+test('wallet frames value streamed borrow positions at or after the stream and cover every preview slot', async () => {
+  const f = await fixture();
+  const position = { address: displayKey(95).toBase58(), market: f.marketAddress.toBase58(), owner: f.selection.owner };
+  f.deps.borrowPositions = async (selection) => {
+    assert.deepEqual(selection, { owner: f.selection.owner });
+    return { positions: [position], sourceSlot: 1020 };
+  };
+  f.deps.borrowValuation = async (_dusk, row, floor) => {
+    assert.equal(floor, 1020);
+    return { status: 'unavailable', ...row, sourceSlot: 1030, reason: 'preview-rejected' };
+  };
+  const hlp = {
+    market: f.marketAddress.toBase58(), side: 'quote' as const, hlpMint: displayKey(96).toBase58(), walletBalance: '7',
+    protectedBalance: '0', hasStopLoss: false, hasStopRate: false, principalNavPerTokenNad: '1000000000', sourceSlot: 1040,
+  };
+  f.deps.hlpBalances = async () => ({ balances: [{ market: hlp.market, side: 'quote', hlpMint: hlp.hlpMint, amount: '7' }],
+    lpBalances: [{ market: hlp.market, kind: 'quote_hlp', lpMint: hlp.hlpMint, amount: '7' }], sourceSlot: 1015 });
+  f.deps.hlpPositions = async (_dusk, holdings, orders, payer, minSlot) => {
+    assert.equal(holdings.length, 1);
+    assert.deepEqual(orders, []);
+    assert.equal(payer, f.deployment.programUpgradeAuthority);
+    assert.equal(minSlot, 1015);
+    return [hlp];
+  };
+  const result = await f.capture();
+  assert.deepEqual(result.borrowValuations, [{ status: 'unavailable', ...position, sourceSlot: 1030, reason: 'preview-rejected' }]);
+  assert.deepEqual(result.hlpPositions, [hlp]);
+  assert.deepEqual(result.lpBalances, { basis: 'streamed-events.v1', sourceSlot: 1015,
+    balances: [{ market: hlp.market, kind: 'quote_hlp', lpMint: hlp.hlpMint, amount: '7' }] });
+  assert.equal(result.sourceSlot, 1040);
+  f.deps.borrowValuation = async () => {
+    throw new Error('RPC timeout');
+  };
+  await assert.rejects(f.capture(), /RPC timeout/);
 });

@@ -23,8 +23,10 @@ import {
   duskApiConfig, loadPinnedProtocol,
 } from '../config/duskProtocol';
 import { deploymentEnvelope } from './duskDeploymentService';
+import type { DuskDeploymentEnvelope } from './duskDeploymentService';
 import { cache } from '../utils/cache';
 import { captureLiveMarketSimulation, duskRawIdl, LiveMarketSimulationSnapshot } from './duskMarketSimulation';
+import { CapacityDependencies, captureMarketCapacities, MarketCapacities } from './duskMarketCapacity';
 import { indexedPortfolioDebt } from './duskPortfolioMath';
 import { parsePriceReferences, projectMarketPrices } from './duskPriceMath';
 import { leverageCollateralAddress, snapshotCollateralAmount, snapshotTokenMetadata, tokenMetadataAddress } from './duskMarketExtras';
@@ -118,7 +120,8 @@ export async function currentMarketSnapshot(market: PublicKey, discovery: unknow
   const mints = ['base','quote'].map((side) => stringValue(field(field(discovery,`${side}Side`,`${side}_side`),'assetMint','asset_mint')));
   const collateral = ['base','quote'].map((side) => stringValue(field(field(discovery,`${side}Side`,`${side}_side`),'collateralVault','collateral_vault')));
   const reserves = ['base','quote'].map((side) => stringValue(field(field(discovery,`${side}Side`,`${side}_side`),'reserveVault','reserve_vault')));
-  const extras = [...mints,...collateral,...reserves,...mints.map((mint) => leverageCollateralAddress(market.toBase58(),mint)),...mints.map(tokenMetadataAddress)];
+  const hlpMints = ['base','quote'].map((side) => stringValue(field(field(discovery,`${side}Side`,`${side}_side`),'hlpMint','hlp_mint')));
+  const extras = [...mints,...collateral,...reserves,...mints.map((mint) => leverageCollateralAddress(market.toBase58(),mint)),...mints.map(tokenMetadataAddress),...hlpMints];
   const snapshot = await cache.getOrSet(`${key}:floor:${minSlot}`,0,() => capture(market.toBase58(),minSlot,extras));
   if (snapshot.commitment !== 'confirmed' || snapshot.slot<minSlot || snapshot.market !== market.toBase58()
     || snapshot.deploymentIdentitySha256 !== identity) throw new Error('Live market snapshot identity or slot mismatch');
@@ -204,6 +207,22 @@ function marketConfigPayload(marketAccount: unknown): Record<string, unknown> {
       volatilityFeeCoefficientNad: stringValue(
         field(amm, 'volatilityFeeCoefficientNad', 'volatility_fee_coefficient_nad'),
       ),
+      // The fee family's governed values beyond the base fee: a proposal
+      // drafted without them would reset the collection mode, compounding
+      // share and launch schedule.
+      swapFeeCollectMode: numberValue(field(amm, 'swapFeeCollectMode', 'swap_fee_collect_mode')),
+      compoundingFeeBps: numberValue(field(amm, 'compoundingFeeBps', 'compounding_fee_bps')),
+      launchFeeStartBps: numberValue(field(amm, 'launchFeeStartBps', 'launch_fee_start_bps')),
+      launchFeeDurationSeconds: stringValue(field(amm, 'launchFeeDurationSeconds', 'launch_fee_duration_seconds')),
+      launchFeeDecayMode: numberValue(field(amm, 'launchFeeDecayMode', 'launch_fee_decay_mode')),
+      launchMarketPriceStepBps: numberValue(field(amm, 'launchMarketPriceStepBps', 'launch_market_price_step_bps')),
+      launchMarketNumberOfPeriods: numberValue(field(amm, 'launchMarketNumberOfPeriods', 'launch_market_number_of_periods')),
+      launchMarketReductionFactorBps: numberValue(field(amm, 'launchMarketReductionFactorBps', 'launch_market_reduction_factor_bps')),
+      launchRateLimitAsset: numberValue(field(amm, 'launchRateLimitAsset', 'launch_rate_limit_asset')),
+      launchRateLimitReferenceNad: stringValue(field(amm, 'launchRateLimitReferenceNad', 'launch_rate_limit_reference_nad')),
+      launchRateLimitIncrementBps: numberValue(field(amm, 'launchRateLimitIncrementBps', 'launch_rate_limit_increment_bps')),
+      launchRateLimitMaxFeeBps: numberValue(field(amm, 'launchRateLimitMaxFeeBps', 'launch_rate_limit_max_fee_bps')),
+      launchRateLimitDurationSeconds: stringValue(field(amm, 'launchRateLimitDurationSeconds', 'launch_rate_limit_duration_seconds')),
       reserved: Array.from(
         (field<number[]>(amm, 'reserved') ?? []) as number[],
       ).map((byte) => Number(byte)),
@@ -320,19 +339,74 @@ function associatedAddresses(
   };
 }
 
+/** Capacity previews belong to one captured market bank and share its cache
+ * lifetime; a later snapshot quotes them again. */
+export async function currentMarketCapacities(snapshot: LiveMarketSimulationSnapshot, payer: string | null,
+  capture: typeof captureMarketCapacities = captureMarketCapacities,
+  rpc: () => CapacityDependencies['rpc'] = () => initializeRuntime().connection): Promise<MarketCapacities | null> {
+  if (!payer) return null;
+  const decoded = new anchor.BorshCoder(duskRawIdl()).accounts.decode('Market',Buffer.from(snapshot.marketAccount.data,'base64'));
+  const side = (name: 'base' | 'quote') => field<Record<string, unknown>>(decoded,`${name}Side`,`${name}_side`);
+  const input = { market: snapshot.market,
+    baseMint: stringValue(field(side('base'),'assetMint','asset_mint')),quoteMint: stringValue(field(side('quote'),'assetMint','asset_mint')),
+    baseDecimals: numberValue(field(side('base'),'assetDecimals','asset_decimals')),quoteDecimals: numberValue(field(side('quote'),'assetDecimals','asset_decimals')),
+    baseHlpMint: stringValue(field(side('base'),'hlpMint','hlp_mint')),quoteHlpMint: stringValue(field(side('quote'),'hlpMint','hlp_mint')) };
+  return cache.getOrSet(`dusk:market_capacity:${snapshot.deploymentIdentitySha256}:${snapshot.market}:${snapshot.slot}`,5000,
+    () => capture(input,snapshot.slot,{ rpc: rpc(),payer }));
+}
+
 export async function marketPayload(
   market: PublicKey,
   marketAccount: unknown,
   sourceSlot: number,
-  deploymentIdentity?: string,
+  deployment?: Pick<DuskDeploymentEnvelope, 'deploymentIdentitySha256' | 'programUpgradeAuthority'>,
 ): Promise<Record<string, unknown>> {
-  const identity = deploymentIdentity ?? (await deploymentEnvelope()).deploymentIdentitySha256;
-  const snapshot = await currentMarketSnapshot(market,marketAccount,sourceSlot,identity);
-  return projectMarketSnapshot(snapshot);
+  const envelope = deployment ?? (await deploymentEnvelope());
+  const snapshot = await currentMarketSnapshot(market,marketAccount,sourceSlot,envelope.deploymentIdentitySha256);
+  const capacities = await currentMarketCapacities(snapshot,
+    process.env.DUSK_PREVIEW_PAYER?.trim() || envelope.programUpgradeAuthority);
+  return projectMarketSnapshot(snapshot,undefined,capacities);
+}
+
+/** The highest bank one market payload read, including its capacity previews. */
+export function marketPayloadSourceSlot(payload: Record<string, unknown>): number {
+  type Slot = { sourceSlot: number } | null;
+  const state = payload.state as Record<string, unknown>;
+  const hlp = payload.hlp as Record<'base' | 'quote', { capacity: Slot }> | null | undefined;
+  const borrow = payload.borrow as Record<'base' | 'quote', Slot> | null | undefined;
+  return Math.max(Number(state.sourceSlot ?? 0),Number(state.healthSourceSlot ?? 0),
+    ...[hlp?.base.capacity,hlp?.quote.capacity,borrow?.base,borrow?.quote].map((value) => value?.sourceSlot ?? 0));
+}
+
+/** Each vault's supply, NAV and funding EMA after the preview's lazy update,
+ * with its hLP mint read in the same bank. */
+function hlpProjection(market: PublicKey,marketAccount: unknown,addresses: DuskMarketAssociatedAddresses,
+  snapshot: LiveMarketSimulationSnapshot,capacities: MarketCapacities | null | undefined) {
+  const side = (name: 'base' | 'quote') => {
+    const mint = addresses[`${name}HlpMint`],decimals = addresses[`${name}Decimals`];
+    const account = snapshot.accounts.find((entry) => entry.address === mint)?.account;
+    if (!account || account.executable || account.owner !== TOKEN_2022_PROGRAM_ID.toBase58()) throw new Error('Market snapshot omits a valid hLP mint');
+    const decoded = unpackMint(new PublicKey(mint),{ owner: TOKEN_2022_PROGRAM_ID,executable: false,data: Buffer.from(account.data,'base64'),lamports: 0 },TOKEN_2022_PROGRAM_ID);
+    if (!decoded.isInitialized || !decoded.mintAuthority?.equals(market) || decoded.decimals !== decimals)
+      throw new Error('hLP mint authority or decimals mismatch');
+    const vault = field(marketAccount,`${name}HlpVault`,`${name}_hlp_vault`);
+    return {
+      mint,
+      decimals,
+      mintSupply: decoded.supply.toString(),
+      hlpSupply: stringValue(field(vault,'hlpSupply','hlp_supply')),
+      lastNavNad: stringValue(field(vault,'lastNavNad','last_nav_nad')),
+      fundingAprEmaNad: stringValue(field(vault,'fundingAprEmaNad','funding_apr_ema_nad')),
+      fundingAprEmaLastSlot: stringValue(field(vault,'fundingAprEmaLastSlot','funding_apr_ema_last_slot')),
+      capacity: capacities?.hlp[name] ?? null,
+    };
+  };
+  return { schemaVersion: 'dusk-market-hlp.v1',sourceSlot: snapshot.slot,base: side('base'),quote: side('quote') };
 }
 
 /** One bank supplies the updated market, its preview, and both mint accounts. */
-export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, referencesInput?: unknown): Record<string, unknown> {
+export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, referencesInput?: unknown,
+  capacities?: MarketCapacities | null): Record<string, unknown> {
   const market = new PublicKey(snapshot.market),sourceSlot = snapshot.slot,decoder = new anchor.BorshCoder(duskRawIdl());
   const marketAccount = decoder.accounts.decode('Market',Buffer.from(snapshot.marketAccount.data,'base64'));
   const preview = snapshot.preview === null ? null : decoder.types.decode('MarketPreview',Buffer.from(snapshot.preview,'base64'));
@@ -390,6 +464,10 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
       quoteCollateralAmount: snapshotCollateralAmount(snapshot,addresses.quoteCollateralVault,addresses.quoteMint,addresses.quoteTokenProgram),
       baseLeverageAmount: snapshotCollateralAmount(snapshot,leverageCollateralAddress(snapshot.market,addresses.baseMint),addresses.baseMint,addresses.baseTokenProgram,true),
       quoteLeverageAmount: snapshotCollateralAmount(snapshot,leverageCollateralAddress(snapshot.market,addresses.quoteMint),addresses.quoteMint,addresses.quoteTokenProgram,true) },
+    // Vault state is only current after the preview's lazy update, so a
+    // market whose preview is rejected publishes no hLP vault values.
+    hlp: preview === null ? null : hlpProjection(market,marketAccount,addresses,snapshot,capacities),
+    borrow: capacities ? { schemaVersion: 'dusk-market-borrow.v1',base: capacities.borrow.base,quote: capacities.borrow.quote } : null,
     targetHlpLeverageBps: config.targetHlpLeverageBps,
     swapFeeBps: config.swapFeeBps,
     config,

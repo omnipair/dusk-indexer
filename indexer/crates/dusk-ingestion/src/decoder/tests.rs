@@ -6,8 +6,11 @@ use {
     std::collections::BTreeSet,
 };
 
-const DUSK_EVENTS: [&str; 38] = [
+const DUSK_EVENTS: [&str; 44] = [
+    "BorrowInterestAccrued",
+    "BorrowInterestPaid",
     "BorrowPositionLiquidated",
+    "DebtFreePositionClosed",
     "HarvestAuthorityUpdated",
     "HlpClosed",
     "HlpOpened",
@@ -18,8 +21,11 @@ const DUSK_EVENTS: [&str; 38] = [
     "LeveragePositionLiquidated",
     "LeveragePositionOpened",
     "LeveragePositionUpdated",
+    "LiquidationAuctionCancelled",
+    "LiquidationAuctionStarted",
     "LiquidityAdded",
     "LiquidityRemoved",
+    "LpTransferred",
     "MarketCollateralDeposited",
     "MarketCollateralWithdrawn",
     "MarketCreated",
@@ -252,7 +258,7 @@ fn registry_classifies_every_pinned_event_and_instruction() {
             .event_names(PinnedProgram::LeverageDelegate)
             .is_empty()
     );
-    assert_eq!(decoder.instruction_names(PinnedProgram::Dusk).len(), 62);
+    assert_eq!(decoder.instruction_names(PinnedProgram::Dusk).len(), 66);
     let actual_delegate: BTreeSet<_> = decoder
         .instruction_names(PinnedProgram::LeverageDelegate)
         .into_iter()
@@ -266,8 +272,8 @@ fn anchor_tags_and_every_idl_discriminator_are_cryptographically_verified() {
     anchor_event_digest.reverse();
     assert_eq!(anchor_event_digest, ANCHOR_EVENT_CPI_TAG);
     let decoder = decoder();
-    assert_eq!(decoder.dusk.events.len(), 38);
-    assert_eq!(decoder.dusk.instructions.len(), 62);
+    assert_eq!(decoder.dusk.events.len(), 44);
+    assert_eq!(decoder.dusk.instructions.len(), 66);
     assert_eq!(decoder.delegate.events.len(), 0);
     assert_eq!(decoder.delegate.instructions.len(), 13);
 

@@ -1,0 +1,16 @@
+{
+  "transactionSignature": "b5o2FRvwAtTfWQRMa3dcGJPv4trcdVcjno9NcLK5mTnU2cqYdbm29nWjuthQBw5wecZ4gxAwiE7aafjWuxna1US",
+  "slot": 504814959,
+  "cluster": "devnet",
+  "database": "disposable local PostgreSQL instance with the Dusk migration manifest applied",
+  "method": "dusk-indexer-daemon --replay <signature> against finalized Helius devnet RPC",
+  "daemonResult": { "events": 1 },
+  "databaseResult": {
+    "dusk_ingestion.streamed_events": 1,
+    "dusk_ingestion.event_stream": 1,
+    "eventName": "SwapExecuted",
+    "payloadBaseSpotPriceNad": "1064324127",
+    "payloadBasePriceEmaNad": "1064325222"
+  },
+  "note": "A later idempotence rerun was blocked by a transient RPC getMultipleAccounts attestation error before processing the transaction. The stored count remained one. Local and CI idempotence tests cover duplicate persistence."
+}

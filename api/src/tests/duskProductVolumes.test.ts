@@ -48,19 +48,21 @@ const basis = (): ActivityPriceBasis => ({ captureId: '1',slot: activitySlot-1,b
 const provider = () => ({ observationId: '9',mint: fixture.quoteMint,decimals: 6,priceUsd: '2',
   sourceTime: '2026-09-02T00:00:06Z',observedAt: '2026-09-02T00:00:06Z' });
 test('provider quotes precede on-chain fallback; price provenance stays in the valuation',() => {
-  const prices = activityPriceBasis(basis(),[provider()],activityTime,60);
+  const prices = activityPriceBasis(basis(),[provider()],activityTime);
   assert.equal(prices.prices[0].priceUsd,'5');
   assert.equal(prices.prices[0].quality,'derived-reference');
   assert.equal(prices.prices[1].quality,'external-observation');
-  const value = valueActivityAmounts(parse('LeveragePositionOpened').amounts,prices,activitySlot,activityTime,60);
+  const value = valueActivityAmounts(parse('LeveragePositionOpened').amounts,prices,activitySlot,activityTime);
   assert.equal(value[0].usd,'10');
   assert.equal(value[0].priceObservationId,'9');
 });
-test('future, stale and wrong-decimal provider quotes cannot override captured prices',() => {
+test('future and wrong-decimal provider quotes cannot override captured prices',() => {
   for (const change of [{ sourceTime: '2026-09-02T00:00:11Z' },{ observedAt: '2026-09-02T00:00:11Z' },
-    { sourceTime: '2026-09-01T23:58:00Z' },{ decimals: 9 }])
-    assert.deepEqual(activityPriceBasis(basis(),[{ ...provider(),...change }],activityTime,60).prices,basis().prices);
-  assert.deepEqual(activityPriceBasis(basis(),[],activityTime,60).prices,basis().prices);
+    { decimals: 9 }])
+    assert.deepEqual(activityPriceBasis(basis(),[{ ...provider(),...change }],activityTime).prices,basis().prices);
+  assert.deepEqual(activityPriceBasis(basis(),[],activityTime).prices,basis().prices);
+  const old = { ...provider(),sourceTime: '2026-09-01T22:00:00Z',observedAt: '2026-09-01T22:00:00Z' };
+  assert.equal(activityPriceBasis(basis(),[old],activityTime).prices[1].priceUsd,'2');
 });
 test('devnet provider lookups require an explicit mint mapping',() => {
   const refs = parsePriceReferences(fixture.references,loadPinnedProtocol());

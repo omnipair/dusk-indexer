@@ -7,6 +7,7 @@
 use {
     crate::{
         extract::{self, ObservationSource},
+        identity::PinnedDeployments,
         orders, persist,
     },
     anyhow::{anyhow, Context as _, Result},
@@ -28,7 +29,7 @@ use {
     },
     sqlx::PgPool,
     std::{sync::Arc, time::Duration},
-    tokio::sync::Mutex,
+    tokio::sync::{mpsc::UnboundedSender, Mutex},
 };
 
 /// Streamed updates carry no containing block. Event keys never include the
@@ -62,6 +63,15 @@ pub struct DuskTransactionProcessor {
     /// Held across each transaction's writes and by the heartbeat, so the
     /// cursor's time never passes an arrival time whose rows are unwritten.
     cursor: Arc<Mutex<()>>,
+    guard: DeploymentGuard,
+}
+
+/// Stops the daemon when a streamed transaction upgrades, re-authorizes or
+/// closes a pinned program: the pinned decoder no longer describes the chain.
+#[derive(Clone)]
+pub struct DeploymentGuard {
+    pub pinned: Arc<PinnedDeployments>,
+    pub stop: UnboundedSender<anyhow::Error>,
 }
 
 impl DuskTransactionProcessor {
@@ -71,6 +81,7 @@ impl DuskTransactionProcessor {
         cluster: String,
         first_slot: u64,
         cursor: Arc<Mutex<()>>,
+        guard: DeploymentGuard,
     ) -> Self {
         Self {
             pool,
@@ -78,7 +89,42 @@ impl DuskTransactionProcessor {
             cluster,
             first_slot,
             cursor,
+            guard,
         }
+    }
+
+    fn deployment_change(
+        &self,
+        transaction: &TransactionMetadata,
+    ) -> Option<solana_pubkey::Pubkey> {
+        let loaded = &transaction.meta.loaded_addresses;
+        let mut keys = transaction.message.static_account_keys().to_vec();
+        keys.extend(loaded.writable.iter().chain(&loaded.readonly));
+        let top = transaction
+            .message
+            .instructions()
+            .iter()
+            .map(|instruction| {
+                (
+                    instruction.program_id_index,
+                    instruction.accounts.as_slice(),
+                    instruction.data.as_slice(),
+                )
+            });
+        let inner = transaction
+            .meta
+            .inner_instructions
+            .iter()
+            .flatten()
+            .flat_map(|set| &set.instructions)
+            .map(|inner| {
+                (
+                    inner.instruction.program_id_index,
+                    inner.instruction.accounts.as_slice(),
+                    inner.instruction.data.as_slice(),
+                )
+            });
+        self.guard.pinned.changed(&keys, top.chain(inner))
     }
 
     /// Re-ingest one transaction through the same path as the stream, for a
@@ -170,6 +216,18 @@ impl Processor for DuskTransactionProcessor {
         (transaction, _, _): Self::InputType,
         metrics: Arc<MetricsCollection>,
     ) -> CarbonResult<()> {
+        if let Some(address) = self.deployment_change(&transaction) {
+            log::error!(
+                "transaction {} at slot {} changes pinned deployment {address}; stopping",
+                transaction.signature,
+                transaction.slot
+            );
+            let _ = self.guard.stop.send(anyhow!(
+                "FINALIZED_INVARIANT: pinned deployment {address} changed at slot {}",
+                transaction.slot
+            ));
+            return Ok(());
+        }
         let _cursor = self.cursor.lock().await;
         match self.ingest(&transaction).await {
             Ok(events) => {
@@ -317,7 +375,12 @@ mod tests {
         let record = observed.events[0].canonical_record();
         assert_eq!(record.commitment, Commitment::Confirmed);
         assert_eq!(record.blockhash, STREAM_BLOCKHASH);
-        assert_eq!(record.slot, 504_079_196);
+        assert_eq!(record.slot, 504_814_959);
+        let payload = record.decoded_payload.as_ref().unwrap();
+        assert_eq!(payload["base"]["spot_price_nad"], "1064324127");
+        assert_eq!(payload["quote"]["spot_price_nad"], "939563404");
+        assert_eq!(payload["base"]["price_ema_nad"], "1064325222");
+        assert_eq!(payload["quote"]["price_ema_nad"], "939562437");
         assert!(record.event_key.contains(&signature));
     }
 }

@@ -177,3 +177,4 @@ dist
 
 # Reviewed native SDK vendored for shared display simulations.
 !api/vendor/dusk-sdk-2.9.0.tgz
+!api/vendor/dusk-sdk-2.10.2-devnet.20260927.tgz

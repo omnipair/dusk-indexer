@@ -1,0 +1,93 @@
+{
+  "checkedAt": "2026-09-27T15:40:22.222469+00:00",
+  "cluster": "devnet",
+  "apiBase": "https://dusk-api-production-291f.up.railway.app/api/dusk/v1",
+  "protocolRevision": "devnet-2026-09-27-5644e5d",
+  "programDataSlot": "504809896",
+  "programBinarySha256": "7d16d18d70514ed5d883908619c72be30c436926ae6ddd366f6b2dd5b8f3efc9",
+  "deploymentIdentitySha256": "c17e51235928710e206fcd8c7e52aa370f18b75b1718916443d5d2c555460aa9",
+  "market": "AEwmr5XajnL6YMgd83ty9YmxUAqiEwxHvCNzGJ4twPeJ",
+  "binding": {
+    "baseMint": "2G78R5YwVopkAxnDMmvNany3RdL98eAM2jcr3UafvL7W",
+    "quoteMint": "G8XEiNtP7TZ2cZRbUdtcPoc3C19T2GgYxTJqBpWz5ZDV",
+    "baseDecimals": 6,
+    "quoteDecimals": 6
+  },
+  "signatures": {
+    "marketCreated": "4kwnZr71h45p5L38MWCRytUt5CYBMv5PLq1PKfyhjxkVb11GwGwwR6kYwa6bmpNDKx4naabFVk5wjjheXQE4gkuJ",
+    "liquidityAdded": "zx2uM3u91WLe2VtCRyEY7LJnujMFrMqmogqthgkLLUQ5eJgxSMcobjhCZFsJjSgZ4TDB7NPcSaEV39P4o9qW5bz",
+    "swaps": [
+      "3XwGngjgfvwhPfCLQwaD6PH94Hs9pw3wjjKVjaYAki6BXKweLJEdyrdWPssEDewM8QT9j6MGJS6wRp9xmERJ9yMD",
+      "22d3VVsrKGveKV2pws7eYojExN4zSmm3aiu6Ym4T1HvBuxAQDpfV671t4byHZ9tXM6kUGrqXP4oCvKYqVdfLw4Ke"
+    ]
+  },
+  "checks": {
+    "health": {
+      "status": 200,
+      "eventCount": 4,
+      "marketCount": 1,
+      "cursorSlot": "504824868"
+    },
+    "market": {
+      "status": 200,
+      "eventCount": 4,
+      "eventCounts": {
+        "LiquidityAdded": 1,
+        "MarketCreated": 1,
+        "SwapExecuted": 2
+      }
+    },
+    "quoteHistory": {
+      "status": 200,
+      "captures": "2",
+      "projectedCaptures": "2",
+      "pendingCaptures": "0",
+      "projectionComplete": true,
+      "candles": [
+        {
+          "sourceSlot": "504824602",
+          "close": "0.999980061",
+          "time": "2026-09-27T15:13:45.627Z"
+        },
+        {
+          "sourceSlot": "504824868",
+          "close": "0.999960122",
+          "time": "2026-09-27T15:14:47.323Z"
+        }
+      ]
+    },
+    "prices": {
+      "status": 200,
+      "observations": [
+        {
+          "sourceSlot": "504824868",
+          "priceUsd": "1",
+          "quality": "configured-reference",
+          "basis": "market-observed.v1"
+        },
+        {
+          "sourceSlot": "504824602",
+          "priceUsd": "1",
+          "quality": "configured-reference",
+          "basis": "market-observed.v1"
+        }
+      ]
+    },
+    "activity": {
+      "status": 200,
+      "indexedEvents": "2",
+      "projectedEvents": "2",
+      "pendingEvents": "0",
+      "projectionComplete": true,
+      "volume": {
+        "observedUsd": null,
+        "valuedUsd": "0.01",
+        "unpricedObservations": 1,
+        "observations": 2,
+        "estimatedObservations": 1
+      },
+      "priceBasis": "latest-observed-prior-slot.v1"
+    }
+  },
+  "note": "The first swap has no strictly prior-slot price observation and remains unpriced. The second swap can use the first swap snapshot. Existing configured devnet mint reference is present; this proof does not establish complete historical external price coverage."
+}

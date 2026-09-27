@@ -136,7 +136,7 @@ mod tests {
     #[test]
     fn interval_starts_after_both_programs_are_active() {
         let pin = pinned_deployment().unwrap();
-        assert_eq!(pin.first_slot(), 500_313_562);
+        assert_eq!(pin.first_slot(), 504_809_897);
         let mut reordered = vendored_protocol_lock();
         reordered["programs"].as_array_mut().unwrap().reverse();
         assert_eq!(

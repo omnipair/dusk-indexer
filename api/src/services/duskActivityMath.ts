@@ -124,11 +124,10 @@ export interface ActivityExternalPrice {
 
 /** Direct provider quote, then on-chain ratio to a provider quote, then the
  * captured devnet reference. No current quote is applied to a past event. */
-export function activityPriceBasis(basis: ActivityPriceBasis,external: ActivityExternalPrice[],eventTime: string,maxAgeSeconds: number): ActivityPriceBasis {
+export function activityPriceBasis(basis: ActivityPriceBasis,external: ActivityExternalPrice[],eventTime: string): ActivityPriceBasis {
   const valid = external.filter((price) => {
     const time = Date.parse(price.sourceTime),observed = Date.parse(price.observedAt),event = Date.parse(eventTime);
-    return Number.isFinite(time) && Number.isFinite(observed) && time<=observed && observed<=event
-      && time>=event-maxAgeSeconds*1000;
+    return Number.isFinite(time) && Number.isFinite(observed) && time<=observed && observed<=event;
   });
   const prices = (['base','quote'] as const).flatMap((side) => {
     const mint = side === 'base' ? basis.bound.baseMint : basis.bound.quoteMint;
@@ -147,15 +146,13 @@ export function activityPriceBasis(basis: ActivityPriceBasis,external: ActivityE
 }
 
 /** One observed trade is valued once, in its input asset, at an as-of price. */
-export function valueActivityAmounts(amounts: ActivityAmount[],price: ActivityPriceBasis | null,eventSlot: number,eventTime: string,maxAgeSeconds: number) {
-  if (!Number.isSafeInteger(eventSlot) || eventSlot<0 || !Number.isFinite(Date.parse(eventTime))
-    || !Number.isSafeInteger(maxAgeSeconds) || maxAgeSeconds<1 || maxAgeSeconds>86400)
+export function valueActivityAmounts(amounts: ActivityAmount[],price: ActivityPriceBasis | null,eventSlot: number,eventTime: string) {
+  if (!Number.isSafeInteger(eventSlot) || eventSlot<0 || !Number.isFinite(Date.parse(eventTime)))
     throw new Error('Invalid native activity valuation boundary');
   // A captured bank has no transaction-order boundary within its slot. A
   // same-slot quote could already include the trade being valued.
   if (price && (!Number.isSafeInteger(price.slot) || price.slot>=eventSlot || price.slot<0
-    || !Number.isFinite(Date.parse(price.blockTime)) || Date.parse(price.blockTime)>Date.parse(eventTime)
-    || Date.parse(eventTime)-Date.parse(price.blockTime)>maxAgeSeconds*1000))
+    || !Number.isFinite(Date.parse(price.blockTime)) || Date.parse(price.blockTime)>Date.parse(eventTime)))
     throw new Error('Native activity price is outside the event-time boundary');
   return amounts.map((entry) => {
     const amount = unsigned(entry.amount);

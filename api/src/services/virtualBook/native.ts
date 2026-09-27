@@ -43,6 +43,17 @@ export const deriveReferralPartnerAddress: Sdk['deriveReferralPartnerAddress'] =
   (...args) => sdkExports!.deriveReferralPartnerAddress(...args);
 export const decodePreviewHlpOrderTriggerReturnData: Sdk['decodePreviewHlpOrderTriggerReturnData'] =
   (...args) => sdkExports!.decodePreviewHlpOrderTriggerReturnData(...args);
+export const decodePreviewBorrowPositionReturnData: Sdk['decodePreviewBorrowPositionReturnData'] =
+  (...args) => sdkExports!.decodePreviewBorrowPositionReturnData(...args);
+export const decodePreviewMarketReturnData: Sdk['decodePreviewMarketReturnData'] = (
+  ...args
+) => sdkExports!.decodePreviewMarketReturnData(...args);
+export const deriveBorrowPositionAddress: Sdk['deriveBorrowPositionAddress'] = (
+  ...args
+) => sdkExports!.deriveBorrowPositionAddress(...args);
+export const deriveYieldAccountAddress: Sdk['deriveYieldAccountAddress'] = (
+  ...args
+) => sdkExports!.deriveYieldAccountAddress(...args);
 export const minimumDuskReadSlot = (deployment: DuskDeploymentEnvelope) =>
   Math.max(
     Number(deployment.programDataSlot),
@@ -91,7 +102,7 @@ export async function createVirtualBookRuntime(
   const boundary: DuskReadBoundary = {
     async assertCompatibleForRead(expected, signal) {
       const observed = await boundedDuskRpcRead(
-        () => deploymentEnvelope(expected.sourceSlot, { fresh: true }),
+        () => deploymentEnvelope(expected.sourceSlot),
         signal,
       );
       if (

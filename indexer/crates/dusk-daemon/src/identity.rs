@@ -13,6 +13,55 @@ use {
     std::str::FromStr,
 };
 
+const UPGRADEABLE_LOADER: &str = "BPFLoaderUpgradeab1e11111111111111111111111";
+/// Loader instructions that replace, re-authorize or close a program:
+/// Upgrade, SetAuthority, Close and SetAuthorityChecked.
+const DEPLOYMENT_CHANGES: [u32; 4] = [3, 4, 5, 7];
+
+/// Every pinned program and ProgramData address. A loader transaction that
+/// touches one also touches the program, so the stream delivers it.
+pub struct PinnedDeployments(Vec<Pubkey>);
+
+impl PinnedDeployments {
+    pub fn load() -> Result<Self> {
+        let pin = pinned_deployment()?;
+        let addresses = pin
+            .programs
+            .iter()
+            .flat_map(|program| [&program.program_id, &program.deployment.program_data])
+            .map(|address| Pubkey::from_str(address))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(Self(addresses))
+    }
+
+    /// The pinned address a loader instruction replaces, re-authorizes or
+    /// closes. Each instruction is its program index, account indexes and data
+    /// against `keys`, top-level or inner.
+    pub fn changed<'a>(
+        &self,
+        keys: &[Pubkey],
+        instructions: impl IntoIterator<Item = (u8, &'a [u8], &'a [u8])>,
+    ) -> Option<Pubkey> {
+        let loader = Pubkey::from_str(UPGRADEABLE_LOADER).ok()?;
+        instructions
+            .into_iter()
+            .find_map(|(program, accounts, data)| {
+                if keys.get(usize::from(program)) != Some(&loader) {
+                    return None;
+                }
+                let tag = u32::from_le_bytes(data.get(..4)?.try_into().ok()?);
+                if !DEPLOYMENT_CHANGES.contains(&tag) {
+                    return None;
+                }
+                accounts
+                    .iter()
+                    .filter_map(|index| keys.get(usize::from(*index)))
+                    .find(|key| self.0.contains(key))
+                    .copied()
+            })
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct DeploymentWindow {
     pub first_slot: u64,
@@ -33,10 +82,9 @@ impl Attestation {
             through_slot: self.minimum_slot,
         })
     }
+    /// Verifies the complete pinned binaries once, at startup. While running,
+    /// the stream stops the daemon on any change to a pinned deployment.
     pub async fn verify(&mut self, rpc: &RpcClient, cluster: &str) -> Result<()> {
-        self.verify_at(rpc, cluster, 0).await
-    }
-    pub async fn verify_at(&mut self, rpc: &RpcClient, cluster: &str, minimum: u64) -> Result<()> {
         let pin = pinned_deployment()?;
         if pin.cluster.name != cluster {
             bail!("FINALIZED_INVARIANT: cluster label differs from protocol lock");
@@ -54,7 +102,7 @@ impl Attestation {
             .flat_map(|program| [&program.program_id, &program.deployment.program_data])
             .map(|address| Pubkey::from_str(address))
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        let minimum = minimum.max(self.minimum_slot).max(pin.first_slot());
+        let minimum = self.minimum_slot.max(pin.first_slot());
         let full = !self.verified_binary;
         let response = rpc
             .get_multiple_accounts_with_config(
@@ -226,5 +274,34 @@ mod tests {
     #[test]
     fn an_unattested_deployment_has_no_window() {
         assert!(Attestation::default().window().is_err());
+    }
+    #[test]
+    fn loader_changes_to_a_pinned_deployment_are_detected() {
+        let pinned = PinnedDeployments::load().unwrap();
+        let (program, program_data) = (pinned.0[0], pinned.0[1]);
+        let loader = Pubkey::from_str(UPGRADEABLE_LOADER).unwrap();
+        let other = Pubkey::new_unique();
+        let keys = [Pubkey::new_unique(), loader, program_data, program, other];
+        let upgrade = 3_u32.to_le_bytes();
+        let extend = 6_u32.to_le_bytes();
+        assert_eq!(
+            pinned.changed(&keys, [(1, &[2_u8, 3][..], &upgrade[..])]),
+            Some(program_data)
+        );
+        // Growing ProgramData leaves the code untouched.
+        assert_eq!(
+            pinned.changed(&keys, [(1, &[2_u8, 3][..], &extend[..])]),
+            None
+        );
+        // Upgrading another program, or any non-loader instruction, is not a change.
+        assert_eq!(
+            pinned.changed(&keys, [(1, &[4_u8][..], &upgrade[..])]),
+            None
+        );
+        assert_eq!(
+            pinned.changed(&keys, [(4, &[2_u8, 3][..], &upgrade[..])]),
+            None
+        );
+        assert_eq!(pinned.changed(&keys, [(1, &[2_u8][..], &[3_u8][..])]), None);
     }
 }

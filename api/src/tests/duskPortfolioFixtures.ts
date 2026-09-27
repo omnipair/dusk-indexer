@@ -28,8 +28,8 @@ export function portfolioFixture(options: { slot?: number; lpOwner?: string; lpA
   AccountLayout.encode({ mint: market.ylp_mint as PublicKey,owner: new PublicKey(options.lpOwner ?? owner),amount: options.lpAmount ?? 100n,
     delegateOption: 0,delegate: fixtureKey(0),state: AccountState.Initialized,isNativeOption: 0,isNative: 0n,
     delegatedAmount: 0n,closeAuthorityOption: 0,closeAuthority: fixtureKey(0) },token);
-  const source: PortfolioCaptureSource = { schemaVersion: 'dusk-portfolio-capture.v1',maxCatalogAgeSlots: 750,
-    catalog: { accountScanId: '1',accountSlot: slot-1,lpScanIds: ['1','2','3'],lpScanSlots: [slot-1,slot-1,slot-1],sourceFloor: slot-1,
+  const source: PortfolioCaptureSource = { schemaVersion: 'dusk-portfolio-capture.v2',maxCatalogAgeSeconds: 60,
+    catalog: { basis: 'streamed-events.v1',throughSlot: slot-1,streamTime: '2026-09-02T00:00:00.000Z',sourceFloor: slot-1,
       markets: [marketAddress],knownOwners: [owner],items: [
         { address: position.toBase58(),market: marketAddress,owner,kind: 'borrow',sourceSlot: slot-1 },
         { address: tokenAddress,market: marketAddress,owner,kind: 'ylp',sourceSlot: slot-1 }] },

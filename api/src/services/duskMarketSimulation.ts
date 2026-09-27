@@ -54,7 +54,7 @@ async function captureAtCommitment<C extends 'finalized' | 'confirmed'>(market: 
     }
   }
   const program = new Program(rawIdl,new AnchorProvider(rpc,{} as Wallet,{ commitment }));
-  const before = await envelope(minSlot,{ fresh: true });
+  const before = await envelope(minSlot);
   const payer = process.env.DUSK_PREVIEW_PAYER?.trim() || before.programUpgradeAuthority;
   if (!payer) throw new Error('A read-only preview payer must be configured');
   const instruction = await program.methods.previewMarket().accounts({ market: new PublicKey(market) })
@@ -93,7 +93,7 @@ async function captureAtCommitment<C extends 'finalized' | 'confirmed'>(market: 
     throw new Error('Market preview and account snapshot slots differ');
   // The timestamp belongs to this already-captured bank. Fetching it does not
   // depend on the final deployment check, but both must pass before returning.
-  const [after,block] = await Promise.all([envelope(slot,{ fresh: true }),readBlock(rpc,slot)]);
+  const [after,block] = await Promise.all([envelope(slot),readBlock(rpc,slot)]);
   if (before.deploymentIdentitySha256 !== after.deploymentIdentitySha256) throw new Error('Deployment changed during market snapshot');
   return { commitment,market,slot,blockhash: block.blockhash,blockTime: new Date(block.blockTime*1000).toISOString(),observedAt: new Date().toISOString(),
     deploymentIdentitySha256: after.deploymentIdentitySha256,marketAccount,preview,basis,previewUnavailable: preview === null,

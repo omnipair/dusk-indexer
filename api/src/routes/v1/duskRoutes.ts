@@ -25,6 +25,7 @@ import {
 import {
   fetchMarket,
   marketPayload,
+  marketPayloadSourceSlot,
 } from '../../services/duskMarketService';
 import {
   boundedLimit,
@@ -36,11 +37,8 @@ import {
 } from '../../services/duskReadModel';
 
 import { cache } from '../../utils/cache';
-import { listNativeAccounts, NativeAccountKind } from '../../services/duskNativeAccounts';
-import { listDuskLpOwnership } from '../../services/duskLpOwnership';
 import { listYieldClaims } from '../../services/duskYieldClaims';
-import { listYieldCheckpoints } from '../../services/duskYieldCheckpoints';
-import { listDuskPriceHistory } from '../../services/duskPrices';
+import { listObservedPriceHistory } from '../../services/duskObservedPrices';
 import { listYieldRates } from '../../services/duskYieldRates';
 import { listMarketActivity } from '../../services/duskMarketActivity';
 import { listOrderHistory } from '../../services/duskOrderHistory';
@@ -49,6 +47,12 @@ import { clearQuoteHistoryCache, listQuoteHistory } from '../../services/duskQuo
 import { listArchivedQuoteHistory } from '../../services/duskArchivedQuoteHistory';
 import { openDuskChangeStream } from '../../services/duskChangeStream';
 import { listPortfolioHistory, portfolioSampleSeconds } from '../../services/duskPortfolioSnapshots';
+import { governanceSelection, listGovernanceProposals } from '../../services/duskGovernance';
+import { currentLiquidations } from '../../services/duskLiquidations';
+import { currentOwnerGovernance } from '../../services/duskOwnerGovernance';
+import { currentReferralPartner } from '../../services/duskReferralPartner';
+import { currentOwnerYield } from '../../services/duskOwnerYield';
+import { displayPublicKey } from '../../services/duskOwnerAccounts';
 import { provenance, renderMetrics } from '../../utils/metrics';
 
 import { PublicKey } from '@solana/web3.js';
@@ -80,6 +84,33 @@ router.get('/owners/:owner/accounts/:kind', asyncRoute(async (req, res) => {
 router.get('/owners/:owner/leverage-valuations/:address', asyncRoute(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json(await currentLeverageValuation(leverageValuationSelection(req.params.owner, req.params.address)));
+}));
+
+/** Supports locked from streamed events; yield-account flags for one market. */
+router.get('/owners/:owner/governance', asyncRoute(async (req, res) => {
+  const selection = { owner: displayPublicKey(req.params.owner), market: governanceSelection(req.query.market) };
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await currentOwnerGovernance(selection));
+}));
+
+/** Partner terms and accruals from streamed events, with current transfer fees. */
+router.get('/owners/:owner/referral-partner', asyncRoute(async (req, res) => {
+  const authority = displayPublicKey(req.params.owner);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await currentReferralPartner(authority));
+}));
+
+/** Claimable yield for streamed LP holdings and live hLP order escrows. */
+router.get('/owners/:owner/yield', asyncRoute(async (req, res) => {
+  const owner = displayPublicKey(req.params.owner);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await currentOwnerYield(owner));
+}));
+
+/** Open borrow positions with debt that are liquidatable or in auction. */
+router.get('/liquidations', asyncRoute(async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await currentLiquidations());
 }));
 
 router.get('/changes', asyncRoute(openDuskChangeStream));
@@ -175,38 +206,21 @@ function asyncRoute(
   };
 }
 
-/** The deployment identity on its own, plus what this API is pinned to. */
-router.get(
-  '/deployment',
-  asyncRoute(async (req, res) => {
-    const pinned = loadPinnedProtocol();
-    const config = duskApiConfig();
-    // The native gRPC producer brackets every notice with this observation.
-    if (req.query.minimumSourceSlot !== undefined) {
-      const raw = req.query.minimumSourceSlot;
-      if (typeof raw !== 'string' || !/^(0|[1-9][0-9]*)$/.test(raw) || !Number.isSafeInteger(Number(raw)))
-        throw Object.assign(new Error('Invalid minimum source slot'), { status: 400 });
-      res.set('Cache-Control', 'no-store').json({ success: true, data: null,
-        deployment: await deploymentEnvelope(Number(raw), { fresh: true }) });
-      return;
-    }
-    res.json(
-      await withDeployment({
-        network: config.network,
-        protocolRevision: pinned.revision,
-        programs: {
-          dusk: pinned.dusk.programId,
-          leverageDelegate: pinned.leverageDelegate.programId,
-        },
-      }),
-    );
-  }),
-);
-
 router.get(
   '/config',
-  asyncRoute(async (_req, res) => {
-    res.json(await withDeploymentRead(async (deployment) => {
+  asyncRoute(async (req, res) => {
+    const raw = req.query.minimumSourceSlot;
+    if (raw !== undefined &&
+        (typeof raw !== 'string' || !/^(0|[1-9][0-9]*)$/.test(raw) || !Number.isSafeInteger(Number(raw))))
+      throw Object.assign(new Error('Invalid minimum source slot'), { status: 400 });
+    // The gRPC producer needs only an envelope covering its notice. Building
+    // the market catalog for every heartbeat would delay and duplicate reads.
+    if (raw !== undefined) {
+      res.set('Cache-Control', 'no-store').json({ success: true, data: null,
+        deployment: await deploymentEnvelope(Number(raw)) });
+      return;
+    }
+    res.set('Cache-Control', 'no-store').json(await withDeploymentRead(async (deployment) => {
       const { config, sourceSlot } = await deploymentSnapshot(deployment);
       return { data: config, sourceSlot };
     }));
@@ -225,9 +239,8 @@ router.get(
     }
     res.json(await withDeploymentRead(async (deployment) => {
       const { account, sourceSlot } = await fetchMarket(address);
-      const payload = await marketPayload(address, account, sourceSlot, deployment.deploymentIdentitySha256);
-      const state = payload.state as Record<string, unknown>;
-      return { data: payload, sourceSlot: Math.max(sourceSlot, Number(state.healthSourceSlot ?? 0)) };
+      const payload = await marketPayload(address, account, sourceSlot, deployment);
+      return { data: payload, sourceSlot: Math.max(sourceSlot, marketPayloadSourceSlot(payload)) };
     }));
   }),
 );
@@ -279,13 +292,10 @@ router.get('/analytics/activity',asyncRoute(async (req,res) => {
     }
     catch { throw Object.assign(new Error('Invalid activity market'),{ status: 400 }); }
   }
-  const maxPriceAgeSeconds = req.query.maxPriceAgeSeconds === undefined ? 3600 : Number(req.query.maxPriceAgeSeconds);
-  if (since && since>until || req.query.maxPriceAgeSeconds !== undefined &&
-    (typeof req.query.maxPriceAgeSeconds !== 'string' || !/^[1-9]\d*$/.test(req.query.maxPriceAgeSeconds))
-    || !Number.isSafeInteger(maxPriceAgeSeconds) || maxPriceAgeSeconds<1 || maxPriceAgeSeconds>86400)
+  if (since && since>until || req.query.maxPriceAgeSeconds !== undefined)
     throw Object.assign(new Error('Invalid activity time range'),{ status: 400 });
   res.json(await withDeploymentRead(async (deployment) => {
-    const data = await listMarketActivity({ since,until,market,maxPriceAgeSeconds,deployment,deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
+    const data = await listMarketActivity({ since,until,market,deployment,deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
     const sourceSlot = Math.max(Number(data.coverage.lastSourceSlot ?? 0),Number(data.coverage.historyScan?.throughSlot ?? 0));
     if (!Number.isSafeInteger(sourceSlot) || sourceSlot<0) throw new Error('Invalid activity source slot');
     return { data,sourceSlot };
@@ -304,7 +314,7 @@ router.get('/prices/:mint',asyncRoute(async (req,res) => {
     res.status(400).json({ success: false,error: 'invalid historical price time range' }); return;
   }
   res.json(await withDeploymentRead(async () => {
-    const data = await listDuskPriceHistory({ mint,market,at,maxAgeSeconds,limit: boundedLimit(req.query.limit),offset: boundedOffset(req.query.offset) });
+    const data = await listObservedPriceHistory({ mint,market,at,maxAgeSeconds,limit: boundedLimit(req.query.limit),offset: boundedOffset(req.query.offset) });
     const sourceSlot = data.observations.reduce((highest,row) => Math.max(highest,Number(row.evidence.sourceSlot)),0);
     return { data,sourceSlot };
   }));
@@ -349,39 +359,16 @@ router.get(
   }),
 );
 
-/** Native account discovery with independent identity and scan provenance. */
-router.get('/accounts/:kind', asyncRoute(async (req, res) => {
-  const kind = req.params.kind as NativeAccountKind;
-  if (!['markets','borrow','leverage','yield','orders'].includes(kind)) {
-    res.status(400).json({ success: false, error: 'Unsupported native account kind' }); return;
-  }
-  const address = (value: unknown) => {
-    if (value === undefined) return undefined;
-    try { if (typeof value === 'string') return new PublicKey(value).toBase58(); } catch { /* handled below */ }
-    throw Object.assign(new Error('Invalid native account filter address'), { status: 400 });
-  };
-  const owner = address(req.query.owner), market = address(req.query.market);
-  res.json(await withDeploymentRead(async () => {
-    const result = await listNativeAccounts({ cluster: cluster(), kind, owner, market, limit: boundedLimit(req.query.limit), offset: boundedOffset(req.query.offset) });
-    return { data: result, sourceSlot: Number(result.coverage.sourceSlot) };
-  }));
-}));
-
-router.get('/lp-ownership', asyncRoute(async (req, res) => {
-  const address = (value: unknown) => {
-    if (value === undefined) return undefined;
-    try { if (typeof value === 'string') return new PublicKey(value).toBase58(); } catch { /* handled below */ }
-    throw Object.assign(new Error('Invalid LP ownership filter address'), { status: 400 });
-  };
-  const owner = address(req.query.owner), market = address(req.query.market);
-  res.json(await withDeploymentRead(async () => {
-    const result = await listDuskLpOwnership({ owner, market, limit: boundedLimit(req.query.limit), offset: boundedOffset(req.query.offset) });
-    const { envelopeSourceSlot, ...data } = result;
-    return { data, sourceSlot: envelopeSourceSlot };
-  }));
-}));
-
 /** Saved native position values, with catalog and per-bank coverage. */
+/** Governance proposals and each market's eligible yLP, from streamed events. */
+router.get('/governance/proposals',asyncRoute(async (req,res) => {
+  const market = governanceSelection(req.query.market);
+  res.set('Cache-Control','no-store').json(await withDeploymentRead(async () => {
+    const data = await listGovernanceProposals(market);
+    return { data,sourceSlot: data.sourceSlot };
+  }));
+}));
+
 router.get('/owners/:owner/portfolio-snapshots',asyncRoute(async (req,res) => {
   let owner: string;
   try { owner = new PublicKey(req.params.owner).toBase58(); }
@@ -403,20 +390,6 @@ router.get('/owners/:owner/portfolio-snapshots',asyncRoute(async (req,res) => {
   }));
 }));
 
-/** Coherent observations of recorded yield; these are not harvest previews. */
-router.get('/owners/:owner/yield-checkpoints', asyncRoute(async (req, res) => {
-  const address = (value: unknown): string => {
-    try { if (typeof value === 'string' && new PublicKey(value).toBase58() === value) return value; } catch { /* invalid below */ }
-    throw Object.assign(new Error('Invalid yield checkpoint address'),{ status: 400 });
-  };
-  const owner = address(req.params.owner),market = req.query.market === undefined ? undefined : address(req.query.market);
-  res.json(await withDeploymentRead(async () => {
-    const data = await listYieldCheckpoints({ owner,market,limit: boundedLimit(req.query.limit),offset: boundedOffset(req.query.offset) });
-    const sourceSlot = Number(data.coverage.lastSourceSlot ?? 0);
-    if (!Number.isSafeInteger(sourceSlot) || sourceSlot<0) throw new Error('Invalid yield checkpoint slot');
-    return { data,sourceSlot };
-  }));
-}));
 
 /** Finalized payments attributed to the earning owner, with the recipient retained. */
 router.get('/owners/:owner/yield-claims', asyncRoute(async (req, res) => {

@@ -35,7 +35,6 @@ if (V1_ENABLED) {
 }
 
 const DUSK_ENDPOINTS = {
-  deployment: 'GET /api/dusk/v1/deployment',
   markets: 'GET /api/dusk/v1/markets?limit=100&offset=0',
   'market-detail': 'GET /api/dusk/v1/markets/{market}',
   'market-events':
@@ -47,7 +46,8 @@ const DUSK_ENDPOINTS = {
   metrics: 'GET /api/dusk/v1/metrics',
   provenance: 'GET /api/dusk/v1/provenance',
   config: 'GET /api/dusk/v1/config',
-  'market-state': 'GET /api/dusk/v1/markets/state'
+  'market-state': 'GET /api/dusk/v1/markets/state',
+  'governance-proposals': 'GET /api/dusk/v1/governance/proposals?market=ADDR'
 };
 
 router.get('/', (req, res) => {

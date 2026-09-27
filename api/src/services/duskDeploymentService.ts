@@ -3,17 +3,18 @@
  *
  * Every Dusk response carries the identity of the deployment it was read
  * from, so a client can refuse data from a program it was not built against.
- * The envelope is assembled from two sources that must agree: the vendored
- * `protocol/` pin (program ids, IDL digests, attested binary hashes) and a
- * live observation of the upgradeable-loader accounts on chain.
- *
- * Concurrent envelope reads share an observation. Ordinary identity responses
- * may use the short-lived cache; bracketed data reads explicitly request fresh
- * loader observations before and after the payload is read.
+ * The identity is the vendored `protocol/` pin (program ids, IDL digests,
+ * attested binary hashes). The streaming daemon verified the pinned binaries
+ * at startup and stops on any loader change to them, so while its cursor is
+ * live the pin holds through every slot the stream has written: data from the
+ * database is stamped with that slot and needs no chain read. Only a live
+ * chain capture past the stream's slot observes the loader accounts at its
+ * own slot, and concurrent captures share that observation.
  */
 
 import { Connection } from '@solana/web3.js';
 import { createDuskProgramObserver } from './duskProgramObservation';
+import { readStreamedDeployment } from './duskHistoryCoverage';
 
 import {
   DUSK_DEPLOYMENT_COMMITMENT,
@@ -96,6 +97,49 @@ export function deploymentIdentityFingerprint(
   );
 }
 
+/** The daemon heartbeats every 5 s while its WebSocket is live. */
+export const DUSK_STREAM_STALE_MS = 15_000;
+
+function withIdentity(envelope: Omit<DuskDeploymentEnvelope, 'deploymentIdentitySha256'>): DuskDeploymentEnvelope {
+  return { ...envelope,deploymentIdentitySha256: deploymentIdentityFingerprint(envelope) };
+}
+
+/** The pinned identity at the stream's slot, or an error when no live stream
+ * attests it. */
+async function streamedEnvelope(): Promise<DuskDeploymentEnvelope> {
+  const pinned = loadPinnedProtocol(),apiConfig = duskApiConfig();
+  const stream = await readStreamedDeployment();
+  if (!stream) throw Object.assign(new Error('The Dusk stream has not attested this release'),{ status: 503 });
+  const now = Date.now();
+  if (now-stream.updatedAt.getTime()>DUSK_STREAM_STALE_MS)
+    throw Object.assign(new Error('The Dusk stream is stale'),{ status: 503 });
+  return withIdentity({
+    schemaVersion: DUSK_DEPLOYMENT_SCHEMA_VERSION,
+    network: apiConfig.network,
+    genesisHash: pinned.genesisHash,
+    programId: pinned.dusk.programId,
+    programDataAddress: pinned.dusk.deployment.programData,
+    programDataSlot: String(pinned.dusk.deployment.deploySlot),
+    programUpgradeAuthority: pinned.dusk.deployment.upgradeAuthority,
+    leverageDelegateProgramId: pinned.leverageDelegate.programId,
+    leverageDelegateProgramDataAddress: pinned.leverageDelegate.deployment.programData,
+    leverageDelegateProgramDataSlot: String(pinned.leverageDelegate.deployment.deploySlot),
+    leverageDelegateUpgradeAuthority: pinned.leverageDelegate.deployment.upgradeAuthority,
+    idlSha256: pinned.dusk.idlCanonicalSha256,
+    idlRawSha256: pinned.dusk.idlRawSha256,
+    leverageDelegateIdlSha256: pinned.leverageDelegate.idlCanonicalSha256,
+    leverageDelegateIdlRawSha256: pinned.leverageDelegate.idlRawSha256,
+    commitment: DUSK_DEPLOYMENT_COMMITMENT,
+    sourceSlot: stream.slot,
+    // Assembled now from a stream verified live within the stale bound.
+    observedAt: new Date(now).toISOString(),
+    apiStartedAt: API_STARTED_AT,
+    buildRevision: apiConfig.buildRevision,
+    programBinarySha256: pinned.dusk.binarySha256,
+    leverageDelegateBinarySha256: pinned.leverageDelegate.binarySha256,
+  });
+}
+
 async function buildEnvelope(minimumSourceSlot: number): Promise<DuskDeploymentEnvelope> {
   const pinned = loadPinnedProtocol();
   const { connection: rpc, config: apiConfig } = runtime();
@@ -118,7 +162,7 @@ async function buildEnvelope(minimumSourceSlot: number): Promise<DuskDeploymentE
     );
   }
 
-  const envelope = {
+  return withIdentity({
     schemaVersion: DUSK_DEPLOYMENT_SCHEMA_VERSION,
     network: apiConfig.network,
     genesisHash,
@@ -141,12 +185,7 @@ async function buildEnvelope(minimumSourceSlot: number): Promise<DuskDeploymentE
     buildRevision: apiConfig.buildRevision,
     programBinarySha256: duskProgram.binarySha256,
     leverageDelegateBinarySha256: delegateProgram.binarySha256,
-  };
-
-  return {
-    ...envelope,
-    deploymentIdentitySha256: deploymentIdentityFingerprint(envelope),
-  };
+  });
 }
 
 let cached: { value: DuskDeploymentEnvelope; observedAtMs: number } | undefined;
@@ -156,18 +195,23 @@ let inflight: Promise<DuskDeploymentEnvelope> | undefined;
  * @param minimumSourceSlot The envelope must be at least this fresh. A payload
  * read at slot N cannot be stamped with an envelope observed before N — the
  * client rejects that as a source-slot mismatch, correctly, since the identity
- * would not yet have covered the data. A cached envelope below the floor is
- * rebuilt rather than returned.
+ * would not yet have covered the data. Database reads sit at or below the
+ * stream's slot and take the stream's envelope; a chain capture past it
+ * observes the loader accounts at its own slot.
  */
-export async function deploymentEnvelope(
-  minimumSourceSlot = 0,
-  options: { fresh?: boolean } = {},
-): Promise<DuskDeploymentEnvelope> {
+export async function deploymentEnvelope(minimumSourceSlot = 0): Promise<DuskDeploymentEnvelope> {
   if (!Number.isSafeInteger(minimumSourceSlot) || minimumSourceSlot < 0)
     throw new Error('Invalid deployment source-slot floor');
+  const streamed = await streamedEnvelope();
+  if (streamed.sourceSlot >= minimumSourceSlot) return streamed;
+  return observedEnvelope(minimumSourceSlot);
+}
+
+/** A cached observation below the floor is rebuilt rather than returned. */
+async function observedEnvelope(minimumSourceSlot: number): Promise<DuskDeploymentEnvelope> {
   const { config: apiConfig } = runtime();
   if (
-    !options.fresh && cached &&
+    cached &&
     Date.now() - cached.observedAtMs < apiConfig.envelopeCacheTtlMs &&
     cached.value.sourceSlot >= minimumSourceSlot
   ) {
@@ -212,13 +256,14 @@ export async function withDeployment<T>(
   };
 }
 
-/** Bind the complete read, including cache lookup, to one fresh identity. */
+/** Bind the complete read, including cache lookup, to one identity that
+ * covers its highest slot. */
 export async function withDeploymentRead<T>(
   read: (deployment: DuskDeploymentEnvelope) => Promise<{ data: T; sourceSlot: number }>,
 ): Promise<{ success: true; data: T; deployment: DuskDeploymentEnvelope }> {
-  const before = await deploymentEnvelope(0, { fresh: true });
+  const before = await deploymentEnvelope();
   const { data, sourceSlot } = await read(before);
-  const after = await deploymentEnvelope(Math.max(sourceSlot, before.sourceSlot), { fresh: true });
+  const after = await deploymentEnvelope(Math.max(sourceSlot, before.sourceSlot));
   if (before.deploymentIdentitySha256 !== after.deploymentIdentitySha256) {
     throw new Error('Deployment changed during the read');
   }

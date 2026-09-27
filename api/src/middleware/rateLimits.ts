@@ -17,7 +17,7 @@ export const apiRateLimitKey = (req: Request): string =>
 
 const identityRead = (req: Request): boolean =>
   (req.method === 'GET' || req.method === 'HEAD') &&
-  /^\/api\/dusk\/v1\/deployment\/?$/.test(req.path);
+  /^\/api\/dusk\/v1\/config\/?$/.test(req.path);
 
 export function createApiRateLimits(env: NodeJS.ProcessEnv = process.env) {
   const shared = {

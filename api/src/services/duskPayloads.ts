@@ -119,7 +119,6 @@ export async function capturePayload(
                 controller.signal,
               )
             : await captureStatisticsSnapshot(
-                dusk,
                 selection.range,
                 deployment,
                 controller.signal,
@@ -215,7 +214,7 @@ export async function currentPayload(
   selection: PayloadSelection,
   deps = payloadDependencies,
 ): Promise<PayloadEnvelope | null> {
-  const before = await deps.envelope(0, { fresh: true });
+  const before = await deps.envelope(0);
   const result = await deps.shared({
     key: `payload.v1:${before.deploymentIdentitySha256}:${JSON.stringify(selection)}`,
     identity: before.deploymentIdentitySha256,
@@ -229,7 +228,6 @@ export async function currentPayload(
   });
   const after = await deps.envelope(
     Math.max(before.sourceSlot, result?.data.sourceSlot ?? 0),
-    { fresh: true },
   );
   if (
     before.deploymentIdentitySha256 !== after.deploymentIdentitySha256 ||

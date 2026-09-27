@@ -20,7 +20,7 @@ const payload = (slot: number) => ({ owner,market,lp_mint: key(85),asset_mint: k
   metadata: { market,slot: String(slot),signer: caller } });
 
 async function source(client: PoolClient, options: {
-  slot: number; commitment?: string; revision?: string; fields?: object; time?: Date; omitStream?: boolean;
+  slot: number; commitment?: string; revision?: string; fields?: object; time?: Date | string; omitStream?: boolean;
 }) {
   const id = [active[0],active[1],active[2],options.revision ?? active[3]];
   const eventKey = createHash('sha256').update(randomUUID()).digest('hex');
@@ -86,6 +86,14 @@ test('finalized cash flows replay once, discover late old slots, and preserve ev
   assert.equal(filtered.pagination.total, 1);
   await rejectsAtSavepoint(client, () => client.query('UPDATE dusk_ingestion.yield_claims SET owner=$1 WHERE event_key=$2', [recipient,first]), /FINALIZED_INVARIANT/);
   await rejectsAtSavepoint(client, () => client.query('DELETE FROM dusk_ingestion.yield_claims WHERE event_key=$1', [first]), /FINALIZED_INVARIANT/);
+}));
+
+test('microsecond claim time survives the projection and exact source guard', () => transaction(async client => {
+  const eventKey = await source(client,{ slot: 800000005,time: '2026-09-01T00:00:00.123456Z' });
+  assert.equal(await projectYieldClaimBatch(client),1);
+  const saved = await client.query(`SELECT to_char(block_time AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS.US') AS exact_time
+    FROM dusk_ingestion.yield_claims WHERE event_key=$1`,[eventKey]);
+  assert.equal(saved.rows[0].exact_time,'2026-09-01 00:00:00.123456');
 }));
 
 test('missing event-time evidence halts projection and reports a backlog', () => transaction(async (client) => {

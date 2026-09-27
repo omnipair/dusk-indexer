@@ -149,20 +149,47 @@ pub fn subscribe(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Keep the historical capture unchanged. Adapt only its outer deployment
+    // envelope for transport tests that exercise the current pinned release.
+    fn synthetic_current_frame(pin: &Value) -> Value {
+        let mut frame: Value = serde_json::from_str(include_str!(
+            "../../api/src/tests/fixtures/payload-envelope-devnet-20260920.json"
+        ))
+        .unwrap();
+        let program = pin["programs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|program| program["name"] == "dusk")
+            .unwrap();
+        let floor = program["deployment"]["deploySlot"].as_u64().unwrap();
+        let deployment = &mut frame["deployment"];
+        deployment["programDataSlot"] = json!(floor.to_string());
+        deployment["programBinarySha256"] = program["binary"]["sha256"].clone();
+        deployment["idlSha256"] = program["idl"]["canonicalSha256"].clone();
+        deployment["idlRawSha256"] = program["idl"]["sha256"].clone();
+        deployment["sourceSlot"] = json!(floor + 1);
+        frame["data"]["sourceSlot"] = json!(floor + 1);
+        frame
+    }
+
     #[test]
     fn frames_require_matching_selection_freshness_and_identity() {
         let pin: Value =
             serde_json::from_str(include_str!("../../protocol/protocol.lock.json")).unwrap();
-        let frame: Value = serde_json::from_str(include_str!(
-            "../../api/src/tests/fixtures/payload-envelope-devnet-20260920.json"
-        ))
-        .unwrap();
+        let frame = synthetic_current_frame(&pin);
         let now = chrono::DateTime::parse_from_rfc3339(
             frame["deployment"]["observedAt"].as_str().unwrap(),
         )
         .unwrap()
         .timestamp_millis();
         let selected = json!({"kind":"markets"});
+        let captured: Value = serde_json::from_str(include_str!(
+            "../../api/src/tests/fixtures/payload-envelope-devnet-20260920.json"
+        ))
+        .unwrap();
+        assert!(!valid_payload(&captured, &selected, &pin, now));
         assert!(valid_payload(&frame, &selected, &pin, now));
         for field in [
             "selection",
@@ -199,10 +226,7 @@ mod tests {
         };
         let pin: Value =
             serde_json::from_str(include_str!("../../protocol/protocol.lock.json")).unwrap();
-        let mut frame: Value = serde_json::from_str(include_str!(
-            "../../api/src/tests/fixtures/payload-envelope-devnet-20260920.json"
-        ))
-        .unwrap();
+        let mut frame = synthetic_current_frame(&pin);
         let now = chrono::Utc::now();
         frame["deployment"]["observedAt"] = json!(now.to_rfc3339());
         frame["data"]["observedAt"] = json!(now.timestamp_millis());
@@ -229,7 +253,7 @@ mod tests {
         });
         let capacity = Arc::new(Semaphore::new(1));
         let mut stream = subscribe(
-            reqwest::Url::parse(&format!("http://{address}/api/dusk/v1/deployment")).unwrap(),
+            reqwest::Url::parse(&format!("http://{address}/api/dusk/v1/config")).unwrap(),
             Arc::new(pin),
             capacity.clone(),
             DuskPayloadsRequest {

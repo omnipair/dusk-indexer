@@ -9,6 +9,8 @@ import {
 } from './duskLeverageValuation';
 import { readDuskOrders } from './duskOrderCapture';
 import { type DuskReadBoundary } from './virtualBook/native';
+import { captureBorrowValuation, readStreamedBorrowPositions } from './duskBorrowValuation';
+import { captureHlpPositions, readStreamedHlpBalances } from './duskHlpPositions';
 
 /** Publish only complete batches; retain original per-observation slots. */
 export async function completeBatch<T, R>(
@@ -43,6 +45,10 @@ export const walletCaptureDependencies = {
   valuation: captureLeverageValuation,
   oracle: captureOracleValuations,
   orders: readDuskOrders,
+  borrowPositions: readStreamedBorrowPositions,
+  borrowValuation: captureBorrowValuation,
+  hlpBalances: readStreamedHlpBalances,
+  hlpPositions: captureHlpPositions,
 };
 export async function captureWalletSnapshot(
   dusk: Dusk,
@@ -66,7 +72,19 @@ export async function captureWalletSnapshot(
     ...deployment,
     sourceSlot: Math.max(deployment.sourceSlot, accounts.sourceSlot),
   };
-  const [valuations, orders, oracleValuations] = await Promise.all([
+  const previewPayer =
+    process.env.DUSK_PREVIEW_PAYER?.trim() ||
+    deployment.programUpgradeAuthority ||
+    undefined;
+  // Borrow positions and hLP holdings are discovered from streamed events;
+  // their live values are previewed at or after the stream's slot.
+  const [borrowPositions, hlpBalances] = await Promise.all([
+    deps.borrowPositions({ owner }),
+    deps.hlpBalances(owner),
+  ]);
+  if (borrowPositions.positions.length && !previewPayer)
+    throw new Error('A read-only preview payer must be configured');
+  const [valuations, orders, oracleValuations, borrowValuations] = await Promise.all([
     completeBatch(open, async (row) => {
       try {
         return await deps.valuation(
@@ -95,13 +113,27 @@ export async function captureWalletSnapshot(
       owner,
       deployment: captureDeployment,
       signal,
-      previewPayer:
-        process.env.DUSK_PREVIEW_PAYER?.trim() ||
-        deployment.programUpgradeAuthority ||
-        undefined,
+      previewPayer,
     }),
     deps.oracle(dusk, open, captureDeployment, signal),
+    completeBatch(borrowPositions.positions, (position) =>
+      deps.borrowValuation(
+        dusk,
+        position,
+        Math.max(captureDeployment.sourceSlot, borrowPositions.sourceSlot),
+        previewPayer!,
+        signal,
+      ),
+    ),
   ]);
+  const hlpPositions = await deps.hlpPositions(
+    dusk,
+    hlpBalances.balances,
+    orders.hlp,
+    previewPayer,
+    Math.max(orders.slot, hlpBalances.sourceSlot),
+    signal,
+  );
   const oracleAddresses = new Set(oracleValuations.map(row => row.address));
   if (oracleValuations.length !== open.length || oracleAddresses.size !== open.length ||
       open.some(row => !oracleAddresses.has(row.address)))
@@ -109,8 +141,12 @@ export async function captureWalletSnapshot(
   const sourceSlot = Math.max(
     accounts.sourceSlot,
     orders.slot,
+    borrowPositions.sourceSlot,
+    hlpBalances.sourceSlot,
     ...valuations.map((row) => row.sourceSlot),
     ...oracleValuations.map((row) => row.sourceSlot),
+    ...borrowValuations.map((row) => row.sourceSlot),
+    ...hlpPositions.map((row) => row.sourceSlot),
   );
   const verified = await deps.accounts(
     dusk,
@@ -191,6 +227,9 @@ export async function captureWalletSnapshot(
     accounts,
     valuations,
     oracleValuations,
+    borrowValuations,
+    lpBalances: { basis: 'streamed-events.v1' as const, sourceSlot: hlpBalances.sourceSlot, balances: hlpBalances.lpBalances },
+    hlpPositions,
     orders: {
       owner,
       observedAt: orders.observedAt,

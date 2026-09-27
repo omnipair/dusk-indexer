@@ -8,11 +8,10 @@
 //! `event_stream` hypertable as they land. This is the v1 indexer's shape.
 //!
 //! There is no backfill. The stream starts at the current slot, and a dropped
-//! connection or a restart leaves its window out, as in v1. Program account
-//! snapshots run on their own timer, off the transaction path, and the
-//! deployment is attested at startup and before every snapshot.
+//! connection or a restart leaves its window out, as in v1. The deployment is
+//! attested once at startup. Nothing reads program accounts: every table is
+//! built from the events the stream carries.
 
-mod accounts;
 mod extract;
 mod identity;
 mod liveness;
@@ -35,15 +34,17 @@ use {
 
 /// The datasource reconnects after 5 s without a Clock update.
 const STREAM_LIVENESS: Duration = Duration::from_secs(10);
+/// The API serves the cursor's time as the deployment envelope's observation
+/// time, and clients refuse a stream frame whose envelope is 15 s old.
+const HEARTBEAT: Duration = Duration::from_secs(5);
 
 struct Config {
     cluster: String,
     rpc_url: String,
     database_url: String,
-    /// Only streaming needs it; one-shot modes read over plain RPC.
+    /// Only streaming needs it; `--replay` reads over plain RPC.
     helius_api_key: Option<String>,
     metrics_port: u16,
-    account_scan_interval: Duration,
 }
 
 impl Config {
@@ -60,19 +61,12 @@ impl Config {
             .ok()
             .and_then(|value| value.parse().ok())
             .unwrap_or(8080);
-        let account_scan_interval = Duration::from_millis(
-            std::env::var("DUSK_ACCOUNT_SCAN_INTERVAL_MS")
-                .ok()
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(15_000),
-        );
         Ok(Self {
             cluster,
             rpc_url,
             database_url,
             helius_api_key,
             metrics_port,
-            account_scan_interval,
         })
     }
 }
@@ -123,11 +117,12 @@ async fn main() -> Result<()> {
     attestation.verify(&rpc, &config.cluster).await?;
     let window = attestation.window()?;
     persist::record_deployment(&pool, &config.cluster, window).await?;
+    let (stop, mut stopped) = tokio::sync::mpsc::unbounded_channel();
+    let guard = processors::DeploymentGuard {
+        pinned: Arc::new(identity::PinnedDeployments::load()?),
+        stop,
+    };
 
-    if std::env::args().any(|arg| arg == "--scan-accounts-once") {
-        accounts::capture(&rpc, &pool, &decoder, &config.cluster, &mut attestation).await?;
-        return Ok(());
-    }
     // The stream logs every transaction it drops; this re-ingests one.
     if let Some(signature) = flag_value("--replay") {
         let fetched = rpc
@@ -147,6 +142,7 @@ async fn main() -> Result<()> {
             config.cluster.clone(),
             window.first_slot,
             Arc::default(),
+            guard,
         );
         let events = processor
             .replay(&processors::metadata_from_rpc(&fetched)?)
@@ -159,20 +155,11 @@ async fn main() -> Result<()> {
     }
 
     log::info!(
-        "dusk-indexer-daemon streaming: cluster={} first_slot={} account_scan={}ms",
+        "dusk-indexer-daemon streaming: cluster={} first_slot={}",
         config.cluster,
         window.first_slot,
-        config.account_scan_interval.as_millis(),
     );
 
-    let snapshots = tokio::spawn(snapshot_accounts(
-        rpc,
-        pool.clone(),
-        decoder.clone(),
-        config.cluster.clone(),
-        attestation,
-        config.account_scan_interval,
-    ));
     let liveness = Arc::new(liveness::StreamLiveness::default());
     let cursor = Arc::new(Mutex::new(()));
     let heartbeat = tokio::spawn(heartbeat(
@@ -183,8 +170,8 @@ async fn main() -> Result<()> {
     ));
 
     let result = tokio::select! {
-        result = stream(&config, pool, decoder, window.first_slot, liveness, cursor) => result,
-        joined = snapshots => joined.context("account snapshot task panicked")?,
+        result = stream(&config, pool, decoder, window.first_slot, liveness, cursor, guard) => result,
+        Some(error) = stopped.recv() => Err(error),
         _ = shutdown_signal() => {
             log::info!("shutdown signal received");
             Ok(())
@@ -203,6 +190,7 @@ async fn stream(
     first_slot: u64,
     liveness: Arc<liveness::StreamLiveness>,
     cursor: Arc<Mutex<()>>,
+    guard: processors::DeploymentGuard,
 ) -> Result<()> {
     let api_key = config
         .helius_api_key
@@ -217,6 +205,7 @@ async fn stream(
             config.cluster.clone(),
             first_slot,
             cursor.clone(),
+            guard.clone(),
         );
         let mut run = pipeline::build(datasource, processor, config.metrics_port, liveness.clone())
             .map_err(|error| anyhow!("building pipeline: {error:?}"))?;
@@ -239,34 +228,6 @@ async fn stream(
     }
 }
 
-/// Complete program account snapshots on a timer. A deployment that no longer
-/// matches the pin stops the daemon; anything else is retried next interval.
-async fn snapshot_accounts(
-    rpc: RpcClient,
-    pool: PgPool,
-    decoder: Arc<PinnedIdlDecoder>,
-    cluster: String,
-    mut attestation: identity::Attestation,
-    interval: Duration,
-) -> Result<()> {
-    loop {
-        match accounts::capture(&rpc, &pool, &decoder, &cluster, &mut attestation).await {
-            Ok(()) => {
-                if let Err(error) =
-                    persist::record_deployment(&pool, &cluster, attestation.window()?).await
-                {
-                    log::warn!("deployment interval update failed: {error:#}");
-                }
-            }
-            Err(error) if format!("{error:#}").contains("FINALIZED_INVARIANT") => {
-                return Err(error)
-            }
-            Err(error) => log::warn!("native account scan failed: {error:#}"),
-        }
-        tokio::time::sleep(interval).await;
-    }
-}
-
 /// A quiet market must not look like a dead ingester, and a dead stream must
 /// not look like a quiet market. The cursor's time is history coverage and
 /// `/status` liveness, so it moves only while the WebSocket delivers verified
@@ -278,7 +239,7 @@ async fn heartbeat(
     cursor: Arc<Mutex<()>>,
 ) {
     loop {
-        tokio::time::sleep(Duration::from_secs(15)).await;
+        tokio::time::sleep(HEARTBEAT).await;
         if !liveness.live_within(STREAM_LIVENESS) {
             log::warn!(
                 "no verified Clock update for {}s; cursor heartbeat withheld",

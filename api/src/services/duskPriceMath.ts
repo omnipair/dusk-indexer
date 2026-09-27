@@ -1,5 +1,7 @@
 import { PublicKey } from '@solana/web3.js';
-import { canonicalJson, DuskPinnedProtocol, sha256 } from '../config/duskProtocol';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { canonicalJson, DuskPinnedProtocol, loadPinnedProtocol, sha256 } from '../config/duskProtocol';
 import { unsigned } from './duskYieldAccounting';
 
 export interface PriceReference { mint: string; priceUsd: string; note: string; externalMint?: string }
@@ -41,6 +43,15 @@ export function parsePriceReferences(value: unknown, pin: DuskPinnedProtocol): P
     idlSha256: pin.dusk.idlCanonicalSha256,protocolRevision: pin.revision,effectiveFrom: new Date(data.effectiveFrom).toISOString(),references };
 }
 
+let references: PriceReferences | undefined;
+/** The checked, dated reference policy for the active release, read once. */
+export function activePriceReferences(): PriceReferences {
+  if (references) return references;
+  const root = process.env.DUSK_PROTOCOL_DIR?.trim() || resolve(__dirname,'../../../protocol');
+  const file = process.env.DUSK_PRICE_REFERENCES_FILE?.trim() || resolve(root,'devnet-price-references.json');
+  return references = parsePriceReferences(JSON.parse(readFileSync(file,'utf8')),loadPinnedProtocol());
+}
+
 /** Exact integer arithmetic, with derived quotes rounded down to 36 decimals. */
 export function multiplyPriceRatio(price: string, numerator: bigint, denominator: bigint): string {
   if (numerator<=0n || denominator<=0n) throw new Error('Price ratio must be positive');
@@ -64,19 +75,49 @@ export function priceMarketBindings(programId: string, address: string, value: u
 export function projectMarketPrices(input: {
   pin: DuskPinnedProtocol; marketAddress: string; market: unknown; preview: unknown; slot: number; blockTime: string; references: unknown;
 }) {
-  const references = parsePriceReferences(input.references,input.pin),preview = fields(input.preview);
+  const preview = fields(input.preview);
   const bound = priceMarketBindings(input.pin.dusk.programId,input.marketAddress,input.market);
   if (!Number.isSafeInteger(input.slot) || input.slot<0 || unsigned(preview.slot,(1n<<64n)-1n) !== BigInt(input.slot))
     throw new Error('Price preview does not belong to the observed bank');
+  return projectSpotPrices({ pin: input.pin,bound,blockTime: input.blockTime,references: input.references,spotPrices: {
+    base: unsigned(fields(preview.base).spot_price_nad,(1n<<64n)-1n).toString(),
+    quote: unsigned(fields(preview.quote).spot_price_nad,(1n<<64n)-1n).toString(),
+  } });
+}
+
+/** Normalized swap snapshot mints and decimals from MarketCreated. */
+export function observedMarketBindings(value: unknown,created?: { baseMint: string; quoteMint: string }) {
+  const observation = fields(value),base = fields(observation.base),quote = fields(observation.quote);
+  const bound = { baseMint: key(base.asset_mint),quoteMint: key(quote.asset_mint),
+    baseDecimals: Number(unsigned(base.asset_decimals,255n)),quoteDecimals: Number(unsigned(quote.asset_decimals,255n)) };
+  if (bound.baseMint === bound.quoteMint || created && (created.baseMint !== bound.baseMint || created.quoteMint !== bound.quoteMint))
+    throw new Error('Invalid observed market price bindings');
+  return bound;
+}
+
+/** USD prices from a canonical post-swap snapshot and the dated references. */
+export function projectObservedPrices(input: {
+  pin: DuskPinnedProtocol; observation: unknown; blockTime: string; references: unknown;
+  created?: { baseMint: string; quoteMint: string };
+}) {
+  const observation = fields(input.observation);
+  return projectSpotPrices({ pin: input.pin,bound: observedMarketBindings(observation,input.created),
+    blockTime: input.blockTime,references: input.references,spotPrices: {
+      base: unsigned(fields(observation.base).spot_price_nad,(1n<<64n)-1n).toString(),
+      quote: unsigned(fields(observation.quote).spot_price_nad,(1n<<64n)-1n).toString(),
+    } });
+}
+
+function projectSpotPrices(input: {
+  pin: DuskPinnedProtocol; bound: ReturnType<typeof priceMarketBindings>; spotPrices: { base: string; quote: string };
+  blockTime: string; references: unknown;
+}) {
+  const references = parsePriceReferences(input.references,input.pin),{ bound,spotPrices } = input;
   const time = Date.parse(input.blockTime);
   if (!Number.isFinite(time)) throw new Error('Invalid price source block time');
   const referenceHash = sha256(canonicalJson(references));
   // Both sides are decimal-normalized program quotes, including markets for
   // which no USD reference exists. A zero quote is unavailable, not $0.
-  const spotPrices = {
-    base: unsigned(fields(preview.base).spot_price_nad,(1n<<64n)-1n).toString(),
-    quote: unsigned(fields(preview.quote).spot_price_nad,(1n<<64n)-1n).toString(),
-  };
   const available = time >= Date.parse(references.effectiveFrom) ? references.references : [];
   const byMint = new Map(available.map((reference) => [reference.mint,reference]));
   const prices = [];

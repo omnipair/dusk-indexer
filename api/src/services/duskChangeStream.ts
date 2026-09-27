@@ -22,7 +22,7 @@ interface Dependencies {
 const dependencies: Dependencies = {
   start: startDuskInvalidationListener,
   ready: duskInvalidationListenerReady,
-  envelope: slot => deploymentEnvelope(slot, { fresh: true }),
+  envelope: slot => deploymentEnvelope(slot),
   subscribe: subscribeDuskReadChanges,
 };
 

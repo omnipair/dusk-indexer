@@ -8,11 +8,11 @@ The active identity is `(cluster, program_id, canonical_idl_sha256, protocol_rev
 
 ## Deployment intervals
 
-The composite release starts at slot **497831835**, the slot after the later of the Dusk and delegate upgrades. At startup the daemon verifies both complete program payloads in one finalized bank after that boundary. Later checks verify the fixed loader links, deploy slots and authorities. Account scans request a minimum context slot and require a subsequent attestation at or beyond the captured bank.
+The composite release starts at slot **497831835**, the slot after the later of the Dusk and delegate upgrades. At startup the daemon verifies both complete program payloads in one finalized bank after that boundary. While streaming, any loader transaction that upgrades, re-authorizes or closes either pinned program stops the daemon, and the next start re-verifies the full binaries against the lock.
 
 Migration 034 records the immutable deployment pin and first slot, plus an upper bound advanced from direct finalized attestation. Migration 044 stops that bound from capping rows: the daemon streams confirmed transactions over a Helius Atlas WebSocket, so events land past the last attested finalized slot. Event persistence and cursor advancement still enforce the release's first slot. Database triggers reject mismatched program/IDL identities or slots before the release for registered revisions. Registration and observations share transaction locks, so a concurrent observation cannot evade the initial check. Contaminated existing current-revision history blocks registration; it is not relabelled or deleted. Historical identities remain intact.
 
-An empty new-release history creates a cursor at the first deployment slot with no fabricated last signature. Each transaction raises the cursor's slot before its rows are written and sets the cursor's time after them. A 15-second heartbeat also sets the time, but only while the WebSocket delivers verified Clock updates, and it shares a lock with transaction writes, so every transaction that arrived before the cursor's time is written. The API serves the cursor as history coverage (`confirmed-stream.v1`) from the release's registration to the cursor's time. That is liveness, not proof of gap-free coverage: there is no backfill, and transactions confirmed while the stream is down stay missing unless replayed.
+An empty new-release history creates a cursor at the first deployment slot with no fabricated last signature. Each transaction raises the cursor's slot before its rows are written and sets the cursor's time after them. A 5-second heartbeat also sets the time, but only while the WebSocket delivers verified Clock updates, and it shares a lock with transaction writes, so every transaction that arrived before the cursor's time is written. The API serves the cursor as history coverage (`confirmed-stream.v1`) from the release's registration to the cursor's time. That is liveness, not proof of gap-free coverage: there is no backfill, and transactions confirmed while the stream is down stay missing unless replayed. The same cursor stamps the deployment envelope: database reads carry the stream's slot, and the API refuses every read (503) once the cursor is more than 15 s old.
 
 Re-ingest one transaction, for example one the stream logged as dropped:
 
@@ -22,14 +22,8 @@ target/debug/dusk-indexer-daemon --replay <signature>
 
 `npm run test:deployment-integration --prefix api` checks registration, immutable identity, boundary slots, contaminated history, cursor guards and concurrent writes in a disposable PostgreSQL database. All fixtures roll back. Native adapter tests also require fresh `--scan-accounts-once` and LP ownership captures under the current pin. CI provisions PostgreSQL, applies the checksummed manifest, captures read-only devnet discovery, runs the native tests and builds both service images. The container checks verify that every manifest migration and both pinned IDLs are actually present in the images.
 
-The native CI job runs unit tests and rollback-only database fixtures before
-its live discovery step, so those checks do not depend on RPC availability.
-Live discovery requires the repository secret `DUSK_DEVNET_RPC_URL`. Its devnet
-provider must support filtered `getProgramAccounts` for Token-2022 as well as
-finalized block history. The public Solana devnet endpoint excludes the token
-program from its account indexes and cannot supply complete LP ownership.
-Missing configuration or unsupported queries still fail the required native
-gate; CI never substitutes partial ownership or a different network.
+The native CI job runs unit tests and rollback-only database fixtures. State
+comes from streamed events, so no CI step reads devnet accounts.
 
 ## Migrations
 
@@ -43,19 +37,29 @@ DUSK_MIGRATE_ONLY=true bash scripts/dusk-indexer-entrypoint.sh
 
 Migration 024 removes old event retention jobs. Until historical projections and archive coverage are complete, pruning the event stream would change the compatibility views' balances. A new retention policy must establish durable current state, completed historical allocation, and a replay/archive boundary first.
 
-## Native account projections
+## Streamed state
 
-Each complete finalized RPC scan records its containing block and immutable account bytes before applying native projections. A lagging block-history replica receives four bounded retries at the exact account-bank slot; another slot cannot supply the missing block metadata. Closure tombstones are generated only from a successful complete scan; partial RPC failures cannot close accounts. Older replay does not overwrite newer current state. Contradictory finalized observations halt ingestion.
+Migration 046 derives current protocol state from canonical streamed events, as the v1 indexer keeps its positions. Nothing reads program accounts. Each view folds events in stream order (slot, then arrival):
 
-The one-shot scan command verifies the chain and both programs, stores a complete account scan, then exits:
+- `streamed_markets` and `streamed_lp_mints`: one row per `MarketCreated`, with its yLP and two hLP mints.
+- `streamed_leverage_positions`: the last lifecycle event decides open or closed; the last `LeveragePositionOpened`/`LeveragePositionUpdated` carries the post-state.
+- `streamed_borrow_positions`: each lending event carries the position's post-state for what it changes: collateral from the latest `MarketCollateralDeposited`/`MarketCollateralWithdrawn`/`BorrowPositionLiquidated`, fixed debt shares from the latest `MarketDebtUpdated`/`BorrowPositionLiquidated`, the auction from `LiquidationAuctionStarted`/`LiquidationAuctionCancelled` and the events that report its side, and closure from the latest event (`closed`, or `DebtFreePositionClosed` for a borrow position).
+- `streamed_lp_balances`: yLP and hLP balances per owner, from liquidity and hLP events (mints and burns) and `LpTransferred`, which the Token-2022 transfer hook on every LP mint emits for each transfer.
+- `streamed_market_snapshots`: post-swap prices, growth indexes, reserves and yLP supply from canonical `SwapExecuted`, joined to `MarketCreated` for asset mints and decimals.
 
-```sh
-target/debug/dusk-indexer-daemon --scan-accounts-once
-```
+State covers markets created after ingestion of the release began; there is no backfill, so a gap in the stream is a gap in state. The account scan, the LP token scan, `/api/dusk/v1/accounts/:kind` and `/api/dusk/v1/lp-ownership` are removed.
 
-Native discovery is exposed at `/api/dusk/v1/accounts/:kind`, where kind is `markets`, `borrow`, `leverage`, `yield`, or `orders`. Optional owner/market filters use native addresses. Records include the full identity, finalized source slot, containing blockhash, and observed time. Missing scan coverage returns an error instead of an authoritative empty portfolio. Clients must re-read RPC state before writes.
+## Live reads
 
-Program-account projections and finalized LP token ownership observations are available. Run `npm run start:lp-ownership-worker --prefix api -- --once` after a complete program scan to capture every LP token account and reconcile balances against mint supply. These point-in-time observations cover transfers and non-ATAs for discovery. Yield entitlement uses the canonical owner ATA required by the protocol, not the sum of arbitrary token accounts.
+Values that change without a transaction (accrued interest, claimable yield, capacity, NAV, health) are read by the API when a capture runs, never by a timer: discovery comes from the streamed state above or the delegate's order instructions, and each value from an account read or an unsigned program preview at or after the stream's slot. Owner and liquidation captures are shared across replicas through `live_snapshots` (a 2 s capture interval), carry `observedAt`, `expiresAt = observedAt + 15000` and the highest slot they read, and are served under an envelope that covers that slot. A preview the program rejects is reported as unavailable, never as zero.
+
+- Markets payload (`/markets/state`, `/markets/state/:market`, `payloads?kind=markets`): `hlp` (`dusk-market-hlp.v1`) gives each vault's hLP supply, `lastNavNad`, funding EMA and slot after the `preview_market` update, with its hLP mint supply from the same bank (`sourceSlot` equals the market state's), and `capacity`: the `preview_hlp_deposit_capacity` status and funding limits. `hlp` is null when the market preview is rejected. `borrow` (`dusk-market-borrow.v1`) is keyed by debt asset: `preview_borrow_capacity` for one whole collateral token (cash and daily-limit headroom, health-limited debt, collateral factors). Each capacity carries its own `sourceSlot`, at or after the market bank, and is cached with the market snapshot.
+- Wallet payload: `lpBalances` gives the owner's nonzero yLP and hLP holdings from `streamed_lp_balances`, with the stream cursor slot and each market, mint and LP kind. `borrowValuations` values each open position in `streamed_borrow_positions` with `preview_borrow_position` (fixed debt, collateral value, health and liquidation terms per debt side, the position account's shares and auction state, the bank's Clock). `hlpPositions` gives, per vault the owner holds in `streamed_lp_balances` or escrows in open stop orders, the streamed wallet balance, the escrowed balance, the stop kinds and `preview_hlp_order_trigger`'s withdrawal price for their total. The wallet's hLP order list keeps executed and cancelled orders (status 1 and 2) until their yield is settled.
+- Virtual book frame: `entryOrders` lists open leverage entry orders (latest create/cancel/execute instruction is the creation) with their terms read at or after the book's bank and the Clock of that read; closed and expired orders are dropped, and it is null when the read fails. At most 500 orders.
+- `GET /api/dusk/v1/liquidations` (`dusk-liquidations.v1`): open borrow positions with debt, valued as in the wallet payload; `candidates` are those with a liquidatable side or a running auction, `unavailable` those whose preview was rejected.
+- `GET /api/dusk/v1/owners/:owner/governance?market=` (`dusk-owner-governance.v1`): the yLP the owner has locked per proposal, folded from `ParameterProposalCreated` (a proposer's sponsorship), `ParameterProposalSupported` (the supporter's locked total) and `ParameterProposalSupportWithdrawn`; with `market`, whether its two yLP yield accounts exist and need growth.
+- `GET /api/dusk/v1/owners/:owner/referral-partner` (`dusk-referral-partner.v1`): the partner's terms from `ReferralPartnerConfigured` and `ReferralRecipientUpdated`, and per market and asset its accrual amount from `ReferralInterestAccrued` and `ReferralInterestClaimed`. Whether each accrual account exists and each mint's transfer-fee schedule and epoch come from one account read, so `recipientCredit` is net of the fee in force now.
+- `GET /api/dusk/v1/owners/:owner/yield` (`dusk-owner-yield.v1`): every LP the owner has held in `streamed_lp_balances`, including emptied holdings, and every hLP stop-order escrow not yet settled, valued at the amount Harvest would pay from one `preview_market` bank with its yield accounts, LP holding, asset mints and Clock; `unavailable` names groups whose market preview was rejected.
 
 ## Yield payment history
 
@@ -68,7 +72,7 @@ npm run build --prefix api
 npm run start:yield-claims-worker --prefix api -- --once
 ```
 
-Omit `--once` to poll every ten seconds, or set `DUSK_YIELD_CLAIMS_INTERVAL_MS` (minimum 1000). `railway.yield-claims.toml` defines the worker service. It requires `DATABASE_URL` and the same checked `protocol/` artifacts as ingestion. It reads already-attested finalized events and never signs or contacts a wallet. Apply migrations before starting it; it does not change the database schema itself.
+Omit `--once` to keep it running: it drains once, then again after every event the daemon writes, woken by the `dusk_event_ingested` notification (migration 045). A lost connection reconnects and drains, so a restart catches up. `railway.yield-claims.toml` defines the worker service. It requires `DATABASE_URL` and the same checked `protocol/` artifacts as ingestion. It reads already-attested finalized events and never signs or contacts a wallet. Apply migrations before starting it; it does not change the database schema itself.
 
 Each bounded transaction selects unprojected `YieldClaimed` events through the full protocol identity and finalized canonical pointer. A PostgreSQL transaction lock serializes replicas. There is no monotonic slot cursor that could skip a later backfill at an older slot. Missing or contradictory event-time records and malformed values fail the batch without advancing it. Database guards bind every immutable projection to its exact observation, payload, blockhash and block time. Successful inserts notify native read consumers.
 
@@ -76,39 +80,19 @@ Each bounded transaction selects unprojected `YieldClaimed` events through the f
 
 Coverage reports indexed/projected/pending claim counts for the protocol identity. `projectionComplete` means all currently indexed finalized claims are projected; it does not prove historical ingestion coverage. `ingestionRangeComplete` and `accrualHistoryAvailable` remain false. An empty result must not be rendered as proof that the owner earned or claimed zero. Claimed cash flow is not event-time earned yield, and current LP balances or current token prices are never substituted for historical observations.
 
-## Recorded yield checkpoints
+## Recorded yield growth
 
-Migration 029 adds immutable account evidence for checkpoint replay and binds each projection to its exact source bytes. Build the API after applying the migration manifest, then run:
-
-```sh
-npm run start:yield-checkpoints-worker --prefix api -- --once
-```
-
-Omit `--once` to capture every 60 seconds, or set `DUSK_YIELD_CHECKPOINT_INTERVAL_MS` (minimum 1000). `railway.yield-checkpoints.toml` defines the service. Each pass first replays saved, unprojected observations in bounded transactions. `--replay-only` drains the saved backlog and exits without contacting RPC. Replay never uses a high-water slot cursor; older observations inserted later remain discoverable. Invalid or contradictory finalized evidence stops the worker and remains stored for investigation.
-
-Capture discovers yield accounts through finalized RPC, then reads each yield account, its market and its owner's canonical Token-2022 LP ATA together in a single RPC bank. It attests the deployment before and after these reads. Block-history lag retries the same finalized slot; another block or wall-clock time cannot replace its timestamp. Raw evidence is committed before projection. Missing canonical ATAs contribute zero LP balance while preserving already accrued earnings.
-
-`GET /api/dusk/v1/owners/:owner/yield-checkpoints` accepts optional `market`, `limit` and `offset`. It returns exact recorded swap-fee and interest amounts, LP balance, fractional remainders, decimals, and full finalized account/deployment provenance. It validates account owners, market/yield PDAs, LP mint bindings and token-account ownership before accepting a projection. Contradictory finalized observations make history unavailable instead of selecting the first arrival.
-
-The `recorded-growth.v1` basis settles stored growth indexes only. It does not simulate fresh market interest or the hLP vault's lazy harvest of underlying yield. `currentHarvestPreviewIncluded` and `historyComplete` therefore remain false. These checkpoints are observations from capture onward, not historical event-time earnings or a current claimable quote. The client must use the SDK and fresh RPC simulation for current transaction amounts.
+`SwapExecuted` publishes the post-swap price, EMA, reserves, yLP supply and growth indexes for both sides. `analytics/yield-rates` uses the latest canonical swap snapshot at or before each window boundary and prices each growth point from its committed snapshot. A snapshot remains valid until the next swap; there is no snapshot or program-price age cutoff. Its basis remains `committed-market-growth.v1` at `confirmed` commitment. The old yield-checkpoint worker, its account reads and `GET /api/dusk/v1/owners/:owner/yield-checkpoints` remain removed. Interest growth between swaps is reported at the next swap, so a window with no distinct swap snapshots has no measured rate.
 
 ## Dated price observations
 
-Migrations 030 through 032 add immutable market-preview evidence, bounded replay, price notifications and market-state provenance. After applying the manifest and building the API, run:
+Program prices come from canonical `SwapExecuted` snapshots at read time: the program's decimal-normalized, curve-aware spot quote per side, under the dated reference policy. Nothing simulates `preview_market` on a timer any more.
 
-```sh
-npm run start:prices-worker --prefix api -- --once
-```
+`protocol/devnet-price-references.json` carries the existing webapp's three explicit devnet display references, with a full protocol identity, effective date and source notes. They are configured demo valuations, not external market prices. Override the path with `DUSK_PRICE_REFERENCES_FILE` when using another reviewed policy. A program/IDL/revision change requires deliberately updating this policy's identity. A configured value prices that specific mint; when only its counterasset has a reference, the program's spot quote derives an estimated reference. Arithmetic uses integers and decimal strings, with derived prices rounded down to 36 decimal places. It never substitutes a reserve ratio for a concentrated curve's price.
 
-Omit `--once` to capture on a five-second start-to-start cadence (slow captures do not overlap); `DUSK_PRICE_INTERVAL_MS` sets the interval (minimum 1000). `--replay-only` projects saved captures without contacting RPC. `railway.prices.toml` defines the worker. Its permissions are read-only on devnet and write access to the projection database; it never signs or submits transactions.
+`npm run start:prices-worker --prefix api` records provider quotes (Jupiter, with Birdeye as fallback) for every referenced mint in `MarketCreated`. It runs when events land, woken by `dusk_event_ingested`, and refreshes a mint at most every 30 s. Unlike the v1 volume enricher, a quote fetched after an event cannot price that same event; it becomes available to later events. `railway.prices.toml` defines the worker. `DUSK_PRICE_INTERVAL_MS` no longer exists.
 
-`protocol/devnet-price-references.json` carries the existing webapp's three explicit devnet display references, with a full protocol identity, effective date and source notes. They are configured demo valuations, not external market prices. Override the path with `DUSK_PRICE_REFERENCES_FILE` when using another reviewed policy. A program/IDL/revision change requires deliberately updating this policy's identity. Each capture saves the complete dated policy and its hash, so changing the file later cannot reprice saved captures. Values are not inferred from token symbols or a token's position as a market's quote asset.
-
-The worker discovers finalized market accounts and simulates the program's `preview_market` at a finalized bank. It validates market PDAs, the preview's embedded slot and both deployment identities, then preserves the updated simulated market account and preview return bytes from that same bank. The `simulation-post-state` basis requires `market_slot=slot`; earlier `rpc-account` captures retain their original evidence and content hashes. Simulation updates are not submitted to the chain. A configured value prices that specific mint; when only its counterasset has a reference, the program's curve-aware spot quote derives an estimated reference. Token decimal differences are already accounted for by the program quote. Arithmetic uses integers and decimal strings, with derived prices rounded down to 36 decimal places. It does not substitute a reserve ratio for a concentrated curve's price.
-
-Missing references produce a completed capture with zero prices, not zero-valued tokens. A market-local simulation error is reported as unavailable coverage; contradictory finalized previews halt replay and history reads. Multiple slots sharing a block timestamp remain separate observations. Database guards bind prices to the capture coordinates, saved reference policy and arithmetic, and all price rows are immutable.
-
-`GET /api/dusk/v1/prices/:mint` accepts `market`, `at`, `maxAgeSeconds` (1–86400, default 3600), `limit` and `offset`. It returns observations at or before `at` within the age limit, preserving configured/derived quality, exact prices, reference evidence and finalized source slots under a fresh deployment envelope. Results do not imply one globally authoritative USD price across markets. Missing or stale prices return an empty observation list and `available: false`; an unknown price must remain unknown in portfolio totals. Coverage is from capture onward. The worker cannot reconstruct historical curve previews for uncaptured devnet slots, so `historyComplete` and `historicalBackfillAvailable` remain false. The old mutable anchor table and compatibility price views are not inputs to this pipeline.
+`GET /api/dusk/v1/prices/:mint` accepts `market`, `at`, `maxAgeSeconds` (1–86400, default 3600), `limit` and `offset`. It returns program-derived prices from every swap snapshot quoting the mint within the window, newest first, with the observation's event key, payload hash, reference and spot quote as evidence (`market-observed.v1`). Missing prices return an empty list and `available: false`; an unknown price stays unknown. Saved preview captures from earlier releases remain readable only through archived quote history.
 
 ## Recorded market activity
 
@@ -120,15 +104,16 @@ build the API, and run:
 npm run start:market-activity-worker --prefix api -- --once
 ```
 
-Omit `--once` to poll every 10 seconds. `DUSK_MARKET_ACTIVITY_INTERVAL_MS` sets
-the interval (minimum 1000). `railway.market-activity.toml` defines the worker.
+Omit `--once` to keep it running: it drains once, then again after every event
+the daemon writes, woken by the `dusk_event_ingested` notification (migration
+045). `railway.market-activity.toml` defines the worker.
 It reads saved events and writes projections; it does not contact RPC, hold a
 signing key or submit transactions. Each transaction projects at most 500 events
 under a protocol-scoped PostgreSQL lock. Late older-slot events remain eligible,
 and repeated passes do not double count them.
 
-`GET /api/dusk/v1/analytics/activity` accepts `since`, `until`, `market` and
-`maxPriceAgeSeconds` (1–86400, default 3600). It returns protocol-wide and
+`GET /api/dusk/v1/analytics/activity` accepts `since`, `until` and `market`.
+It returns protocol-wide and
 per-market observed volume, swap fees, retained fees, compounded fees and
 explicitly reported interest payments under a freshly attested deployment
 envelope. All amounts are decimal strings. Spot swaps and embedded leverage
@@ -137,14 +122,14 @@ contribute a swap. Fees use their declared input/output asset; retained and
 compounded fees are components of swap fees, not additional fees. Claimed yield,
 referral allocations and fee auctions do not count as newly earned fees.
 
-Valuation reconstructs the latest eligible immutable price capture from its
-saved bytes and policy, including captures whose price worker has not yet run.
-It requires the same full protocol identity, market and deployment digest, a
-strictly earlier slot, and a non-future block timestamp within the age limit.
-Same-slot captures are excluded because bank evidence does not identify the
-trade's position within that slot. A newer empty reference policy leaves prices
-unknown; it cannot revive an older quote. Contradictory finalized source or
-price evidence stops the read. Arithmetic rounds down to 36 decimal places.
+Valuation prices each event from the latest swap snapshot for its market at
+a strictly earlier slot and a non-future time
+(`latest-observed-prior-slot.v1`). Quiet markets have no native snapshot age
+cutoff. Valuation prefers the latest provider quote captured no later than the
+event, without a provider age cutoff. A quote captured after an event cannot
+price that event retroactively.
+Same-slot snapshots are excluded because an event does not say where in its
+slot the trade fell. Arithmetic rounds down to 36 decimal places.
 
 Each metric distinguishes `observedUsd` from `valuedUsd`. Any unpriced nonzero
 amount makes `observedUsd` null; `valuedUsd` is the explicitly partial known
@@ -230,7 +215,7 @@ With `DATABASE_URL` pointing to a disposable database and `DUSK_ALLOW_DISPOSABLE
 
 ## Portfolio snapshots
 
-Migration 033 adds immutable raw portfolio captures, account evidence, bounded replay, source-bound owner checkpoints and notifications. After applying the migration manifest and building the API, keep the native daemon and LP ownership worker running, then start the snapshot worker:
+Migration 033 adds immutable raw portfolio captures, account evidence, bounded replay, source-bound owner checkpoints and notifications. After applying the migration manifest and building the API, keep the streaming daemon running, then start the snapshot worker:
 
 ```sh
 npm run start:native-portfolio-worker --prefix api -- --once
@@ -238,9 +223,9 @@ npm run start:native-portfolio-worker --prefix api -- --once
 
 Omit `--once` to capture every minute, or set `DUSK_PORTFOLIO_INTERVAL_MS` (minimum 1000). `--replay-only` drains saved captures without RPC. `railway.portfolio-snapshots.toml` defines the service. It requires the same checked protocol artifacts, RPC and database configuration as other native workers. Services and webapp adapters still need deployment/wiring; this command does not publish or upgrade anything.
 
-Capture requires completed native account and all LP-mint ownership scans. The market catalog is validated by decoding immutable raw account bytes, since the Rust JSON projection represents integer arrays differently from the SDK. Discovery may be at most `DUSK_PORTFOLIO_MAX_CATALOG_AGE_SLOTS` behind the observed tip (default 750; allowed 1–2500). Empty LP scans are included in the freshness check. A catalog that ages out during capture is rejected. Refresh discovery before retrying; never substitute zero for missing scan coverage. Stored contradictory finalized native or LP scans also halt discovery consumers.
+Discovery comes from the streamed-state views: markets, open borrow and leverage positions, and every owner with a positive yLP or hLP balance, valued through the owner's canonical Token-2022 account, which is the one yield accrues to. The catalog carries the stream's slot and time (`streamed-events.v1`). Capture requires the stream time within `DUSK_PORTFOLIO_MAX_CATALOG_AGE_SECONDS` (default 60; allowed 1–600) of the capture; the heartbeat keeps it current on a quiet market, so a stale time means the stream is down. Valuation banks start at the stream's slot, so every discovered position exists at its bank. A catalog that ages out during capture is rejected.
 
-The simulation reader includes up to 20 related read-only accounts and returns their post-simulation bytes with the updated market and preview. It checks the serialized transaction packet limit. Finalized reads use the finalized discovery and program deployment slots as their minimum, not the envelope's newer confirmed tip. Lagging-replica minimum-slot errors receive four bounded attempts without lowering that minimum. A program-local preview failure falls back to a fresh finalized account read while leaving valuation unavailable. Invalid response data, regressed slots or changed deployment identity fail the capture.
+The simulation reader includes up to 20 related read-only accounts and returns their post-simulation bytes with the updated market and preview. It checks the serialized transaction packet limit. Finalized reads use the stream's slot and the program deployment slots as their minimum. Lagging-replica minimum-slot errors receive four bounded attempts without lowering that minimum. A program-local preview failure falls back to a fresh finalized account read while leaving valuation unavailable. Invalid response data, regressed slots or changed deployment identity fail the capture.
 
 Raw captures commit before projection. Replay uses only the saved catalog, raw account/preview bytes and dated price policy. It does not consult current balances or prices. Every captured catalog account must appear exactly once, including null results for closed accounts. Prior owners are retained after transfers and closures so an observed empty snapshot can follow a nonempty one. Contradictory finalized account evidence remains stored and disables replay and reads. Different slots sharing one block timestamp remain separate capture IDs; late older captures are replayable and do not replace newer history.
 

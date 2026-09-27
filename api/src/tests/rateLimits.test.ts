@@ -15,11 +15,11 @@ test('identity checks have a separate bounded budget from native data reads', as
   const base = `http://127.0.0.1:${address.port}`;
   try {
     for (let i = 0; i < 4; i++) {
-      const result = await fetch(`${base}/api/dusk/v1/deployment`);
+      const result = await fetch(`${base}/api/dusk/v1/config`);
       assert.equal(result.status, 200);
       await result.text();
     }
-    const blocked = await fetch(`${base}/api/dusk/v1/deployment`);
+    const blocked = await fetch(`${base}/api/dusk/v1/config`);
     assert.equal(blocked.status, 429);
     assert.ok(blocked.headers.get('retry-after'));
     await blocked.text();
@@ -62,7 +62,7 @@ test('default limits accommodate two complete realtime sessions and startup', as
   assert.ok(address && typeof address !== 'string');
   const base = `http://127.0.0.1:${address.port}`;
   try {
-    for (const [path, minimum] of [['markets/state', 2 * 13 * 30 + 100], ['deployment', 2 * 2 * 13 * 30 + 200]] as const) {
+    for (const [path, minimum] of [['markets/state', 2 * 13 * 30 + 100], ['config', 2 * 2 * 13 * 30 + 200]] as const) {
       const response = await fetch(`${base}/api/dusk/v1/${path}`);
       assert.equal(response.status, 200);
       assert.ok(Number(response.headers.get('ratelimit-limit')) >= minimum);

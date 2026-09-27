@@ -57,8 +57,8 @@ prices: its reserve-ratio messages lack native deployment evidence.
 
 Each protobuf `DuskChange.envelope_json` carries the exact native success frame
 shown above. No financial values are accepted from a database notification.
-The producer requests a fresh `/api/dusk/v1/deployment?minimumSourceSlot=N`
-observation, validates both pinned programs (binary, IDLs, loader address, deploy
+The producer requests `/api/dusk/v1/config?minimumSourceSlot=N`, which returns
+only an envelope covering the notice slot, then validates both pinned programs (binary, IDLs, loader address, deploy
 slot and upgrade authority), and retains the same durable identity throughout
 a connection. Requests are bounded to ten seconds and 16 KiB. Concurrent
 clients share observations for at most 250 ms without changing their evidence

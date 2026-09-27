@@ -28,9 +28,9 @@ does not activate Dusk PR #35 or change the deployed IDL.
 
 ## Prices
 
-The existing `start:prices-worker` now also persists provider observations in
-the immutable, protocol-scoped `price_observations` table. No new database
-migration or worker is required. The order for activity valuation is:
+`start:prices-worker` persists provider observations in the immutable,
+protocol-scoped `price_observations` table when events land. The order for
+activity valuation is:
 
 1. A captured Jupiter quote, with the existing Birdeye service as provider fallback.
 2. The native program's decimal-normalized, curve-aware spot quote times the
@@ -49,10 +49,13 @@ deliberate reference pricing, not a claim that a devnet token has mainnet value;
 the app marks it as estimated. Additional devnet mints remain on their configured
 or on-chain fallback unless explicitly mapped.
 
-Every event uses a prior-slot captured native quote and provider observations
-recorded no later than that event, within the requested age bound. Fresh quotes
-are never applied retroactively to old volume. Provider observation IDs and
-native capture IDs participate in the selection hash. A missing historical
+Every event uses the latest prior-slot native swap snapshot, even when a quiet
+market has not swapped recently. Provider observations must have been recorded
+no later than the event; the latest eligible observation remains available until
+a newer one arrives. A worker quote fetched after an event can price later
+events, but is never applied retroactively to the triggering event. Provider
+observation IDs and native capture IDs participate in the
+selection hash. A missing historical
 price remains unpriced; partial ingestion remains partial. Replay uses the
 same canonical event keys, so running projection twice adds no volume.
 

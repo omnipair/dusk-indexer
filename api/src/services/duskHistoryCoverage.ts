@@ -1,4 +1,5 @@
-import { PoolClient } from 'pg';
+import { Pool, PoolClient } from 'pg';
+import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
 
 /** The daemon's stream, `persist::STREAM_NAME`. */
@@ -18,7 +19,7 @@ export interface StreamCursor {
  * v1 indexer there is no backfill: a reconnect can drop transactions, which
  * `--replay` re-ingests.
  */
-export async function readStreamCursor(client: PoolClient): Promise<StreamCursor | null> {
+export async function readStreamCursor(client: Pool | PoolClient): Promise<StreamCursor | null> {
   const pin = loadPinnedProtocol();
   const result = await client.query<{ through_slot: string | null; updated_at: Date; registered_at: Date }>(
     `SELECT c.last_observed_slot::text AS through_slot,c.updated_at,d.registered_at
@@ -32,6 +33,21 @@ export async function readStreamCursor(client: PoolClient): Promise<StreamCursor
   const time = Math.min(row.updated_at.getTime(),Date.now());
   return { throughSlot: row.through_slot ?? String(pin.historyFirstSlot),time: new Date(time),
     startedAt: new Date(Math.min(row.registered_at.getTime(),time)) };
+}
+
+/** The stream's slot and time for the active release, for the deployment
+ * envelope. Before the first transaction the slot is the release's first. */
+export async function readStreamedDeployment(): Promise<{ slot: number; updatedAt: Date } | null> {
+  const pin = loadPinnedProtocol();
+  const result = await pool.query<{ slot: string; updated_at: Date }>(
+    `SELECT COALESCE(c.last_observed_slot,d.first_slot)::text AS slot,c.updated_at
+    FROM dusk_ingestion.ingestion_cursors c JOIN dusk_ingestion.deployment_intervals d USING(cluster,protocol_revision)
+    WHERE c.cluster=$1 AND c.program_id=$2 AND c.idl_hash=$3 AND c.protocol_revision=$4 AND c.stream_name=$5`,
+    [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision,DUSK_STREAM_NAME]);
+  const row = result.rows[0],slot = Number(row?.slot);
+  if (!row) return null;
+  if (!Number.isSafeInteger(slot) || slot<0) throw new Error('Invalid Dusk stream slot');
+  return { slot,updatedAt: row.updated_at };
 }
 
 export interface HistoryScan {

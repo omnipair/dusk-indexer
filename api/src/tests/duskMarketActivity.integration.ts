@@ -6,20 +6,19 @@ import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
 import { projectMarketActivityBatch, readMarketActivity } from '../services/duskMarketActivity';
-import { projectPriceCapture, storePriceCapture } from '../services/duskPrices';
+import { streamedSwapSnapshot, useFixtureReferences } from './duskStreamedFixtures';
 import { activityMarket, activityPayload, activitySlot, activityTime } from './duskActivityFixtures';
 import { priceFixture } from './duskPriceFixtures';
 import { fixtureKey } from './duskYieldCheckpointFixtures';
-import { storeCaptureDeployment } from '../services/duskHistoryDeployment';
-import { historyDeploymentFixture } from './duskHistoryDeploymentFixtures';
 import { storeExternalPrices } from '../services/duskExternalPrices';
 
 if (process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS !== 'true' || !process.env.DATABASE_URL)
   throw new Error('Set DUSK_ALLOW_DISPOSABLE_DB_TESTS=true and a disposable DATABASE_URL');
 after(() => pool.end());
+useFixtureReferences();
 const pin = loadPinnedProtocol(),active = [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
 const query = { market: activityMarket,since: '2026-09-02T00:00:00Z',until: '2026-09-02T00:01:00Z',
-  deploymentIdentitySha256: 'b'.repeat(64),maxPriceAgeSeconds: 60 };
+  deploymentIdentitySha256: 'b'.repeat(64) };
 
 async function source(client: PoolClient,options: {
   slot?: number; name?: string; commitment?: string; revision?: string; fields?: Record<string,unknown>; time?: string; omitStream?: boolean;
@@ -60,26 +59,15 @@ async function rejectsAtSavepoint(client: PoolClient,operation: () => Promise<un
   await assert.rejects(operation(),message);
   await client.query('ROLLBACK TO SAVEPOINT expected_failure');
 }
-async function priced(client: PoolClient) {
-  const id = await storePriceCapture(client,priceFixture().source());
-  await projectPriceCapture(client,id);
-  return id;
-}
-test('API-only releases preserve verified historical USD pricing for activity',() => transaction(async client => {
-  const original = historyDeploymentFixture('fixture-old-price-worker'),deployment = historyDeploymentFixture();
-  const capture = priceFixture().source();
-  capture.deploymentIdentitySha256 = original.deploymentIdentitySha256;
-  const id = await storePriceCapture(client,capture);
-  await projectPriceCapture(client,id);
-  await source(client);
+/** A swap snapshot before the activity window: one base quotes 2.5 quote,
+ * and the quote mint is referenced at $1. The swap is projected but excluded
+ * from the requested window's activity totals. */
+async function priced(client: PoolClient,options: { slot?: number; time?: string; baseSpotNad?: bigint } = {}) {
+  await streamedSwapSnapshot(client,{ slot: options.slot ?? 900000001,time: options.time ?? '2026-09-01T23:59:59.000Z',
+    baseSpotNad: options.baseSpotNad ?? 2_500_000_000n });
   await projectMarketActivityBatch(client);
-  const selection = { ...query,deployment,deploymentIdentitySha256: deployment.deploymentIdentitySha256 };
-  assert.equal((await readMarketActivity(client,selection)).metrics.volume.observedUsd,null);
-  await storeCaptureDeployment(client,original);
-  assert.equal((await readMarketActivity(client,selection)).metrics.volume.observedUsd,'5');
-}));
-
-test('finalized native trades project once, exclude other revisions and commitments, and retain late backfills',() => transaction(async (client) => {
+}
+test('native trades project once, exclude other revisions and processed observations, and retain late backfills',() => transaction(async (client) => {
   await priced(client);
   await source(client);
   await source(client,{ commitment: 'processed' });
@@ -95,7 +83,7 @@ test('finalized native trades project once, exclude other revisions and commitme
   assert.equal(before.coverage.historyRangeComplete,false);
   assert.equal(before.coverage.totalInterestAccrualAvailable,false);
   assert.equal(before.coverage.feeAllocationAvailable,false);
-  assert.equal(before.coverage.priceBasis,'latest-captured-prior-slot.v1');
+  assert.equal(before.coverage.priceBasis,'latest-observed-prior-slot.v1');
   await source(client,{ slot: activitySlot-1,time: '2026-09-02T00:00:05Z' });
   assert.equal(await projectMarketActivityBatch(client),1);
   const after = await readMarketActivity(client,query);
@@ -106,13 +94,31 @@ test('finalized native trades project once, exclude other revisions and commitme
   assert.equal((await readMarketActivity(client,query)).coverage.selectionHash,after.coverage.selectionHash);
 }));
 
+test('microsecond event time survives the projection and exact source guard',() => transaction(async client => {
+  const key = await source(client,{ time: '2026-09-02T00:00:10.123456Z' });
+  assert.equal(await projectMarketActivityBatch(client),1);
+  const saved = await client.query(`SELECT to_char(block_time AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS.US') AS exact_time
+    FROM dusk_ingestion.market_activity_events WHERE event_key=$1`,[key]);
+  assert.equal(saved.rows[0].exact_time,'2026-09-02 00:00:10.123456');
+}));
+
+test('a price-bearing swap inside the selected window is also activity',() => transaction(async client => {
+  await priced(client);
+  await streamedSwapSnapshot(client,{ slot: activitySlot-1,time: '2026-09-02T00:00:05Z' });
+  assert.equal(await projectMarketActivityBatch(client),1);
+  const result = await readMarketActivity(client,query);
+  assert.equal(result.events,1);
+  assert.equal(result.swaps,1);
+}));
+
 test('leverage swaps, margin-only changes and reported interest are distinct economic observations',() => transaction(async (client) => {
   await priced(client);
   for (const name of ['LeveragePositionOpened','LeveragePositionUpdated','LeveragePositionClosed','LeveragePositionLiquidated','MarketDebtUpdated','HlpClosed','HlpTerminalLiquidated'])
     await source(client,{ name,fields: name === 'LeveragePositionUpdated' ? { ...activityPayload(name),swap: null } : undefined });
-  assert.equal(await projectMarketActivityBatch(client),7);
+  for (let swap = 0; swap < 3; swap++) await source(client,{ name: 'SwapExecuted' });
+  assert.equal(await projectMarketActivityBatch(client),10);
   const view = await readMarketActivity(client,query);
-  assert.equal(view.events,7); assert.equal(view.swaps,3);
+  assert.equal(view.events,10); assert.equal(view.swaps,3);
   assert.equal(view.metrics.volume.observedUsd,'15');
   assert.equal(view.metrics.swapFees.observedUsd,'0.39');
   assert.equal(view.metrics.reportedInterest.observedUsd,'1.25');
@@ -122,10 +128,11 @@ test('leverage swaps, margin-only changes and reported interest are distinct eco
 test('product totals survive replay and distinguish exposure, new credit and repayments',() => transaction(async client => {
   await priced(client);
   await source(client,{ name: 'LeveragePositionOpened' });
+  await source(client,{ name: 'SwapExecuted' });
   await source(client,{ name: 'MarketDebtUpdated' });
   await source(client,{ name: 'MarketDebtUpdated',fields: { ...activityPayload('MarketDebtUpdated'),debt_delta: '-2000000' } });
   await source(client,{ name: 'LeveragePositionUpdated',fields: { ...activityPayload('LeveragePositionUpdated'),swap: null,borrowed_amount: '0' } });
-  assert.equal(await projectMarketActivityBatch(client),4);
+  assert.equal(await projectMarketActivityBatch(client),5);
   assert.equal(await projectMarketActivityBatch(client),0);
   const view = await readMarketActivity(client,query);
   assert.equal(view.volumes.spot.observedUsd,'5');
@@ -144,7 +151,7 @@ test('event-time provider prices precede native references without leaking futur
     priceUsd: '3',provider: 'jupiter' as const,sourceTime: '2026-09-02T00:00:06Z',observedAt: '2026-09-02T00:00:06Z' };
   await storeExternalPrices(client,[quote],'c'.repeat(64));
   assert.equal((await readMarketActivity(client,query)).volumes.spot.observedUsd,'5');
-  await storeExternalPrices(client,[{ ...quote,sourceTime: '2026-09-02T00:00:07Z',observedAt: '2026-09-02T00:00:07Z' }],query.deploymentIdentitySha256);
+  await storeExternalPrices(client,[{ ...quote,sourceTime: '2026-09-01T22:00:00Z',observedAt: '2026-09-01T22:00:00Z' }],query.deploymentIdentitySha256);
   const pricedView = await readMarketActivity(client,query);
   assert.equal(pricedView.volumes.spot.observedUsd,'6');
   assert.equal(pricedView.volumes.spot.estimatedObservations,1); // Mainnet price mapped into devnet.
@@ -203,42 +210,18 @@ test('an unpriced trade makes the observed total unknown while retaining the sep
   assert.equal(view.markets[0].metrics.volume.observedUsd,null);
 }));
 
-test('same-slot, future-time and other-deployment captures cannot replace a historical trade price',() => transaction(async (client) => {
+test('old prior-slot snapshots value quiet markets, while same-slot and future-time snapshots cannot',() => transaction(async (client) => {
   await priced(client);
-  await storePriceCapture(client,priceFixture({ price: '2' }).source(activitySlot));
-  await storePriceCapture(client,{ ...priceFixture({ price: '3' }).source(activitySlot-1),deploymentIdentitySha256: 'c'.repeat(64) });
-  await storePriceCapture(client,{ ...priceFixture({ price: '4' }).source(activitySlot-2),
-    blockTime: '2026-09-02T00:00:11Z',observedAt: '2026-09-02T00:00:12Z' });
+  await source(client); await projectMarketActivityBatch(client);
+  await streamedSwapSnapshot(client,{ slot: activitySlot,time: '2026-09-02T00:00:09Z',baseSpotNad: 5_000_000_000n });
+  await streamedSwapSnapshot(client,{ slot: activitySlot-2,time: '2026-09-02T00:00:11Z',baseSpotNad: 10_000_000_000n });
+  assert.equal((await readMarketActivity(client,query)).metrics.volume.observedUsd,'5');
+}));
+
+test('a prior-slot native snapshot remains usable after more than one quiet hour',() => transaction(async client => {
+  await priced(client,{ time: '2026-09-01T22:00:00Z' });
   await source(client); await projectMarketActivityBatch(client);
   assert.equal((await readMarketActivity(client,query)).metrics.volume.observedUsd,'5');
-  assert.equal((await readMarketActivity(client,{ ...query,deploymentIdentitySha256: 'd'.repeat(64) })).metrics.volume.observedUsd,null);
-  assert.equal((await readMarketActivity(client,{ ...query,maxPriceAgeSeconds: 9 })).metrics.volume.observedUsd,null);
-}));
-
-test('the newest captured policy is used even before its price worker runs; an empty policy cannot revive an older price',() => transaction(async (client) => {
-  await priced(client);
-  await storePriceCapture(client,priceFixture({ price: '2' }).source(activitySlot-2));
-  await source(client); await projectMarketActivityBatch(client);
-  const before = await readMarketActivity(client,query);
-  assert.equal(before.metrics.volume.observedUsd,'10');
-  await storePriceCapture(client,priceFixture({ references: false }).source(activitySlot-1));
-  const after = await readMarketActivity(client,query);
-  assert.equal(after.metrics.volume.observedUsd,null);
-  assert.notEqual(after.coverage.selectionHash,before.coverage.selectionHash);
-}));
-
-test('contradictory captured prices halt activity reads without deleting either source',() => transaction(async (client) => {
-  await priced(client);
-  await source(client); await projectMarketActivityBatch(client);
-  await storePriceCapture(client,priceFixture({ price: '2' }).source());
-  await assert.rejects(readMarketActivity(client,query),/contradictory activity price evidence/);
-}));
-
-test('an invalid latest capture fails the read instead of falling back to an older valid quote',() => transaction(async (client) => {
-  await priced(client);
-  await storePriceCapture(client,{ ...priceFixture().source(activitySlot-1),rawPreview: Buffer.from('invalid preview').toString('base64') });
-  await source(client); await projectMarketActivityBatch(client);
-  await assert.rejects(readMarketActivity(client,query));
 }));
 
 test('500-row keyset pages retain every event sharing a slot and expose partial projection coverage',() => transaction(async (client) => {
