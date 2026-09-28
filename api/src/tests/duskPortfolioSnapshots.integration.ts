@@ -4,7 +4,7 @@ import { SystemProgram } from '@solana/web3.js';
 import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
-import { projectPortfolioCapture, projectPortfolioCaptureBatch, readPortfolioHistory, storePortfolioCapture } from '../services/duskPortfolioSnapshots';
+import { projectPortfolioCapture, projectPortfolioCaptureBatch, projectPortfolioSource, readPortfolioHistory, storePortfolioCapture } from '../services/duskPortfolioSnapshots';
 import { portfolioFixture } from './duskPortfolioFixtures';
 import { fixtureKey } from './duskYieldCheckpointFixtures';
 import { readPortfolioCatalog } from '../services/duskPortfolioSnapshots';
@@ -48,6 +48,40 @@ test('portfolio discovery comes from streamed positions and LP holders and keeps
   for (const owner of [borrower,trader,closer,holder,leaver]) assert.ok(catalog.knownOwners.includes(owner),owner);
   assert.equal(catalog.basis,'streamed-events.v1'); assert.equal(catalog.throughSlot,900_200_000);
   assert.equal(catalog.sourceFloor,900_200_000); assert.equal(catalog.streamTime,time.toISOString());
+}));
+
+test('archived events discover surviving accounts without treating old values as current',() => transaction(async (client) => {
+  const time = new Date(Math.floor(Date.now()/1000)*1000-5000);
+  await streamedRelease(client,{ slot: 900_200_000,time });
+  await streamedMarket(client);
+  const archived = [pin.cluster,pin.dusk.programId,'1'.repeat(64),`${pin.revision}-archive`];
+  await client.query(`INSERT INTO dusk_ingestion.protocol_identities(cluster,program_id,idl_hash,protocol_revision)
+    VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,archived);
+  const oldMarket = { market: key(219),baseMint: key(220),quoteMint: key(221),ylp: key(222),baseHlp: key(223),quoteHlp: key(224) };
+  await streamedMarket(client,oldMarket,900_100_000,archived);
+  const owner = key(225),position = key(226);
+  await streamedEvent(client,'LeveragePositionOpened',{ market: oldMarket.market,position,owner,
+    debt_asset_mint: oldMarket.baseMint,collateral_asset_mint: oldMarket.quoteMint,
+    collateral_amount: '5',debt_amount: '2',debt_shares: '2',closeout_value: '3' },900_100_001,undefined,archived);
+  const ownerWithoutPosition = key(228);
+  await streamedEvent(client,'MarketDebtUpdated',{ market: oldMarket.market,owner: ownerWithoutPosition },
+    900_100_002,undefined,archived);
+  const catalog = await readPortfolioCatalog(client);
+  assert.equal(catalog.basis,'streamed-event-candidates.v2');
+  assert.deepEqual(catalog.markets,[fixtureMarket.market,oldMarket.market].sort());
+  assert.deepEqual(catalog.items.map((item) => [item.address,item.market,item.owner]),[[position,oldMarket.market,owner]]);
+  assert.ok(catalog.knownOwners.includes(owner));
+  assert.ok(catalog.knownOwners.includes(ownerWithoutPosition));
+  assert.deepEqual(catalog.candidateIdentities?.map((item) => item.protocolRevision).sort(),[pin.revision,archived[3]].sort());
+
+  // Replay accepts archived addresses only after current-pin market and account
+  // evidence is supplied by the capture. An old identity cannot be substituted.
+  const fixture = portfolioFixture();
+  fixture.source.catalog.basis = 'streamed-event-candidates.v2';
+  fixture.source.catalog.candidateIdentities = catalog.candidateIdentities;
+  assert.equal(projectPortfolioSource(fixture.source).owners[0].valuations.quality,'reference-valued');
+  fixture.source.catalog.candidateIdentities![1].programId = key(227);
+  assert.throws(() => projectPortfolioSource(fixture.source),/candidate identity differs/);
 }));
 
 test('saved portfolio evidence replays idempotently without current RPC or price inputs',() => transaction(async (client) => {

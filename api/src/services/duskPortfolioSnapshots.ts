@@ -17,10 +17,12 @@ const identity = () => {
   return [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
 };
 export interface PortfolioCatalogItem { address: string; market: string; owner: string; kind: PortfolioKind; sourceSlot: number }
-/** Discovery from streamed events, current as of the stream's slot and time. */
+interface PortfolioCandidateIdentity { cluster: string; programId: string; idlHash: string; protocolRevision: string }
+/** Archived events supply addresses only. Current-bank accounts decide their state and value. */
 export interface PortfolioCatalog {
-  basis: 'streamed-events.v1'; throughSlot: number; streamTime: string; sourceFloor: number;
+  basis: 'streamed-events.v1' | 'streamed-event-candidates.v2'; throughSlot: number; streamTime: string; sourceFloor: number;
   markets: string[]; items: PortfolioCatalogItem[]; knownOwners: string[];
+  candidateIdentities?: PortfolioCandidateIdentity[];
 }
 export interface PortfolioCaptureSource {
   schemaVersion: 'dusk-portfolio-capture.v2'; catalog: PortfolioCatalog; groups: MarketSimulationSnapshot[];
@@ -43,39 +45,71 @@ function coordinates(source: PortfolioCaptureSource) {
 }
 
 /** Discovery only: every returned address is read again at its valuation bank.
- * Positions and LP holders come from streamed events; an LP holder is valued
- * through its canonical Token-2022 account, the one yield accrues to. */
+ * A program upgrade does not re-emit MarketCreated or position-open events for
+ * existing accounts. Archived events are candidate addresses, never current
+ * state; the capture verifies each market and position under the current pin.
+ * LP holders are valued through their canonical Token-2022 accounts. */
 export async function readPortfolioCatalog(client: PoolClient): Promise<PortfolioCatalog> {
   const active = identity(),stream = await readStreamCursor(client);
   if (!stream) throw new Error('Portfolio capture needs a started Dusk stream');
-  const filter = 'cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4';
-  const markets = await client.query<{ market: string }>(`SELECT market FROM dusk_ingestion.streamed_markets WHERE ${filter} ORDER BY market`,active);
-  if (!markets.rowCount) throw new Error('Portfolio capture has no discovered markets');
-  const marketAddresses = markets.rows.map((row) => nativeKey(row.market));
-  const found = await client.query<{ address: string; market: string; owner: string; kind: PortfolioKind; last_slot: string; lp_mint: string | null }>(`
-    SELECT position AS address,market,owner,'borrow' AS kind,last_slot::text,NULL AS lp_mint
-      FROM dusk_ingestion.streamed_borrow_positions WHERE ${filter} AND open
-    UNION ALL SELECT position,market,owner,'leverage',last_slot::text,NULL
-      FROM dusk_ingestion.streamed_leverage_positions WHERE ${filter} AND open
-    UNION ALL SELECT NULL,market,owner,kind,last_slot::text,lp_mint
-      FROM dusk_ingestion.streamed_lp_balances WHERE ${filter} AND amount>0`,active);
-  const items: PortfolioCatalogItem[] = found.rows.map((row) => {
-    if (!marketAddresses.includes(row.market)) throw new Error('Position catalog is incomplete');
+  const programFilter = 'cluster=$1 AND program_id=$2';
+  const markets = await client.query<{ market: string; idl_hash: string; protocol_revision: string }>(`
+    SELECT market,idl_hash,protocol_revision FROM dusk_ingestion.streamed_markets
+    WHERE ${programFilter} ORDER BY market,protocol_revision`,active.slice(0,2));
+  const found = await client.query<{ address: string; market: string; owner: string; kind: PortfolioKind; last_slot: string;
+    lp_mint: string | null; idl_hash: string; protocol_revision: string }>(`
+    SELECT position AS address,market,owner,'borrow' AS kind,last_slot::text,NULL AS lp_mint,idl_hash,protocol_revision
+      FROM dusk_ingestion.streamed_borrow_positions WHERE ${programFilter} AND open
+        AND position IS NOT NULL AND owner IS NOT NULL AND market IS NOT NULL
+    UNION ALL SELECT position,market,owner,'leverage',last_slot::text,NULL,idl_hash,protocol_revision
+      FROM dusk_ingestion.streamed_leverage_positions WHERE ${programFilter} AND open
+        AND position IS NOT NULL AND owner IS NOT NULL AND market IS NOT NULL
+    UNION ALL SELECT NULL,market,owner,kind,last_slot::text,lp_mint,idl_hash,protocol_revision
+      FROM dusk_ingestion.streamed_lp_balances WHERE ${programFilter} AND amount>0
+        AND lp_mint IS NOT NULL AND owner IS NOT NULL AND market IS NOT NULL`,active.slice(0,2));
+  const selectedMarkets = new Set([
+    ...markets.rows.filter((row) => row.idl_hash === active[2] && row.protocol_revision === active[3]).map((row) => row.market),
+    ...found.rows.map((row) => row.market),
+  ]);
+  if (!selectedMarkets.size) throw new Error('Portfolio capture has no discovered markets');
+  const marketAddresses = [...selectedMarkets].map(nativeKey).sort();
+  const marketCandidates = markets.rows.filter((row) => selectedMarkets.has(row.market));
+  if (new Set(marketCandidates.map((row) => row.market)).size !== selectedMarkets.size)
+    throw new Error('Position catalog has a market without a creation event');
+  const candidateIdentities = new Map<string,PortfolioCandidateIdentity>();
+  for (const row of [...marketCandidates,...found.rows]) {
+    const key = `${row.idl_hash}:${row.protocol_revision}`;
+    candidateIdentities.set(key,{ cluster: active[0],programId: active[1],idlHash: row.idl_hash,protocolRevision: row.protocol_revision });
+  }
+  const activeCandidate = { cluster: active[0],programId: active[1],idlHash: active[2],protocolRevision: active[3] };
+  candidateIdentities.set(`${active[2]}:${active[3]}`,activeCandidate);
+  const candidates = [...candidateIdentities.values()].sort((a,b) => a.protocolRevision.localeCompare(b.protocolRevision) || a.idlHash.localeCompare(b.idlHash));
+  const itemsByAddress = new Map<string,PortfolioCatalogItem>();
+  for (const row of found.rows) {
+    if (!selectedMarkets.has(row.market)) throw new Error('Position catalog is incomplete');
     const owner = nativeKey(row.owner);
     const address = row.lp_mint === null ? nativeKey(row.address)
       : getAssociatedTokenAddressSync(new PublicKey(row.lp_mint),new PublicKey(owner),true,TOKEN_2022_PROGRAM_ID).toBase58();
-    return { address,owner,market: row.market,kind: row.kind,sourceSlot: checkedSlot(Number(row.last_slot)) };
-  });
+    const item = { address,owner,market: row.market,kind: row.kind,sourceSlot: checkedSlot(Number(row.last_slot)) };
+    const previous = itemsByAddress.get(address);
+    if (previous && (previous.market !== item.market || previous.kind !== item.kind))
+      throw new Error('Archived portfolio candidate has conflicting market or kind');
+    if (!previous || item.sourceSlot>previous.sourceSlot) itemsByAddress.set(address,item);
+  }
+  const items = [...itemsByAddress.values()];
   // Preserve previous owners after closure, a full withdrawal or a transfer.
   const pastOwners = await client.query<{ owner: string }>(`
-    SELECT owner FROM dusk_ingestion.portfolio_checkpoints WHERE ${filter}
-    UNION SELECT owner FROM dusk_ingestion.streamed_borrow_positions WHERE ${filter}
-    UNION SELECT owner FROM dusk_ingestion.streamed_leverage_positions WHERE ${filter}
-    UNION SELECT owner FROM dusk_ingestion.streamed_lp_balances WHERE ${filter}`,active);
-  const knownOwners = [...new Set([...items.map((item) => item.owner),...pastOwners.rows.map((row) => nativeKey(row.owner))])].sort();
+    SELECT owner FROM dusk_ingestion.portfolio_checkpoints WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
+    UNION SELECT owner FROM dusk_ingestion.streamed_borrow_positions WHERE ${programFilter} AND owner IS NOT NULL
+    UNION SELECT owner FROM dusk_ingestion.streamed_leverage_positions WHERE ${programFilter} AND owner IS NOT NULL
+    UNION SELECT owner FROM dusk_ingestion.streamed_lp_balances WHERE ${programFilter} AND owner IS NOT NULL`,active);
+  const knownOwners = [...new Set([...found.rows.map((row) => nativeKey(row.owner)),...pastOwners.rows.map((row) => nativeKey(row.owner))])].sort();
   if (items.length>100000 || knownOwners.length>100000) throw new Error('Portfolio catalog exceeds the bounded capture capacity');
   const throughSlot = checkedSlot(Number(stream.throughSlot));
-  return { basis: 'streamed-events.v1',throughSlot,streamTime: stream.time.toISOString(),sourceFloor: throughSlot,
+  const hasArchivedCandidates = candidates.some((candidate) => candidate.idlHash !== active[2] || candidate.protocolRevision !== active[3]);
+  return { basis: hasArchivedCandidates ? 'streamed-event-candidates.v2' : 'streamed-events.v1',
+    ...(hasArchivedCandidates ? { candidateIdentities: candidates } : {}),
+    throughSlot,streamTime: stream.time.toISOString(),sourceFloor: throughSlot,
     markets: marketAddresses,items: items.sort((a,b) => a.address.localeCompare(b.address)),knownOwners };
 }
 
@@ -89,11 +123,17 @@ function rawAccount(value: SnapshotAccount,program: string): AccountInfo<Buffer>
 export function projectPortfolioSource(source: PortfolioCaptureSource) {
   const pin = loadPinnedProtocol(),decoder = new BorshCoder(duskRawIdl()),catalog = source.catalog,coords = coordinates(source);
   const catalogAge = Date.parse(source.observedAt)-Date.parse(catalog.streamTime);
-  if (source.schemaVersion !== 'dusk-portfolio-capture.v2' || catalog.basis !== 'streamed-events.v1'
+  if (source.schemaVersion !== 'dusk-portfolio-capture.v2'
+    || !['streamed-events.v1','streamed-event-candidates.v2'].includes(catalog.basis)
     || !Number.isSafeInteger(source.maxCatalogAgeSeconds) || source.maxCatalogAgeSeconds<1 || source.maxCatalogAgeSeconds>600
     || !Number.isFinite(catalogAge) || catalogAge>source.maxCatalogAgeSeconds*1000
     || catalog.sourceFloor !== checkedSlot(catalog.throughSlot) || coords.minSlot<catalog.sourceFloor)
     throw new Error('Portfolio catalog is stale or has invalid coordinates');
+  if (catalog.basis === 'streamed-event-candidates.v2' && (!Array.isArray(catalog.candidateIdentities)
+    || !catalog.candidateIdentities.some((candidate) => candidate.cluster === pin.cluster && candidate.programId === pin.dusk.programId
+      && candidate.idlHash === pin.dusk.idlCanonicalSha256 && candidate.protocolRevision === pin.revision)
+    || catalog.candidateIdentities.some((candidate) => candidate.cluster !== pin.cluster || candidate.programId !== pin.dusk.programId
+      || !candidate.idlHash || !candidate.protocolRevision))) throw new Error('Portfolio candidate identity differs');
   parsePriceReferences(source.references,pin);
   const expected = new Map(catalog.items.map((item) => [nativeKey(item.address),item]));
   if (expected.size !== catalog.items.length || new Set(catalog.markets).size !== catalog.markets.length) throw new Error('Duplicate portfolio discovery addresses');
@@ -147,6 +187,7 @@ export function projectPortfolioSource(source: PortfolioCaptureSource) {
     coverage: { basis: 'sampled-native-positions.v1',catalogComplete: true,atomicAcrossMarkets: false,historyComplete: false,
       discoveryAtomicWithValuation: false,completeAtValuationSlot: false,
       catalogBasis: catalog.basis,catalogThroughSlot: String(catalog.throughSlot),catalogStreamTime: catalog.streamTime,
+      ...(catalog.candidateIdentities ? { catalogCandidateIdentities: catalog.candidateIdentities } : {}),
       catalogMaxAgeSeconds: source.maxCatalogAgeSeconds,referenceHash,
       marketCount: markets.size,capturedAccountCount: seen.size,closedAccounts: closed.sort(),ownerChanges: moved,
       previewUnavailableMarkets: [...new Set(source.groups.filter((group) => group.previewUnavailable).map((group) => group.market))].sort(),
@@ -237,10 +278,17 @@ export async function captureDuskPortfolioSnapshots(dependencies?: {
   // Valuations read finalized banks at or after the stream's slot, so every
   // discovered position exists at its valuation bank.
   const readFloor = Math.max(catalog.sourceFloor,checkedSlot(Number(before.programDataSlot)),checkedSlot(Number(before.leverageDelegateProgramDataSlot)));
+  const jobs: { market: string; addresses: string[] }[] = [];
   for (const market of catalog.markets) {
     const items = catalog.items.filter((item) => item.market === market);
     for (let offset=0; offset<Math.max(items.length,1); offset+=20) {
-      const group = await (dependencies?.capture ?? captureMarketSimulation)(market,readFloor,items.slice(offset,offset+20).map((item) => item.address));
+      jobs.push({ market,addresses: items.slice(offset,offset+20).map((item) => item.address) });
+    }
+  }
+  for (let offset=0; offset<jobs.length; offset+=4) {
+    const captured = await Promise.all(jobs.slice(offset,offset+4).map((job) =>
+      (dependencies?.capture ?? captureMarketSimulation)(job.market,readFloor,job.addresses)));
+    for (const group of captured) {
       if (group.deploymentIdentitySha256 !== before.deploymentIdentitySha256) throw new Error('Deployment changed during portfolio capture');
       groups.push(group);
     }
