@@ -27,7 +27,7 @@ export async function readDuskVirtualBook({
     ),
     signal,
   });
-  const after = await boundary.assertCompatibleForRead(deployment, signal);
+  const after = await boundary.assertCompatibleForRead(deployment, signal, snapshot.slot);
   if (signal?.aborted || after.observedSlot < snapshot.slot)
     throw new Error('Market depth was invalidated');
   return { ...snapshot, deployment };

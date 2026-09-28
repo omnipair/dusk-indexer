@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setImmediate } from 'node:timers/promises';
 import { Connection } from '@solana/web3.js';
-import { deploymentEnvelope } from '../services/duskDeploymentService';
+import { deploymentEnvelope, observedDeploymentEnvelope } from '../services/duskDeploymentService';
 import { loadPinnedProtocol } from '../config/duskProtocol';
 import type { DuskPinnedProgram } from '../config/duskProtocol';
 
@@ -79,4 +79,19 @@ test('coalesced capture observations rebuild at the higher caller floor and reje
   assert.deepEqual(rpc.slots.slice(2), [500_001_010, 500_001_010, 500_001_010, 500_001_010]);
   for (const floor of [-1, NaN, 0.5, Infinity])
     await assert.rejects(deploymentEnvelope(floor), /Invalid deployment/);
+});
+
+test('a live capture observes its bank even when the ingestion cursor is available but behind', async (context) => {
+  const rpc = chain(context);
+  context.mock.method(coverage, 'readStreamedDeployment', async () => {
+    throw new Error('A live capture must not reuse the ingestion cursor');
+  });
+  context.mock.method(Connection.prototype, 'getSlot', async (options: { minContextSlot: number }) => {
+    rpc.slots.push(options.minContextSlot);
+    return options.minContextSlot;
+  });
+  const observed = await observedDeploymentEnvelope(500_002_000);
+  assert.equal(observed.sourceSlot, 500_002_000);
+  assert.deepEqual(rpc.slots, [500_002_000]);
+  assert.deepEqual(observedFloors.slice(rpc.headers), [500_002_000]);
 });

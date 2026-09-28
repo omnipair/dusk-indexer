@@ -47,7 +47,7 @@ export async function readDuskVirtualBookQuotes({
   const { deployment } = snapshot;
   if (dusk.program.programId.toBase58() !== deployment.programId)
     throw new Error('Depth SDK deployment mismatch');
-  const before = await boundary.assertCompatibleForRead(deployment, signal);
+  const before = await boundary.assertCompatibleForRead(deployment, signal, snapshot.slot);
   const quotes = await dusk.get.previewVirtualBookQuotes(
     { ...snapshot, programId: deployment.programId },
     {
@@ -60,7 +60,7 @@ export async function readDuskVirtualBookQuotes({
       signal,
     },
   );
-  const after = await boundary.assertCompatibleForRead(deployment, signal);
+  const after = await boundary.assertCompatibleForRead(deployment, signal, quotes.slot);
   if (signal?.aborted || after.observedSlot < quotes.slot)
     throw new Error('Native market depth was invalidated');
   return { ...quotes, deployment };

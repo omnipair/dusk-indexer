@@ -350,7 +350,7 @@ export async function readDuskOrders(options: {
         row.trigger = trigger.value;
       }
     }
-  const after = await boundary.assertCompatibleForRead(deployment, signal);
+  const after = await boundary.assertCompatibleForRead(deployment, signal, floor);
   if (after.observedSlot < floor || signal?.aborted)
     throw new Error('Order read was invalidated');
   return {
