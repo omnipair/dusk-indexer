@@ -6,12 +6,14 @@ import {
   SimulatedTransactionResponse,
 } from '@solana/web3.js';
 import {
+  createVirtualBookBoundary,
   createVirtualBookRuntime,
   decodePreviewSwapReturnData,
 } from '../services/virtualBook/native';
-import { decodeDuskVirtualBookBatch } from '../services/virtualBook/virtual-book-quotes';
+import { decodeDuskVirtualBookBatch, readDuskVirtualBookQuotes } from '../services/virtualBook/virtual-book-quotes';
 import { projectDuskVirtualBook } from '../services/virtualBook/virtual-book-view-model';
-import { DuskVirtualBookSnapshot } from '../services/virtualBook/virtual-book-read';
+import { DuskVirtualBookSnapshot, readDuskVirtualBook } from '../services/virtualBook/virtual-book-read';
+import type { Dusk } from '@omnipair/dusk-sdk';
 import fixture from './fixtures/virtual-book-batch-devnet-20260920.json';
 import {
   currentVirtualBook,
@@ -48,6 +50,49 @@ const setup = async () => {
     }));
   return { dusk, snapshot, requests };
 };
+test('native depth stays valid when preview banks run ahead of the stream', async () => {
+  const deployment = {
+    programId: fixture.programId,
+    deploymentIdentitySha256: 'a'.repeat(64),
+    sourceSlot: 100,
+    programDataSlot: '1',
+    leverageDelegateProgramDataSlot: '1',
+  } as DuskDeploymentEnvelope;
+  const floors: number[] = [];
+  const previewFloors: number[] = [];
+  const boundary = createVirtualBookBoundary(async floor => {
+    floors.push(floor);
+    return { ...deployment, sourceSlot: floor };
+  });
+  const dusk = {
+    program: { programId: { toBase58: () => fixture.programId } },
+    get: {
+      previewVirtualBookSnapshot: async (_market: string, options: { minContextSlot: number }) => {
+        previewFloors.push(options.minContextSlot);
+        return { market: fixture.market, slot: 105, account: {} };
+      },
+      previewVirtualBookQuotes: async (_snapshot: unknown, options: { minContextSlot: number }) => {
+        previewFloors.push(options.minContextSlot);
+        return { slot: 107, quotes: [] };
+      },
+    },
+  } as unknown as Dusk;
+  const snapshot = await readDuskVirtualBook({ dusk, market: fixture.market, deployment, boundary });
+  const quotes = await readDuskVirtualBookQuotes({ dusk, snapshot, boundary });
+  assert.equal(quotes.slot, 107);
+  assert.deepEqual(floors, [100, 105, 105, 107]);
+  assert.deepEqual(previewFloors, [100, 105]);
+
+  const changed = createVirtualBookBoundary(async floor => ({
+    ...deployment,
+    sourceSlot: floor,
+    deploymentIdentitySha256: 'b'.repeat(64),
+  }));
+  await assert.rejects(
+    readDuskVirtualBook({ dusk, market: fixture.market, deployment, boundary: changed }),
+    /VOB deployment changed/,
+  );
+});
 test('backend decodes the saved native batch with exact cumulative sizes and program fees', async () => {
   const h = await setup();
   const decoded = decodeDuskVirtualBookBatch(

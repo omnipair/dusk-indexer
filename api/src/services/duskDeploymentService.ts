@@ -204,11 +204,14 @@ export async function deploymentEnvelope(minimumSourceSlot = 0): Promise<DuskDep
     throw new Error('Invalid deployment source-slot floor');
   const streamed = await streamedEnvelope();
   if (streamed.sourceSlot >= minimumSourceSlot) return streamed;
-  return observedEnvelope(minimumSourceSlot);
+  return observedDeploymentEnvelope(minimumSourceSlot);
 }
 
-/** A cached observation below the floor is rebuilt rather than returned. */
-async function observedEnvelope(minimumSourceSlot: number): Promise<DuskDeploymentEnvelope> {
+/** Live RPC captures can run ahead of the ingestion cursor. Observe the
+ * programs at the capture's bank instead of reusing the stream's older slot. */
+export async function observedDeploymentEnvelope(minimumSourceSlot = 0): Promise<DuskDeploymentEnvelope> {
+  if (!Number.isSafeInteger(minimumSourceSlot) || minimumSourceSlot < 0)
+    throw new Error('Invalid deployment source-slot floor');
   const { config: apiConfig } = runtime();
   if (
     cached &&

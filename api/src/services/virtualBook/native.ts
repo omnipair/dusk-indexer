@@ -7,7 +7,7 @@ import {
   sha256,
 } from '../../config/duskProtocol';
 import {
-  deploymentEnvelope,
+  observedDeploymentEnvelope,
   DuskDeploymentEnvelope,
 } from '../duskDeploymentService';
 export { BN };
@@ -63,7 +63,23 @@ export interface DuskReadBoundary {
   assertCompatibleForRead(
     deployment: DuskDeploymentEnvelope,
     signal?: AbortSignal,
+    minimumSourceSlot?: number,
   ): Promise<{ observedSlot: number }>;
+}
+export function createVirtualBookBoundary(
+  observe: (minimumSourceSlot: number) => Promise<DuskDeploymentEnvelope> = observedDeploymentEnvelope,
+): DuskReadBoundary {
+  return {
+    async assertCompatibleForRead(expected, signal, minimumSourceSlot = expected.sourceSlot) {
+      const observed = await boundedDuskRpcRead(
+        () => observe(Math.max(expected.sourceSlot, minimumSourceSlot)),
+        signal,
+      );
+      if (observed.deploymentIdentitySha256 !== expected.deploymentIdentitySha256)
+        throw new Error('VOB deployment changed');
+      return { observedSlot: observed.sourceSlot };
+    },
+  };
 }
 export async function createVirtualBookRuntime(
   connection = new Connection(duskApiConfig().rpcUrl, 'confirmed'),
@@ -99,19 +115,7 @@ export async function createVirtualBookRuntime(
     provider,
     programId: new PublicKey(pin.dusk.programId),
   });
-  const boundary: DuskReadBoundary = {
-    async assertCompatibleForRead(expected, signal) {
-      const observed = await boundedDuskRpcRead(
-        () => deploymentEnvelope(expected.sourceSlot),
-        signal,
-      );
-      if (
-        observed.deploymentIdentitySha256 !== expected.deploymentIdentitySha256
-      )
-        throw new Error('VOB deployment changed');
-      return { observedSlot: observed.sourceSlot };
-    },
-  };
+  const boundary = createVirtualBookBoundary();
   return { dusk, boundary };
 }
 export async function boundedDuskRpcRead<T>(
