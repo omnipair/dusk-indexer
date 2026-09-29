@@ -2,8 +2,8 @@
 //! release.
 use {
     crate::{
-        sha256_hex, vendored_protocol_lock, FoundationError, DUSK_IDL_SHA256, DUSK_PROGRAM_ID,
-        LEVERAGE_DELEGATE_IDL_SHA256, LEVERAGE_DELEGATE_PROGRAM_ID, PROTOCOL_REVISION,
+        DUSK_IDL_SHA256, DUSK_PROGRAM_ID, FoundationError, LEVERAGE_DELEGATE_IDL_SHA256,
+        LEVERAGE_DELEGATE_PROGRAM_ID, PROTOCOL_REVISION, sha256_hex, vendored_protocol_lock,
     },
     serde::{Deserialize, Serialize},
     solana_pubkey::Pubkey,
