@@ -6,6 +6,8 @@ The Dusk HTTP API uses `Dockerfile.dusk-api` and `api/dist/index.js`. `DATABASE_
 
 The active event identity is `(cluster, program_id, canonical_idl_sha256, protocol_revision)`. The reviewed Dusk upgrade at finalized slot `505509130` retains the `devnet-2026-09-27-5644e5d` event revision because its program ID and IDL are unchanged. `protocol/protocol.lock.json` remains the immutable database boundary, so pre-upgrade markets, positions and events stay in the active views. `protocol/compatible-deployment.json` pins the current Dusk binary hash, deploy slot and allocation; the delegate retains its lock pin. Both the daemon and API verify the exact live ProgramData and authority before accepting it. An unknown upgrade still fails closed.
 
+The native gRPC service validates change notices with the original event revision and API envelopes with the compatible current executable. Deploy it alongside the daemon, API and workers so it does not reject current frames.
+
 ## Deployment intervals
 
 The active event revision starts at slot **504809897**. At startup the daemon verifies both complete current program payloads in one finalized bank after the reviewed compatible upgrade. While streaming, any loader transaction that upgrades, re-authorizes or closes either program stops the daemon; restart verifies the full binaries against the current pins.

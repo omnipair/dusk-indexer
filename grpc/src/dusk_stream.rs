@@ -171,7 +171,13 @@ pub struct DuskStream {
 }
 impl DuskStream {
     pub fn start(pool: PgPool, api: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let pin: Arc<Value> = Arc::new(serde_json::from_str(PIN)?);
+        // Notifications use the immutable event revision and its first slot.
+        // API envelopes describe the exact executable currently serving that
+        // unchanged IDL; both must be checked against their respective pins.
+        let historical_pin: Arc<Value> = Arc::new(serde_json::from_str(PIN)?);
+        let current_pin: Arc<Value> = Arc::new(serde_json::to_value(
+            dusk_indexer_foundation::deployment::current_deployment()?,
+        )?);
         let mut endpoint = reqwest::Url::parse(&format!(
             "{}/api/dusk/v1/config",
             api.trim_end_matches('/')
@@ -188,12 +194,12 @@ impl DuskStream {
             .redirect(reqwest::redirect::Policy::none())
             .build()?;
         let (sender, receiver) = watch::channel(Notice::default());
-        tokio::spawn(listen(pool, sender, pin.clone()));
+        tokio::spawn(listen(pool, sender, historical_pin));
         Ok(Self {
             receiver,
             client,
             endpoint,
-            pin,
+            pin: current_pin,
             capacity: Arc::new(Semaphore::new(128)),
             observation: Arc::new(Mutex::new(None)),
         })
@@ -329,7 +335,10 @@ mod tests {
     }
     #[test]
     fn deployment_observations_require_both_programs_and_fresh_evidence() {
-        let pin: Value = serde_json::from_str(PIN).unwrap();
+        let pin = serde_json::to_value(
+            dusk_indexer_foundation::deployment::current_deployment().unwrap(),
+        )
+        .unwrap();
         let now = chrono::Utc::now();
         let mut d = json!({ "schemaVersion": "dusk-deployment.v2", "network": pin["cluster"]["name"],
             "genesisHash": pin["cluster"]["genesisHash"], "commitment": "confirmed", "sourceSlot": 500000000,
@@ -377,6 +386,16 @@ mod tests {
             500000000,
             now.timestamp_millis()
         ));
+        let historical: Value = serde_json::from_str(PIN).unwrap();
+        let mut previous_binary = valid.clone();
+        previous_binary["deployment"]["programBinarySha256"] =
+            historical["programs"][0]["binary"]["sha256"].clone();
+        assert!(!valid_envelope(
+            &previous_binary,
+            &pin,
+            500000000,
+            now.timestamp_millis()
+        ));
         for key in d.as_object().unwrap().keys() {
             let mut invalid = valid.clone();
             invalid["deployment"][key] = Value::Null;
@@ -409,7 +428,10 @@ mod tests {
     async fn config_observation_requests_and_validates_the_notice_slot() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-        let pin: Value = serde_json::from_str(PIN).unwrap();
+        let pin = serde_json::to_value(
+            dusk_indexer_foundation::deployment::current_deployment().unwrap(),
+        )
+        .unwrap();
         let now = chrono::Utc::now();
         let mut deployment = json!({
             "schemaVersion": "dusk-deployment.v2",
