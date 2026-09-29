@@ -2,7 +2,7 @@
 use {
     anyhow::{bail, Context, Result},
     dusk_indexer_foundation::{
-        deployment::{pinned_deployment, DeploymentPin},
+        deployment::{current_deployment, pinned_deployment, DeploymentPin},
         sha256_hex,
     },
     solana_account::Account,
@@ -82,10 +82,11 @@ impl Attestation {
             through_slot: self.minimum_slot,
         })
     }
-    /// Verifies the complete pinned binaries once, at startup. While running,
-    /// the stream stops the daemon on any change to a pinned deployment.
+    /// Verifies the exact current binaries once, at startup. The original
+    /// event revision and cursor remain valid across this IDL-compatible
+    /// upgrade. Unknown loader changes still stop the stream.
     pub async fn verify(&mut self, rpc: &RpcClient, cluster: &str) -> Result<()> {
-        let pin = pinned_deployment()?;
+        let pin = current_deployment()?;
         if pin.cluster.name != cluster {
             bail!("FINALIZED_INVARIANT: cluster label differs from protocol lock");
         }

@@ -2,8 +2,8 @@
 //! release.
 use {
     crate::{
-        DUSK_IDL_SHA256, DUSK_PROGRAM_ID, FoundationError, LEVERAGE_DELEGATE_IDL_SHA256,
-        LEVERAGE_DELEGATE_PROGRAM_ID, PROTOCOL_REVISION, sha256_hex, vendored_protocol_lock,
+        sha256_hex, vendored_protocol_lock, FoundationError, DUSK_IDL_SHA256, DUSK_PROGRAM_ID,
+        LEVERAGE_DELEGATE_IDL_SHA256, LEVERAGE_DELEGATE_PROGRAM_ID, PROTOCOL_REVISION,
     },
     serde::{Deserialize, Serialize},
     solana_pubkey::Pubkey,
@@ -130,6 +130,49 @@ pub fn pinned_deployment() -> Result<DeploymentPin, FoundationError> {
     DeploymentPin::from_value(vendored_protocol_lock())
 }
 
+/// The current, byte-verified executable for the same event/IDL revision.
+/// The original lock remains immutable because its first slot and stored
+/// observations identify the beginning of the continuous event history.
+pub fn current_deployment() -> Result<DeploymentPin, FoundationError> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct CompatibleDeployment {
+        event_revision: String,
+        program_id: String,
+        idl_canonical_sha256: String,
+        deploy_slot: u64,
+        binary_sha256: String,
+        allocated_binary_bytes: usize,
+    }
+
+    let mut pin = pinned_deployment()?;
+    let upgrade: CompatibleDeployment = serde_json::from_str(include_str!(
+        "../../../../protocol/compatible-deployment.json"
+    ))
+    .map_err(|error| FoundationError::InvalidProtocolLock(error.to_string()))?;
+    let dusk = pin
+        .programs
+        .iter_mut()
+        .find(|program| program.name == "dusk")
+        .expect("validated Dusk pin");
+    if upgrade.event_revision != pin.revision
+        || upgrade.program_id != dusk.program_id
+        || upgrade.idl_canonical_sha256 != dusk.idl.canonical_sha256
+        || upgrade.deploy_slot <= dusk.deployment.deploy_slot
+        || upgrade.deploy_slot >= 9_007_199_254_740_991
+        || !crate::is_sha256(&upgrade.binary_sha256)
+        || !(4..=16 * 1024 * 1024).contains(&upgrade.allocated_binary_bytes)
+    {
+        return Err(FoundationError::InvalidProtocolLock(
+            "compatible deployment differs from the event revision or IDL".into(),
+        ));
+    }
+    dusk.deployment.deploy_slot = upgrade.deploy_slot;
+    dusk.deployment.allocated_binary_bytes = upgrade.allocated_binary_bytes;
+    dusk.binary.sha256 = upgrade.binary_sha256;
+    Ok(pin)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,6 +185,22 @@ mod tests {
         assert_eq!(
             pin.sha256(),
             DeploymentPin::from_value(reordered).unwrap().sha256()
+        );
+    }
+    #[test]
+    fn compatible_upgrade_keeps_the_original_event_boundary() {
+        let historical = pinned_deployment().unwrap();
+        let current = current_deployment().unwrap();
+        assert_eq!(historical.revision, current.revision);
+        assert_eq!(
+            historical.programs[0].idl.canonical_sha256,
+            current.programs[0].idl.canonical_sha256
+        );
+        assert_eq!(historical.first_slot(), 504_809_897);
+        assert_eq!(current.programs[0].deployment.deploy_slot, 505_509_130);
+        assert_eq!(
+            current.programs[0].binary.sha256,
+            "f07fcad12a6b41d74fba69b557585c1dccd7f515677f82a5dc811832cac0f849"
         );
     }
     #[test]

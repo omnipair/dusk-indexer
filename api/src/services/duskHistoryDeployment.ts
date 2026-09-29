@@ -1,34 +1,38 @@
 import { PoolClient } from 'pg';
-import { DUSK_DEPLOYMENT_COMMITMENT, DUSK_DEPLOYMENT_SCHEMA_VERSION, DuskPinnedProtocol, loadPinnedProtocol } from '../config/duskProtocol';
+import { DUSK_DEPLOYMENT_COMMITMENT, DUSK_DEPLOYMENT_SCHEMA_VERSION, DuskPinnedProtocol, loadCurrentProtocol, loadPinnedProtocol } from '../config/duskProtocol';
 import { DuskDeploymentEnvelope, deploymentIdentityFingerprint } from './duskDeploymentService';
 
 const identity = (pin = loadPinnedProtocol()) => {
   return [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
 };
 
-/** Verify the complete saved identity against the active pin, including both
- * loader slots, authorities, binaries and IDLs. Only buildRevision may differ.
- * Live reads/writes continue to compare the original full envelope hash. */
+/** Historical captures retain their exact deployment. The original release
+ * and its reviewed, IDL-compatible upgrade share one event revision; all
+ * other loader slots, authorities and binaries still fail closed. */
 export function assertPinnedHistoryDeployment(envelope: DuskDeploymentEnvelope,pin: DuskPinnedProtocol = loadPinnedProtocol()) {
-  const expected = {
+  const expectedFor = (candidate: DuskPinnedProtocol) => ({
     ...envelope,schemaVersion: DUSK_DEPLOYMENT_SCHEMA_VERSION,network: pin.cluster,genesisHash: pin.genesisHash,
-    programId: pin.dusk.programId,programDataAddress: pin.dusk.deployment.programData,
-    programDataSlot: String(pin.dusk.deployment.deploySlot),programUpgradeAuthority: pin.dusk.deployment.upgradeAuthority,
-    leverageDelegateProgramId: pin.leverageDelegate.programId,
-    leverageDelegateProgramDataAddress: pin.leverageDelegate.deployment.programData,
-    leverageDelegateProgramDataSlot: String(pin.leverageDelegate.deployment.deploySlot),
-    leverageDelegateUpgradeAuthority: pin.leverageDelegate.deployment.upgradeAuthority,
-    idlSha256: pin.dusk.idlCanonicalSha256,idlRawSha256: pin.dusk.idlRawSha256,
-    leverageDelegateIdlSha256: pin.leverageDelegate.idlCanonicalSha256,
-    leverageDelegateIdlRawSha256: pin.leverageDelegate.idlRawSha256,
-    commitment: DUSK_DEPLOYMENT_COMMITMENT,programBinarySha256: pin.dusk.binarySha256,
-    leverageDelegateBinarySha256: pin.leverageDelegate.binarySha256,
-  };
+    programId: candidate.dusk.programId,programDataAddress: candidate.dusk.deployment.programData,
+    programDataSlot: String(candidate.dusk.deployment.deploySlot),programUpgradeAuthority: candidate.dusk.deployment.upgradeAuthority,
+    leverageDelegateProgramId: candidate.leverageDelegate.programId,
+    leverageDelegateProgramDataAddress: candidate.leverageDelegate.deployment.programData,
+    leverageDelegateProgramDataSlot: String(candidate.leverageDelegate.deployment.deploySlot),
+    leverageDelegateUpgradeAuthority: candidate.leverageDelegate.deployment.upgradeAuthority,
+    idlSha256: candidate.dusk.idlCanonicalSha256,idlRawSha256: candidate.dusk.idlRawSha256,
+    leverageDelegateIdlSha256: candidate.leverageDelegate.idlCanonicalSha256,
+    leverageDelegateIdlRawSha256: candidate.leverageDelegate.idlRawSha256,
+    commitment: DUSK_DEPLOYMENT_COMMITMENT,programBinarySha256: candidate.dusk.binarySha256,
+    leverageDelegateBinarySha256: candidate.leverageDelegate.binarySha256,
+  });
+  const candidates = [pin];
+  if (pin.revision === loadPinnedProtocol().revision) candidates.push(loadCurrentProtocol());
   if (typeof envelope.buildRevision !== 'string' || !envelope.buildRevision.trim()
     || !Number.isSafeInteger(envelope.sourceSlot) || envelope.sourceSlot<pin.historyFirstSlot
     || !Number.isFinite(Date.parse(envelope.observedAt))
     || deploymentIdentityFingerprint(envelope) !== envelope.deploymentIdentitySha256
-    || deploymentIdentityFingerprint(expected) !== envelope.deploymentIdentitySha256)
+    || !candidates.some(candidate =>
+      envelope.sourceSlot >= candidate.dusk.deployment.deploySlot + 1 &&
+      deploymentIdentityFingerprint(expectedFor(candidate)) === envelope.deploymentIdentitySha256))
     throw new Error('FINALIZED_INVARIANT: historical deployment differs from its hash or pinned release');
 }
 

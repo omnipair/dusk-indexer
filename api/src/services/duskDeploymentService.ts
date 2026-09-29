@@ -3,13 +3,11 @@
  *
  * Every Dusk response carries the identity of the deployment it was read
  * from, so a client can refuse data from a program it was not built against.
- * The identity is the vendored `protocol/` pin (program ids, IDL digests,
- * attested binary hashes). The streaming daemon verified the pinned binaries
- * at startup and stops on any loader change to them, so while its cursor is
- * live the pin holds through every slot the stream has written: data from the
- * database is stamped with that slot and needs no chain read. Only a live
- * chain capture past the stream's slot observes the loader accounts at its
- * own slot, and concurrent captures share that observation.
+ * The identity is the reviewed current executable in `protocol/` (program
+ * ids, IDL digests, attested binary hashes). The daemon verifies its binaries
+ * at startup and stops on an unknown loader change. The original event
+ * revision stays registered in the database, preserving existing history.
+ * Live captures past the stream's slot observe loader accounts at their bank.
  */
 
 import { Connection } from '@solana/web3.js';
@@ -21,7 +19,7 @@ import {
   DUSK_DEPLOYMENT_SCHEMA_VERSION,
   canonicalJson,
   duskApiConfig,
-  loadPinnedProtocol,
+  loadCurrentProtocol,
   sha256,
 } from '../config/duskProtocol';
 
@@ -104,10 +102,10 @@ function withIdentity(envelope: Omit<DuskDeploymentEnvelope, 'deploymentIdentity
   return { ...envelope,deploymentIdentitySha256: deploymentIdentityFingerprint(envelope) };
 }
 
-/** The pinned identity at the stream's slot, or an error when no live stream
- * attests it. */
+/** The reviewed current identity while this event revision's cursor is live.
+ * A stale or absent stream cannot authorize a response. */
 async function streamedEnvelope(): Promise<DuskDeploymentEnvelope> {
-  const pinned = loadPinnedProtocol(),apiConfig = duskApiConfig();
+  const pinned = loadCurrentProtocol(),apiConfig = duskApiConfig();
   const stream = await readStreamedDeployment();
   if (!stream) throw Object.assign(new Error('The Dusk stream has not attested this release'),{ status: 503 });
   const now = Date.now();
@@ -141,7 +139,7 @@ async function streamedEnvelope(): Promise<DuskDeploymentEnvelope> {
 }
 
 async function buildEnvelope(minimumSourceSlot: number): Promise<DuskDeploymentEnvelope> {
-  const pinned = loadPinnedProtocol();
+  const pinned = loadCurrentProtocol();
   const { connection: rpc, config: apiConfig } = runtime();
   const floor = Math.max(minimumSourceSlot, cached?.value.sourceSlot ?? 0);
 

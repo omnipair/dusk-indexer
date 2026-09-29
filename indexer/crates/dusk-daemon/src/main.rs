@@ -116,7 +116,19 @@ async fn main() -> Result<()> {
     let mut attestation = identity::Attestation::default();
     attestation.verify(&rpc, &config.cluster).await?;
     let window = attestation.window()?;
-    persist::record_deployment(&pool, &config.cluster, window).await?;
+    // The database lock describes the original executable. Its historical
+    // verified-through bound must not be extended using the current binary's
+    // attestation. Migration 044 lets the compatible event stream continue
+    // past that bound under the same program/IDL revision.
+    persist::record_deployment(
+        &pool,
+        &config.cluster,
+        identity::DeploymentWindow {
+            through_slot: window.first_slot,
+            ..window
+        },
+    )
+    .await?;
     let (stop, mut stopped) = tokio::sync::mpsc::unbounded_channel();
     let guard = processors::DeploymentGuard {
         pinned: Arc::new(identity::PinnedDeployments::load()?),

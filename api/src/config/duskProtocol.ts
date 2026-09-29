@@ -1,12 +1,9 @@
 /**
  * Pinned Dusk protocol artifacts.
  *
- * The API serves the same deployment identity the ingestion daemon verifies,
- * read from the same `protocol/` directory: one lock file, one IDL per
- * program. Loading fails closed — a lock that disagrees with the IDL bytes on
- * disk means the vendored artifacts were half-updated, and an API that served
- * an envelope from a half-updated pin would attest to a deployment nobody
- * built.
+ * The historical lock fixes the event revision and first slot. The reviewed
+ * compatible deployment fixes the current executable. Loading fails closed
+ * when their program or IDL identities disagree.
  */
 
 import { createHash } from 'crypto';
@@ -154,6 +151,48 @@ export function loadPinnedProtocol(): DuskPinnedProtocol {
   if (cached) return cached;
 
   return cached = loadProtocolAt(protocolDir());
+}
+
+let currentCached: DuskPinnedProtocol | undefined;
+
+/** Exact current executable for the same IDL/event revision. The historical
+ * lock remains the database identity and beginning of the event cursor. */
+export function loadCurrentProtocol(): DuskPinnedProtocol {
+  if (currentCached) return currentCached;
+  const pinned = loadPinnedProtocol();
+  const compatible = JSON.parse(
+    readFileSync(resolve(protocolDir(), 'compatible-deployment.json'), 'utf8'),
+  ) as Record<string, unknown>;
+  const { dusk } = pinned;
+  const slot = compatible.deploySlot;
+  const bytes = compatible.allocatedBinaryBytes;
+  const hash = compatible.binarySha256;
+  if (
+    compatible.eventRevision !== pinned.revision ||
+    compatible.programId !== dusk.programId ||
+    compatible.idlCanonicalSha256 !== dusk.idlCanonicalSha256 ||
+    typeof slot !== 'number' ||
+    !Number.isSafeInteger(slot) ||
+    slot <= dusk.deployment.deploySlot ||
+    typeof bytes !== 'number' ||
+    !Number.isSafeInteger(bytes) ||
+    bytes < 4 ||
+    bytes > 16 * 1024 * 1024 ||
+    typeof hash !== 'string' ||
+    !/^[0-9a-f]{64}$/.test(hash)
+  ) throw new Error('Compatible deployment differs from the event revision or IDL');
+  return currentCached = {
+    ...pinned,
+    dusk: {
+      ...dusk,
+      binarySha256: hash,
+      deployment: {
+        ...dusk.deployment,
+        deploySlot: slot,
+        allocatedBinaryBytes: bytes,
+      },
+    },
+  };
 }
 
 /** Load a checked, explicit release; never selects a network or revision implicitly. */
