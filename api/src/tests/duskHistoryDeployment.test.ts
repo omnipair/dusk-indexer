@@ -10,6 +10,11 @@ test('history accepts API builds of the pinned release but rejects every changed
   assert.notEqual(original.deploymentIdentitySha256,release.deploymentIdentitySha256);
   assertPinnedHistoryDeployment(original); assertPinnedHistoryDeployment(release);
   const current = loadCurrentProtocol();
+  const lateOriginal = { ...original, sourceSlot: current.dusk.deployment.deploySlot + 1 };
+  assert.throws(
+    () => assertPinnedHistoryDeployment(lateOriginal),
+    /historical deployment/,
+  );
   const upgraded = {
     ...release,
     sourceSlot: current.dusk.deployment.deploySlot + 1,

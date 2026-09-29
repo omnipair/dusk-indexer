@@ -24,14 +24,15 @@ export function assertPinnedHistoryDeployment(envelope: DuskDeploymentEnvelope,p
     commitment: DUSK_DEPLOYMENT_COMMITMENT,programBinarySha256: candidate.dusk.binarySha256,
     leverageDelegateBinarySha256: candidate.leverageDelegate.binarySha256,
   });
-  const candidates = [pin];
-  if (pin.revision === loadPinnedProtocol().revision) candidates.push(loadCurrentProtocol());
+  const current = pin.revision === loadPinnedProtocol().revision ? loadCurrentProtocol() : null;
+  const candidates = current ? [pin,current] : [pin];
   if (typeof envelope.buildRevision !== 'string' || !envelope.buildRevision.trim()
     || !Number.isSafeInteger(envelope.sourceSlot) || envelope.sourceSlot<pin.historyFirstSlot
     || !Number.isFinite(Date.parse(envelope.observedAt))
     || deploymentIdentityFingerprint(envelope) !== envelope.deploymentIdentitySha256
     || !candidates.some(candidate =>
       envelope.sourceSlot >= candidate.dusk.deployment.deploySlot + 1 &&
+      (candidate === current || !current || envelope.sourceSlot < current.dusk.deployment.deploySlot) &&
       deploymentIdentityFingerprint(expectedFor(candidate)) === envelope.deploymentIdentitySha256))
     throw new Error('FINALIZED_INVARIANT: historical deployment differs from its hash or pinned release');
 }
