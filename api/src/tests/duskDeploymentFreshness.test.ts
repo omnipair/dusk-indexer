@@ -25,21 +25,21 @@ function chain(context: test.TestContext) {
   return rpc;
 }
 
-test('database reads take the live stream\'s envelope without a chain read', async (context) => {
+test('database reads use a live stream and current program observation', async (context) => {
   const rpc = chain(context);
   context.mock.method(Connection.prototype, 'getSlot', async (options: { minContextSlot: number }) => { rpc.slots.push(options.minContextSlot); return options.minContextSlot; });
   context.mock.method(coverage, 'readStreamedDeployment', async () => ({ slot: 500_000_100, updatedAt: new Date() }));
   const streamed = await deploymentEnvelope(500_000_050);
   assert.equal(streamed.sourceSlot, 500_000_100);
   assert.ok(Date.now()-Date.parse(streamed.observedAt) < 1000);
-  assert.deepEqual(rpc.slots, []);
-  assert.deepEqual(observedFloors.slice(rpc.headers), []);
+  assert.deepEqual(rpc.slots, [500_000_100]);
+  assert.deepEqual(observedFloors.slice(rpc.headers), [500_000_100]);
   // A capture past the stream observes the loader at its own slot, under the
   // same durable identity.
   const observed = await deploymentEnvelope(500_000_101);
   assert.equal(observed.sourceSlot, 500_000_101);
   assert.equal(observed.deploymentIdentitySha256, streamed.deploymentIdentitySha256);
-  assert.deepEqual(observedFloors.slice(rpc.headers), [500_000_101]);
+  assert.deepEqual(observedFloors.slice(rpc.headers), [500_000_100,500_000_101]);
 });
 
 test('a stale or unattested stream serves no identity', async (context) => {

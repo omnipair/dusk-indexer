@@ -1,8 +1,9 @@
 # Dusk devnet protocol pin
 
-`protocol.lock.json` is the active decoding and deployment identity. It pins
-both Dusk and leverage delegate to Solana devnet, including genesis, program IDs,
-binary hashes, raw IDL hashes and canonical IDL hashes.
+`protocol.lock.json` records the original deployment and the active decoding
+identity. It includes the devnet genesis, program IDs, original binary hashes,
+raw IDL hashes and canonical IDL hashes. Later executable upgrades under the
+same program IDs and IDL revision do not require a new binary pin.
 
 `dusk-indexer-foundation::verify_vendored_protocol` verifies the vendored files.
 Never hand-edit generated IDLs. A protocol upgrade vendors a new revision, runs

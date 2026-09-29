@@ -91,13 +91,8 @@ export function createDuskProgramObserver(rpc: Rpc) {
       )
         throw new Error('Invalid pinned ProgramData account');
       const header = parseHeader(account.data);
-      if (
-        header.programDataSlot !== String(pin.deployment.deploySlot) ||
-        header.upgradeAuthority !== pin.deployment.upgradeAuthority
-      )
-        throw new Error(
-          'ProgramData deployment slot or upgrade authority differs from pin',
-        );
+      if (BigInt(header.programDataSlot) < BigInt(pin.deployment.deploySlot))
+        throw new Error('ProgramData predates the indexed event history');
       return header;
     });
     const programs = await Promise.all(
@@ -105,8 +100,8 @@ export function createDuskProgramObserver(rpc: Rpc) {
         const header = headers[index];
         const key = canonicalJson({
           programId: pin.programId,
-          ...pin.deployment,
-          binarySha256: pin.binarySha256,
+          programData: pin.deployment.programData,
+          ...header,
         });
         let pending = hashes.get(key);
         if (!pending) {
@@ -123,27 +118,22 @@ export function createDuskProgramObserver(rpc: Rpc) {
             const account = binary.value[0];
             if (
               !Number.isSafeInteger(binary.context.slot) ||
-              binary.context.slot <= pin.deployment.deploySlot ||
+              binary.context.slot <= Number(header.programDataSlot) ||
               binary.value.length !== 1 ||
               !account ||
               account.executable ||
               account.lamports <= 0 ||
               !account.owner.equals(LOADER) ||
-              account.data.length !==
-                HEADER_BYTES + pin.deployment.allocatedBinaryBytes ||
+              account.data.length < HEADER_BYTES + 4 ||
+              account.data.length > HEADER_BYTES + 16 * 1024 * 1024 ||
               !account.data
                 .subarray(0, HEADER_BYTES)
                 .equals(observed.value[index * 2 + 1]!.data)
             )
               throw new Error(
-                'ProgramData changed while hashing its pinned binary',
+                'ProgramData changed while observing its executable',
               );
-            const digest = sha256(account.data.subarray(HEADER_BYTES));
-            if (digest !== pin.binarySha256)
-              throw new Error(
-                `Program ${pin.programId} binary differs from deployment pin`,
-              );
-            return digest;
+            return sha256(account.data.subarray(HEADER_BYTES));
           })();
           hashes.set(key, pending);
           const owned = pending;

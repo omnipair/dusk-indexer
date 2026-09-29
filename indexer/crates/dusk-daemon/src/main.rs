@@ -116,11 +116,21 @@ async fn main() -> Result<()> {
     let mut attestation = identity::Attestation::default();
     attestation.verify(&rpc, &config.cluster).await?;
     let window = attestation.window()?;
-    persist::record_deployment(&pool, &config.cluster, window).await?;
-    let (stop, mut stopped) = tokio::sync::mpsc::unbounded_channel();
+    // The database lock describes the original executable. Its historical
+    // verified-through bound must not be extended using the current binary's
+    // attestation. Migration 044 lets the compatible event stream continue
+    // past that bound under the same program/IDL revision.
+    persist::record_deployment(
+        &pool,
+        &config.cluster,
+        identity::DeploymentWindow {
+            through_slot: window.first_slot,
+            ..window
+        },
+    )
+    .await?;
     let guard = processors::DeploymentGuard {
         pinned: Arc::new(identity::PinnedDeployments::load()?),
-        stop,
     };
 
     // The stream logs every transaction it drops; this re-ingests one.
@@ -171,7 +181,6 @@ async fn main() -> Result<()> {
 
     let result = tokio::select! {
         result = stream(&config, pool, decoder, window.first_slot, liveness, cursor, guard) => result,
-        Some(error) = stopped.recv() => Err(error),
         _ = shutdown_signal() => {
             log::info!("shutdown signal received");
             Ok(())

@@ -1,12 +1,9 @@
 /**
  * Pinned Dusk protocol artifacts.
  *
- * The API serves the same deployment identity the ingestion daemon verifies,
- * read from the same `protocol/` directory: one lock file, one IDL per
- * program. Loading fails closed — a lock that disagrees with the IDL bytes on
- * disk means the vendored artifacts were half-updated, and an API that served
- * an envelope from a half-updated pin would attest to a deployment nobody
- * built.
+ * The historical lock fixes the event revision and first slot. The compatible
+ * deployment records a known upgrade; live executable metadata is observed
+ * separately, so later upgrades do not require editing this file.
  */
 
 import { createHash } from 'crypto';
@@ -156,6 +153,48 @@ export function loadPinnedProtocol(): DuskPinnedProtocol {
   return cached = loadProtocolAt(protocolDir());
 }
 
+let currentCached: DuskPinnedProtocol | undefined;
+
+/** Last recorded compatible executable for the same IDL/event revision. The
+ * historical lock remains the database identity and event cursor boundary. */
+export function loadCurrentProtocol(): DuskPinnedProtocol {
+  if (currentCached) return currentCached;
+  const pinned = loadPinnedProtocol();
+  const compatible = JSON.parse(
+    readFileSync(resolve(protocolDir(), 'compatible-deployment.json'), 'utf8'),
+  ) as Record<string, unknown>;
+  const { dusk } = pinned;
+  const slot = compatible.deploySlot;
+  const bytes = compatible.allocatedBinaryBytes;
+  const hash = compatible.binarySha256;
+  if (
+    compatible.eventRevision !== pinned.revision ||
+    compatible.programId !== dusk.programId ||
+    compatible.idlCanonicalSha256 !== dusk.idlCanonicalSha256 ||
+    typeof slot !== 'number' ||
+    !Number.isSafeInteger(slot) ||
+    slot <= dusk.deployment.deploySlot ||
+    typeof bytes !== 'number' ||
+    !Number.isSafeInteger(bytes) ||
+    bytes < 4 ||
+    bytes > 16 * 1024 * 1024 ||
+    typeof hash !== 'string' ||
+    !/^[0-9a-f]{64}$/.test(hash)
+  ) throw new Error('Compatible deployment differs from the event revision or IDL');
+  return currentCached = {
+    ...pinned,
+    dusk: {
+      ...dusk,
+      binarySha256: hash,
+      deployment: {
+        ...dusk.deployment,
+        deploySlot: slot,
+        allocatedBinaryBytes: bytes,
+      },
+    },
+  };
+}
+
 /** Load a checked, explicit release; never selects a network or revision implicitly. */
 export function loadProtocolAt(root: string): DuskPinnedProtocol {
   const lockPath = resolve(root, 'protocol.lock.json');
@@ -209,15 +248,11 @@ export function duskApiConfig(): DuskApiConfig {
   if (network !== pinned.cluster) throw new Error('DUSK_CLUSTER differs from the protocol lock');
   const rpcUrl = process.env.DUSK_RPC_URL?.trim();
   if (!rpcUrl) throw new Error('DUSK_RPC_URL is required');
-  // Default to no caching. A cached envelope reports the slot it was observed
-  // at, and a client brackets its read between two of its own slot
-  // observations: an envelope even a few seconds old falls outside that
-  // bracket and the read is rejected, correctly. Re-observing costs a handful
-  // of light account reads, because the expensive part — hashing the program
-  // binaries — is cached separately and keyed by programdata slot, so it only
-  // repeats when the deployment actually changes.
+  // Cache quiet-market observations briefly. A read requiring a newer source
+  // slot bypasses the cache, while an idle market avoids repeated loader RPCs.
+  // Binary bytes are fetched only when the observed ProgramData header changes.
   const ttlRaw = process.env.DUSK_ENVELOPE_CACHE_TTL_MS?.trim();
-  const ttl = ttlRaw ? Number(ttlRaw) : 0;
+  const ttl = ttlRaw ? Number(ttlRaw) : 5_000;
   if (!Number.isSafeInteger(ttl) || ttl < 0) {
     throw new Error('DUSK_ENVELOPE_CACHE_TTL_MS must be a nonnegative integer');
   }

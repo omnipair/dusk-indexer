@@ -4,6 +4,7 @@ version = "0.2.1"
 edition = { workspace = true }
 
 [dependencies]
+dusk-indexer-foundation = { path = "../indexer/crates/dusk-ingestion" }
 # Logging and environment
 dotenv = { workspace = true }
 env_logger = { workspace = true }

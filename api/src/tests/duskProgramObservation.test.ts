@@ -147,13 +147,13 @@ test('both executable programs and headers are checked at one bank; finalized ha
   assert.equal(f.calls.length, 4);
 });
 
-test('a cached binary cannot authorize a changed, closed or substituted loader account', async () => {
+test('a cached binary cannot authorize a closed or substituted loader account', async () => {
   for (const role of ['program', 'data'] as const) {
     for (const change of [
       'owner',
       'executable',
       'lamports',
-      'pointer-or-slot',
+      ...(role === 'program' ? ['pointer'] : []),
     ]) {
       const f = fixture();
       await f.observe(f.pins);
@@ -164,33 +164,40 @@ test('a cached binary cannot authorize a changed, closed or substituted loader a
       if (change === 'owner') account.owner = PublicKey.default;
       if (change === 'executable') account.executable = role === 'data';
       if (change === 'lamports') account.lamports = 0;
-      if (change === 'pointer-or-slot') {
-        if (role === 'program')
-          PublicKey.default.toBuffer().copy(account.data, 4);
-        else account.data.writeBigUInt64LE(11n, 4);
-      }
+      if (change === 'pointer') PublicKey.default.toBuffer().copy(account.data, 4);
       await assert.rejects(f.observe(f.pins), /differs from|Invalid pinned/);
     }
   }
 });
 
-test('malformed headers and authority changes fail even after a successful observation', async () => {
-  for (const change of ['short', 'tag', 'option', 'authority']) {
+test('malformed headers fail even after a successful observation', async () => {
+  for (const change of ['short', 'tag', 'option']) {
     const f = fixture();
     await f.observe(f.pins);
     const account = f.accounts.get(f.pins[0].deployment.programData)!;
     if (change === 'short') account.data = account.data.subarray(0, 44);
     if (change === 'tag') account.data.writeUInt32LE(2);
     if (change === 'option') account.data[12] = 2;
-    if (change === 'authority') account.data[13] ^= 1;
     await assert.rejects(f.observe(f.pins), /ProgramData|differs from/);
   }
 });
 
+test('new deploy slots and authorities are observed without a pin update', async () => {
+  const f = fixture();
+  await f.observe(f.pins);
+  const account = f.accounts.get(f.pins[0].deployment.programData)!;
+  account.data.writeBigUInt64LE(11n, 4);
+  account.data[13] ^= 1;
+  account.data[45] ^= 1;
+  f.setSlot(41);
+  const observed = await f.observe(f.pins);
+  assert.equal(observed[0].programDataSlot, '11');
+  assert.notEqual(observed[0].upgradeAuthority, f.pins[0].deployment.upgradeAuthority);
+  assert.notEqual(observed[0].binarySha256, f.pins[0].binarySha256);
+});
+
 test('failed binary observations do not poison the cache or advance the slot floor', async () => {
   for (const change of [
-    'bytes',
-    'allocation',
     'header',
     'owner',
     'executable',
@@ -202,9 +209,6 @@ test('failed binary observations do not poison the cache or advance the slot flo
     f.setTransform(async (result, options) => {
       if (typeof options === 'object' && options.commitment === 'finalized') {
         const account = result.value[0]!;
-        if (change === 'bytes') account.data[45] ^= 1;
-        if (change === 'allocation')
-          account.data = Buffer.concat([account.data, Buffer.from([0])]);
         if (change === 'header') account.data.writeBigUInt64LE(11n, 4);
         if (change === 'owner') account.owner = PublicKey.default;
         if (change === 'executable') account.executable = true;
@@ -239,23 +243,14 @@ test('program bank regression and incomplete responses are rejected', async () =
   await assert.rejects(f.observe(f.pins), /incomplete or regressed/);
 });
 
-test('the cache also binds the expected binary digest and allocation', async () => {
+test('the cache follows the observed header instead of an old binary pin', async () => {
   const f = fixture();
-  await f.observe(f.pins);
-  await assert.rejects(
-    f.observe([{ ...f.pins[0], binarySha256: 'a'.repeat(64) }, f.pins[1]]),
-    /binary differs/,
-  );
-  await assert.rejects(
-    f.observe([
-      {
-        ...f.pins[0],
-        deployment: { ...f.pins[0].deployment, allocatedBinaryBytes: 1 },
-      },
-      f.pins[1],
-    ]),
-    /changed while hashing/,
-  );
+  const original = await f.observe(f.pins);
+  const observed = await f.observe([
+    { ...f.pins[0], binarySha256: 'a'.repeat(64), deployment: { ...f.pins[0].deployment, allocatedBinaryBytes: 1 } },
+    f.pins[1],
+  ]);
+  assert.equal(observed[0].binarySha256, original[0].binarySha256);
 });
 
 test('concurrent observations share cold binary requests but each reads fresh loader headers', async () => {

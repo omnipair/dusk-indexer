@@ -6,30 +6,30 @@ const identity = (pin = loadPinnedProtocol()) => {
   return [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
 };
 
-/** Verify the complete saved identity against the active pin, including both
- * loader slots, authorities, binaries and IDLs. Only buildRevision may differ.
- * Live reads/writes continue to compare the original full envelope hash. */
+/** Historical captures retain the executable observed at capture time, while
+ * the cluster/program/IDL/revision tuple scopes the event history. */
 export function assertPinnedHistoryDeployment(envelope: DuskDeploymentEnvelope,pin: DuskPinnedProtocol = loadPinnedProtocol()) {
-  const expected = {
-    ...envelope,schemaVersion: DUSK_DEPLOYMENT_SCHEMA_VERSION,network: pin.cluster,genesisHash: pin.genesisHash,
-    programId: pin.dusk.programId,programDataAddress: pin.dusk.deployment.programData,
-    programDataSlot: String(pin.dusk.deployment.deploySlot),programUpgradeAuthority: pin.dusk.deployment.upgradeAuthority,
-    leverageDelegateProgramId: pin.leverageDelegate.programId,
-    leverageDelegateProgramDataAddress: pin.leverageDelegate.deployment.programData,
-    leverageDelegateProgramDataSlot: String(pin.leverageDelegate.deployment.deploySlot),
-    leverageDelegateUpgradeAuthority: pin.leverageDelegate.deployment.upgradeAuthority,
-    idlSha256: pin.dusk.idlCanonicalSha256,idlRawSha256: pin.dusk.idlRawSha256,
-    leverageDelegateIdlSha256: pin.leverageDelegate.idlCanonicalSha256,
-    leverageDelegateIdlRawSha256: pin.leverageDelegate.idlRawSha256,
-    commitment: DUSK_DEPLOYMENT_COMMITMENT,programBinarySha256: pin.dusk.binarySha256,
-    leverageDelegateBinarySha256: pin.leverageDelegate.binarySha256,
-  };
+  const duskSlot = Number(envelope.programDataSlot);
+  const delegateSlot = Number(envelope.leverageDelegateProgramDataSlot);
   if (typeof envelope.buildRevision !== 'string' || !envelope.buildRevision.trim()
     || !Number.isSafeInteger(envelope.sourceSlot) || envelope.sourceSlot<pin.historyFirstSlot
     || !Number.isFinite(Date.parse(envelope.observedAt))
     || deploymentIdentityFingerprint(envelope) !== envelope.deploymentIdentitySha256
-    || deploymentIdentityFingerprint(expected) !== envelope.deploymentIdentitySha256)
-    throw new Error('FINALIZED_INVARIANT: historical deployment differs from its hash or pinned release');
+    || envelope.schemaVersion !== DUSK_DEPLOYMENT_SCHEMA_VERSION
+    || envelope.network !== pin.cluster || envelope.genesisHash !== pin.genesisHash
+    || envelope.programId !== pin.dusk.programId || envelope.leverageDelegateProgramId !== pin.leverageDelegate.programId
+    || envelope.programDataAddress !== pin.dusk.deployment.programData
+    || envelope.leverageDelegateProgramDataAddress !== pin.leverageDelegate.deployment.programData
+    || envelope.idlSha256 !== pin.dusk.idlCanonicalSha256 || envelope.idlRawSha256 !== pin.dusk.idlRawSha256
+    || envelope.leverageDelegateIdlSha256 !== pin.leverageDelegate.idlCanonicalSha256
+    || envelope.leverageDelegateIdlRawSha256 !== pin.leverageDelegate.idlRawSha256
+    || envelope.commitment !== DUSK_DEPLOYMENT_COMMITMENT
+    || !Number.isSafeInteger(duskSlot) || duskSlot < pin.dusk.deployment.deploySlot
+    || !Number.isSafeInteger(delegateSlot) || delegateSlot < pin.leverageDelegate.deployment.deploySlot
+    || duskSlot >= envelope.sourceSlot || delegateSlot >= envelope.sourceSlot
+    || !/^[0-9a-f]{64}$/.test(envelope.programBinarySha256)
+    || !/^[0-9a-f]{64}$/.test(envelope.leverageDelegateBinarySha256))
+    throw new Error('FINALIZED_INVARIANT: historical deployment differs from its protocol identity');
 }
 
 /** Called with a fresh, RPC-verified envelope before storing capture bytes. */

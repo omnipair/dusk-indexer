@@ -1,10 +1,8 @@
-//! Direct RPC attestation and the finalized interval owned by this release.
+//! Program observation and the historical interval owned by this event
+//! revision.
 use {
     anyhow::{bail, Context, Result},
-    dusk_indexer_foundation::{
-        deployment::{pinned_deployment, DeploymentPin},
-        sha256_hex,
-    },
+    dusk_indexer_foundation::deployment::{current_deployment, pinned_deployment, DeploymentPin},
     solana_account::Account,
     solana_account_decoder_client_types::{UiAccountEncoding, UiDataSliceConfig},
     solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcAccountInfoConfig},
@@ -69,23 +67,23 @@ pub struct DeploymentWindow {
 }
 #[derive(Default)]
 pub struct Attestation {
-    verified_binary: bool,
+    verified_program: bool,
     minimum_slot: u64,
 }
 impl Attestation {
     pub fn window(&self) -> Result<DeploymentWindow> {
-        if !self.verified_binary {
-            bail!("FINALIZED_INVARIANT: deployment has not been attested");
+        if !self.verified_program {
+            bail!("FINALIZED_INVARIANT: program identity has not been observed");
         }
         Ok(DeploymentWindow {
             first_slot: pinned_deployment()?.first_slot(),
             through_slot: self.minimum_slot,
         })
     }
-    /// Verifies the complete pinned binaries once, at startup. While running,
-    /// the stream stops the daemon on any change to a pinned deployment.
+    /// Observe the configured program IDs and their loader links at startup.
+    /// The original event revision and cursor survive later program upgrades.
     pub async fn verify(&mut self, rpc: &RpcClient, cluster: &str) -> Result<()> {
-        let pin = pinned_deployment()?;
+        let pin = current_deployment()?;
         if pin.cluster.name != cluster {
             bail!("FINALIZED_INVARIANT: cluster label differs from protocol lock");
         }
@@ -103,13 +101,12 @@ impl Attestation {
             .map(|address| Pubkey::from_str(address))
             .collect::<std::result::Result<Vec<_>, _>>()?;
         let minimum = self.minimum_slot.max(pin.first_slot());
-        let full = !self.verified_binary;
         let response = rpc
             .get_multiple_accounts_with_config(
                 &addresses,
                 RpcAccountInfoConfig {
                     encoding: Some(UiAccountEncoding::Base64),
-                    data_slice: (!full).then_some(UiDataSliceConfig {
+                    data_slice: Some(UiDataSliceConfig {
                         offset: 0,
                         length: 45,
                     }),
@@ -119,7 +116,7 @@ impl Attestation {
             )
             .await
             .map_err(|_| anyhow::anyhow!("RPC program attestation failed"))?;
-        verify_accounts(&pin, &response.value, response.context.slot, minimum, full)?;
+        verify_accounts(&pin, &response.value, response.context.slot, minimum)?;
         if rpc
             .get_genesis_hash()
             .await
@@ -128,7 +125,7 @@ impl Attestation {
         {
             bail!("FINALIZED_INVARIANT: RPC cluster changed during attestation");
         }
-        self.verified_binary = true;
+        self.verified_program = true;
         self.minimum_slot = response.context.slot;
         Ok(())
     }
@@ -139,7 +136,6 @@ fn verify_accounts(
     accounts: &[Option<Account>],
     slot: u64,
     minimum: u64,
-    full: bool,
 ) -> Result<()> {
     if slot < minimum || accounts.len() != pin.programs.len() * 2 {
         bail!("FINALIZED_INVARIANT: incomplete or regressed deployment observation");
@@ -163,28 +159,15 @@ fn verify_accounts(
             || executable.data[..4] != 2_u32.to_le_bytes()
             || Pubkey::new_from_array(executable.data[4..36].try_into()?).to_string()
                 != deployment.program_data
-            || data.data.len()
-                != if full {
-                    45 + deployment.allocated_binary_bytes
-                } else {
-                    45
-                }
+            || data.data.len() < 45
             || data.data[..4] != 3_u32.to_le_bytes()
             || data.data[12] > 1
         {
-            bail!("FINALIZED_INVARIANT: pinned program loader, link, flags or allocation mismatch");
+            bail!("FINALIZED_INVARIANT: program loader, link or flags are invalid");
         }
         let deploy_slot = u64::from_le_bytes(data.data[4..12].try_into()?);
-        let authority = if data.data[12] == 0 {
-            None
-        } else {
-            Some(Pubkey::new_from_array(data.data[13..45].try_into()?).to_string())
-        };
-        if deploy_slot != deployment.deploy_slot || authority != deployment.upgrade_authority {
-            bail!("FINALIZED_INVARIANT: deployment slot or upgrade authority differs from lock");
-        }
-        if full && sha256_hex(&data.data[45..]) != program.binary.sha256 {
-            bail!("FINALIZED_INVARIANT: on-chain binary differs from protocol lock");
+        if deploy_slot < deployment.deploy_slot {
+            bail!("FINALIZED_INVARIANT: deployment predates the indexed event history");
         }
     }
     Ok(())
@@ -192,7 +175,7 @@ fn verify_accounts(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, dusk_indexer_foundation::sha256_hex};
     fn fixture() -> (DeploymentPin, Vec<Option<Account>>) {
         let mut pin = pinned_deployment().unwrap();
         let loader = Pubkey::from_str("BPFLoaderUpgradeab1e11111111111111111111111").unwrap();
@@ -234,31 +217,22 @@ mod tests {
         (pin, accounts)
     }
     #[test]
-    fn binary_and_header_checks_reject_changed_release_metadata() {
+    fn loader_checks_reject_changed_program_identity() {
         let (pin, accounts) = fixture();
         let slot = pin.first_slot();
-        verify_accounts(&pin, &accounts, slot, slot, true).unwrap();
-        for case in [
-            "authority",
-            "slot",
-            "link",
-            "owner",
-            "executable",
-            "binary",
-            "allocation",
-        ] {
+        verify_accounts(&pin, &accounts, slot, slot).unwrap();
+        for case in ["link", "owner", "executable", "regressed_slot"] {
             let mut changed = accounts.clone();
             match case {
-                "authority" => changed[1].as_mut().unwrap().data[13] ^= 1,
-                "slot" => changed[1].as_mut().unwrap().data[4] ^= 1,
+                "regressed_slot" => changed[1].as_mut().unwrap().data[4..12]
+                    .copy_from_slice(&(pin.programs[0].deployment.deploy_slot - 1).to_le_bytes()),
                 "link" => changed[0].as_mut().unwrap().data[4] ^= 1,
                 "owner" => changed[1].as_mut().unwrap().owner = Pubkey::default(),
                 "executable" => changed[0].as_mut().unwrap().executable = false,
-                "binary" => changed[1].as_mut().unwrap().data[45] ^= 1,
-                _ => changed[1].as_mut().unwrap().data.push(0),
+                _ => unreachable!(),
             }
             assert!(
-                verify_accounts(&pin, &changed, slot, slot, true).is_err(),
+                verify_accounts(&pin, &changed, slot, slot).is_err(),
                 "{case}"
             );
         }
@@ -266,10 +240,23 @@ mod tests {
         for account in headers.iter_mut().flatten() {
             account.data.truncate(45);
         }
-        verify_accounts(&pin, &headers, slot, slot, false).unwrap();
-        assert!(verify_accounts(&pin, &headers, slot - 1, slot, false).is_err());
+        verify_accounts(&pin, &headers, slot, slot).unwrap();
+        assert!(verify_accounts(&pin, &headers, slot - 1, slot).is_err());
         headers[1].as_mut().unwrap().data[13] ^= 1;
-        assert!(verify_accounts(&pin, &headers, slot, slot, false).is_err());
+        assert!(verify_accounts(&pin, &headers, slot, slot).is_ok());
+    }
+    #[test]
+    fn authorized_program_upgrade_preserves_the_event_revision() {
+        let (pin, mut accounts) = fixture();
+        let slot = pin.first_slot() + 100;
+        let program_data = accounts[1].as_mut().unwrap();
+        program_data.data[4..12].copy_from_slice(&slot.to_le_bytes());
+        program_data.data[13] ^= 1;
+        program_data.data[45] ^= 1;
+        program_data.data.push(0);
+        // A new executable, allocation and authority do not alter the
+        // program ID or the vendored event decoder.
+        assert!(verify_accounts(&pin, &accounts, slot, slot).is_ok());
     }
     #[test]
     fn an_unattested_deployment_has_no_window() {

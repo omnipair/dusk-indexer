@@ -98,12 +98,11 @@ pub(crate) fn valid_envelope(value: &Value, pin: &Value, floor: u64, now: i64) -
                 "leverageDelegateIdlRawSha256",
             ]
         };
+        let deployment_slot = d[fields[2]].as_str().and_then(|s| s.parse::<u64>().ok());
         if d[fields[0]] != p["programId"]
             || d[fields[1]] != p["deployment"]["programData"]
-            || d[fields[2]].as_str().and_then(|s| s.parse::<u64>().ok())
-                != p["deployment"]["deploySlot"].as_u64()
-            || d[fields[3]] != p["deployment"]["upgradeAuthority"]
-            || d[fields[4]] != p["binary"]["sha256"]
+            || !deployment_slot.is_some_and(|deployed| deployed >= p["deployment"]["deploySlot"].as_u64().unwrap_or(u64::MAX) && deployed < slot)
+            || !d[fields[4]].as_str().is_some_and(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
             || d[fields[5]] != p["idl"]["canonicalSha256"]
             || d[fields[6]] != p["idl"]["sha256"]
         {
@@ -166,12 +165,18 @@ pub struct DuskStream {
     client: reqwest::Client,
     endpoint: reqwest::Url,
     pin: Arc<Value>,
+    history_pin: Arc<Value>,
     capacity: Arc<Semaphore>,
     observation: Arc<Mutex<Option<(tokio::time::Instant, Result<Value, Status>)>>>,
 }
 impl DuskStream {
     pub fn start(pool: PgPool, api: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let pin: Arc<Value> = Arc::new(serde_json::from_str(PIN)?);
+        // Notifications use the immutable event revision and its first slot.
+        // API envelopes may describe a later executable under that same IDL.
+        let historical_pin: Arc<Value> = Arc::new(serde_json::from_str(PIN)?);
+        let current_pin: Arc<Value> = Arc::new(serde_json::to_value(
+            dusk_indexer_foundation::deployment::current_deployment()?,
+        )?);
         let mut endpoint = reqwest::Url::parse(&format!(
             "{}/api/dusk/v1/config",
             api.trim_end_matches('/')
@@ -188,12 +193,13 @@ impl DuskStream {
             .redirect(reqwest::redirect::Policy::none())
             .build()?;
         let (sender, receiver) = watch::channel(Notice::default());
-        tokio::spawn(listen(pool, sender, pin.clone()));
+        tokio::spawn(listen(pool, sender, historical_pin.clone()));
         Ok(Self {
             receiver,
             client,
             endpoint,
-            pin,
+            pin: current_pin,
+            history_pin: historical_pin,
             capacity: Arc::new(Semaphore::new(128)),
             observation: Arc::new(Mutex::new(None)),
         })
@@ -252,6 +258,7 @@ impl DuskStream {
         crate::dusk_payloads::subscribe(
             self.endpoint.clone(),
             self.pin.clone(),
+            self.history_pin.clone(),
             self.capacity.clone(),
             request,
         )
@@ -329,10 +336,16 @@ mod tests {
     }
     #[test]
     fn deployment_observations_require_both_programs_and_fresh_evidence() {
-        let pin: Value = serde_json::from_str(PIN).unwrap();
+        let pin = serde_json::to_value(
+            dusk_indexer_foundation::deployment::current_deployment().unwrap(),
+        )
+        .unwrap();
         let now = chrono::Utc::now();
+        let source_slot = pin["programs"].as_array().unwrap().iter()
+            .filter_map(|program| program["deployment"]["deploySlot"].as_u64())
+            .max().unwrap() + 1;
         let mut d = json!({ "schemaVersion": "dusk-deployment.v2", "network": pin["cluster"]["name"],
-            "genesisHash": pin["cluster"]["genesisHash"], "commitment": "confirmed", "sourceSlot": 500000000,
+            "genesisHash": pin["cluster"]["genesisHash"], "commitment": "confirmed", "sourceSlot": source_slot,
             "observedAt": now.to_rfc3339(), "deploymentIdentitySha256": "a".repeat(64) });
         for (index, fields) in [
             [
@@ -377,7 +390,18 @@ mod tests {
             500000000,
             now.timestamp_millis()
         ));
+        let historical: Value = serde_json::from_str(PIN).unwrap();
+        let mut previous_binary = valid.clone();
+        previous_binary["deployment"]["programBinarySha256"] =
+            historical["programs"][0]["binary"]["sha256"].clone();
+        assert!(valid_envelope(
+            &previous_binary,
+            &pin,
+            500000000,
+            now.timestamp_millis()
+        ));
         for key in d.as_object().unwrap().keys() {
+            if ["programUpgradeAuthority", "leverageDelegateUpgradeAuthority"].contains(&key.as_str()) { continue; }
             let mut invalid = valid.clone();
             invalid["deployment"][key] = Value::Null;
             assert!(
@@ -388,7 +412,7 @@ mod tests {
         assert!(!valid_envelope(
             &valid,
             &pin,
-            500000001,
+            source_slot + 1,
             now.timestamp_millis()
         ));
         assert!(!valid_envelope(
@@ -409,14 +433,20 @@ mod tests {
     async fn config_observation_requests_and_validates_the_notice_slot() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-        let pin: Value = serde_json::from_str(PIN).unwrap();
+        let pin = serde_json::to_value(
+            dusk_indexer_foundation::deployment::current_deployment().unwrap(),
+        )
+        .unwrap();
         let now = chrono::Utc::now();
+        let source_slot = pin["programs"].as_array().unwrap().iter()
+            .filter_map(|program| program["deployment"]["deploySlot"].as_u64())
+            .max().unwrap() + 1;
         let mut deployment = json!({
             "schemaVersion": "dusk-deployment.v2",
             "network": pin["cluster"]["name"],
             "genesisHash": pin["cluster"]["genesisHash"],
             "commitment": "confirmed",
-            "sourceSlot": 500000000,
+            "sourceSlot": source_slot,
             "observedAt": now.to_rfc3339(),
             "deploymentIdentitySha256": "a".repeat(64)
         });
@@ -454,10 +484,11 @@ mod tests {
             client: reqwest::Client::new(),
             endpoint: reqwest::Url::parse(&format!("http://{address}/api/dusk/v1/config")).unwrap(),
             pin: Arc::new(pin),
+            history_pin: Arc::new(serde_json::from_str(PIN).unwrap()),
             capacity: Arc::new(Semaphore::new(1)),
             observation: Arc::new(Mutex::new(None)),
         };
-        assert_eq!(stream.read_envelope(500000000).await.unwrap()["sourceSlot"], 500000000);
+        assert_eq!(stream.read_envelope(500000000).await.unwrap()["sourceSlot"], source_slot);
         server.await.unwrap();
     }
 }
