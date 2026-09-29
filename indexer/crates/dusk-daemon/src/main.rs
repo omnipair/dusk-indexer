@@ -129,10 +129,8 @@ async fn main() -> Result<()> {
         },
     )
     .await?;
-    let (stop, mut stopped) = tokio::sync::mpsc::unbounded_channel();
     let guard = processors::DeploymentGuard {
         pinned: Arc::new(identity::PinnedDeployments::load()?),
-        stop,
     };
 
     // The stream logs every transaction it drops; this re-ingests one.
@@ -183,7 +181,6 @@ async fn main() -> Result<()> {
 
     let result = tokio::select! {
         result = stream(&config, pool, decoder, window.first_slot, liveness, cursor, guard) => result,
-        Some(error) = stopped.recv() => Err(error),
         _ = shutdown_signal() => {
             log::info!("shutdown signal received");
             Ok(())

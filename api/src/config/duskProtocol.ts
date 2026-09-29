@@ -1,9 +1,9 @@
 /**
  * Pinned Dusk protocol artifacts.
  *
- * The historical lock fixes the event revision and first slot. The reviewed
- * compatible deployment fixes the current executable. Loading fails closed
- * when their program or IDL identities disagree.
+ * The historical lock fixes the event revision and first slot. The compatible
+ * deployment records a known upgrade; live executable metadata is observed
+ * separately, so later upgrades do not require editing this file.
  */
 
 import { createHash } from 'crypto';
@@ -155,8 +155,8 @@ export function loadPinnedProtocol(): DuskPinnedProtocol {
 
 let currentCached: DuskPinnedProtocol | undefined;
 
-/** Exact current executable for the same IDL/event revision. The historical
- * lock remains the database identity and beginning of the event cursor. */
+/** Last recorded compatible executable for the same IDL/event revision. The
+ * historical lock remains the database identity and event cursor boundary. */
 export function loadCurrentProtocol(): DuskPinnedProtocol {
   if (currentCached) return currentCached;
   const pinned = loadPinnedProtocol();
@@ -248,15 +248,11 @@ export function duskApiConfig(): DuskApiConfig {
   if (network !== pinned.cluster) throw new Error('DUSK_CLUSTER differs from the protocol lock');
   const rpcUrl = process.env.DUSK_RPC_URL?.trim();
   if (!rpcUrl) throw new Error('DUSK_RPC_URL is required');
-  // Default to no caching. A cached envelope reports the slot it was observed
-  // at, and a client brackets its read between two of its own slot
-  // observations: an envelope even a few seconds old falls outside that
-  // bracket and the read is rejected, correctly. Re-observing costs a handful
-  // of light account reads, because the expensive part — hashing the program
-  // binaries — is cached separately and keyed by programdata slot, so it only
-  // repeats when the deployment actually changes.
+  // Cache quiet-market observations briefly. A read requiring a newer source
+  // slot bypasses the cache, while an idle market avoids repeated loader RPCs.
+  // Binary bytes are fetched only when the observed ProgramData header changes.
   const ttlRaw = process.env.DUSK_ENVELOPE_CACHE_TTL_MS?.trim();
-  const ttl = ttlRaw ? Number(ttlRaw) : 0;
+  const ttl = ttlRaw ? Number(ttlRaw) : 5_000;
   if (!Number.isSafeInteger(ttl) || ttl < 0) {
     throw new Error('DUSK_ENVELOPE_CACHE_TTL_MS must be a nonnegative integer');
   }

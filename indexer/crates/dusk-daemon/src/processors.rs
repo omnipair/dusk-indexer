@@ -29,7 +29,7 @@ use {
     },
     sqlx::PgPool,
     std::{sync::Arc, time::Duration},
-    tokio::sync::{mpsc::UnboundedSender, Mutex},
+    tokio::sync::Mutex,
 };
 
 /// Streamed updates carry no containing block. Event keys never include the
@@ -66,12 +66,11 @@ pub struct DuskTransactionProcessor {
     guard: DeploymentGuard,
 }
 
-/// Stops the daemon when a streamed transaction upgrades, re-authorizes or
-/// closes a pinned program: the pinned decoder no longer describes the chain.
+/// Recognizes program changes in the stream so operators can see when the
+/// vendored IDL may need review without stopping unrelated event ingestion.
 #[derive(Clone)]
 pub struct DeploymentGuard {
     pub pinned: Arc<PinnedDeployments>,
-    pub stop: UnboundedSender<anyhow::Error>,
 }
 
 impl DuskTransactionProcessor {
@@ -217,16 +216,11 @@ impl Processor for DuskTransactionProcessor {
         metrics: Arc<MetricsCollection>,
     ) -> CarbonResult<()> {
         if let Some(address) = self.deployment_change(&transaction) {
-            log::error!(
-                "transaction {} at slot {} changes pinned deployment {address}; stopping",
+            log::warn!(
+                "transaction {} at slot {} changes program {address}; continuing with the vendored IDL",
                 transaction.signature,
                 transaction.slot
             );
-            let _ = self.guard.stop.send(anyhow!(
-                "FINALIZED_INVARIANT: pinned deployment {address} changed at slot {}",
-                transaction.slot
-            ));
-            return Ok(());
         }
         let _cursor = self.cursor.lock().await;
         match self.ingest(&transaction).await {

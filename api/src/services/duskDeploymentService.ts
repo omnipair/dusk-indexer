@@ -3,11 +3,10 @@
  *
  * Every Dusk response carries the identity of the deployment it was read
  * from, so a client can refuse data from a program it was not built against.
- * The identity is the reviewed current executable in `protocol/` (program
- * ids, IDL digests, attested binary hashes). The daemon verifies its binaries
- * at startup and stops on an unknown loader change. The original event
- * revision stays registered in the database, preserving existing history.
- * Live captures past the stream's slot observe loader accounts at their bank.
+ * The protocol identity is the vendored cluster, program IDs, IDL digests and
+ * event revision. Executable metadata is observed from the chain for capture
+ * provenance, but a binary change does not stop ingestion or require a new
+ * indexer build. The original event revision stays registered in the database.
  */
 
 import { Connection } from '@solana/web3.js';
@@ -102,40 +101,15 @@ function withIdentity(envelope: Omit<DuskDeploymentEnvelope, 'deploymentIdentity
   return { ...envelope,deploymentIdentitySha256: deploymentIdentityFingerprint(envelope) };
 }
 
-/** The reviewed current identity while this event revision's cursor is live.
- * A stale or absent stream cannot authorize a response. */
-async function streamedEnvelope(): Promise<DuskDeploymentEnvelope> {
-  const pinned = loadCurrentProtocol(),apiConfig = duskApiConfig();
+/** Use the stream cursor for liveness and observe current program metadata.
+ * An authorized upgrade does not require a new binary pin in this service. */
+async function streamedEnvelope(minimumSourceSlot = 0): Promise<DuskDeploymentEnvelope> {
   const stream = await readStreamedDeployment();
   if (!stream) throw Object.assign(new Error('The Dusk stream has not attested this release'),{ status: 503 });
   const now = Date.now();
   if (now-stream.updatedAt.getTime()>DUSK_STREAM_STALE_MS)
     throw Object.assign(new Error('The Dusk stream is stale'),{ status: 503 });
-  return withIdentity({
-    schemaVersion: DUSK_DEPLOYMENT_SCHEMA_VERSION,
-    network: apiConfig.network,
-    genesisHash: pinned.genesisHash,
-    programId: pinned.dusk.programId,
-    programDataAddress: pinned.dusk.deployment.programData,
-    programDataSlot: String(pinned.dusk.deployment.deploySlot),
-    programUpgradeAuthority: pinned.dusk.deployment.upgradeAuthority,
-    leverageDelegateProgramId: pinned.leverageDelegate.programId,
-    leverageDelegateProgramDataAddress: pinned.leverageDelegate.deployment.programData,
-    leverageDelegateProgramDataSlot: String(pinned.leverageDelegate.deployment.deploySlot),
-    leverageDelegateUpgradeAuthority: pinned.leverageDelegate.deployment.upgradeAuthority,
-    idlSha256: pinned.dusk.idlCanonicalSha256,
-    idlRawSha256: pinned.dusk.idlRawSha256,
-    leverageDelegateIdlSha256: pinned.leverageDelegate.idlCanonicalSha256,
-    leverageDelegateIdlRawSha256: pinned.leverageDelegate.idlRawSha256,
-    commitment: DUSK_DEPLOYMENT_COMMITMENT,
-    sourceSlot: stream.slot,
-    // Assembled now from a stream verified live within the stale bound.
-    observedAt: new Date(now).toISOString(),
-    apiStartedAt: API_STARTED_AT,
-    buildRevision: apiConfig.buildRevision,
-    programBinarySha256: pinned.dusk.binarySha256,
-    leverageDelegateBinarySha256: pinned.leverageDelegate.binarySha256,
-  });
+  return observedDeploymentEnvelope(Math.max(stream.slot, minimumSourceSlot));
 }
 
 async function buildEnvelope(minimumSourceSlot: number): Promise<DuskDeploymentEnvelope> {
@@ -200,9 +174,7 @@ let inflight: Promise<DuskDeploymentEnvelope> | undefined;
 export async function deploymentEnvelope(minimumSourceSlot = 0): Promise<DuskDeploymentEnvelope> {
   if (!Number.isSafeInteger(minimumSourceSlot) || minimumSourceSlot < 0)
     throw new Error('Invalid deployment source-slot floor');
-  const streamed = await streamedEnvelope();
-  if (streamed.sourceSlot >= minimumSourceSlot) return streamed;
-  return observedDeploymentEnvelope(minimumSourceSlot);
+  return streamedEnvelope(minimumSourceSlot);
 }
 
 /** Live RPC captures can run ahead of the ingestion cursor. Observe the

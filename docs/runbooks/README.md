@@ -12,7 +12,7 @@ public API.
 | [RPC provider outage](rpc-provider-outage.md) | `/status` reports `deployment-identity` degraded; keepers report `readyz` failing |
 | [Indexer falling behind](indexer-lag.md) | `/status` reports `indexer-lag` and a growing `slotLag` |
 | [Keeper wallet drained](keeper-wallet-drained.md) | A keeper's `executionError` names the lamport floor |
-| [Program upgraded underneath the deployment](program-upgraded.md) | Every service refuses to start, or `deploymentIdentitySha256` changes |
+| [Program upgraded](program-upgraded.md) | A new executable is deployed; verify cursor health and review any IDL changes |
 | [Database full or unavailable](database-unavailable.md) | API 503s; ingestion cursor stops advancing |
 | [Swaps reverting](swaps-reverting.md) | Users report failed swaps; `BrokenInvariant` 6047 in logs |
 

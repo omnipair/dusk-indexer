@@ -98,12 +98,11 @@ pub(crate) fn valid_envelope(value: &Value, pin: &Value, floor: u64, now: i64) -
                 "leverageDelegateIdlRawSha256",
             ]
         };
+        let deployment_slot = d[fields[2]].as_str().and_then(|s| s.parse::<u64>().ok());
         if d[fields[0]] != p["programId"]
             || d[fields[1]] != p["deployment"]["programData"]
-            || d[fields[2]].as_str().and_then(|s| s.parse::<u64>().ok())
-                != p["deployment"]["deploySlot"].as_u64()
-            || d[fields[3]] != p["deployment"]["upgradeAuthority"]
-            || d[fields[4]] != p["binary"]["sha256"]
+            || !deployment_slot.is_some_and(|deployed| deployed >= p["deployment"]["deploySlot"].as_u64().unwrap_or(u64::MAX) && deployed < slot)
+            || !d[fields[4]].as_str().is_some_and(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
             || d[fields[5]] != p["idl"]["canonicalSha256"]
             || d[fields[6]] != p["idl"]["sha256"]
         {
@@ -173,8 +172,7 @@ pub struct DuskStream {
 impl DuskStream {
     pub fn start(pool: PgPool, api: &str) -> Result<Self, Box<dyn std::error::Error>> {
         // Notifications use the immutable event revision and its first slot.
-        // API envelopes describe the exact executable currently serving that
-        // unchanged IDL; both must be checked against their respective pins.
+        // API envelopes may describe a later executable under that same IDL.
         let historical_pin: Arc<Value> = Arc::new(serde_json::from_str(PIN)?);
         let current_pin: Arc<Value> = Arc::new(serde_json::to_value(
             dusk_indexer_foundation::deployment::current_deployment()?,
@@ -343,8 +341,11 @@ mod tests {
         )
         .unwrap();
         let now = chrono::Utc::now();
+        let source_slot = pin["programs"].as_array().unwrap().iter()
+            .filter_map(|program| program["deployment"]["deploySlot"].as_u64())
+            .max().unwrap() + 1;
         let mut d = json!({ "schemaVersion": "dusk-deployment.v2", "network": pin["cluster"]["name"],
-            "genesisHash": pin["cluster"]["genesisHash"], "commitment": "confirmed", "sourceSlot": 500000000,
+            "genesisHash": pin["cluster"]["genesisHash"], "commitment": "confirmed", "sourceSlot": source_slot,
             "observedAt": now.to_rfc3339(), "deploymentIdentitySha256": "a".repeat(64) });
         for (index, fields) in [
             [
@@ -393,13 +394,14 @@ mod tests {
         let mut previous_binary = valid.clone();
         previous_binary["deployment"]["programBinarySha256"] =
             historical["programs"][0]["binary"]["sha256"].clone();
-        assert!(!valid_envelope(
+        assert!(valid_envelope(
             &previous_binary,
             &pin,
             500000000,
             now.timestamp_millis()
         ));
         for key in d.as_object().unwrap().keys() {
+            if ["programUpgradeAuthority", "leverageDelegateUpgradeAuthority"].contains(&key.as_str()) { continue; }
             let mut invalid = valid.clone();
             invalid["deployment"][key] = Value::Null;
             assert!(
@@ -410,7 +412,7 @@ mod tests {
         assert!(!valid_envelope(
             &valid,
             &pin,
-            500000001,
+            source_slot + 1,
             now.timestamp_millis()
         ));
         assert!(!valid_envelope(
@@ -436,12 +438,15 @@ mod tests {
         )
         .unwrap();
         let now = chrono::Utc::now();
+        let source_slot = pin["programs"].as_array().unwrap().iter()
+            .filter_map(|program| program["deployment"]["deploySlot"].as_u64())
+            .max().unwrap() + 1;
         let mut deployment = json!({
             "schemaVersion": "dusk-deployment.v2",
             "network": pin["cluster"]["name"],
             "genesisHash": pin["cluster"]["genesisHash"],
             "commitment": "confirmed",
-            "sourceSlot": 500000000,
+            "sourceSlot": source_slot,
             "observedAt": now.to_rfc3339(),
             "deploymentIdentitySha256": "a".repeat(64)
         });
@@ -483,7 +488,7 @@ mod tests {
             capacity: Arc::new(Semaphore::new(1)),
             observation: Arc::new(Mutex::new(None)),
         };
-        assert_eq!(stream.read_envelope(500000000).await.unwrap()["sourceSlot"], 500000000);
+        assert_eq!(stream.read_envelope(500000000).await.unwrap()["sourceSlot"], source_slot);
         server.await.unwrap();
     }
 }
