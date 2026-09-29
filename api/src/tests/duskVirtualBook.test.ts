@@ -10,7 +10,7 @@ import {
   createVirtualBookRuntime,
   decodePreviewSwapReturnData,
 } from '../services/virtualBook/native';
-import { decodeDuskVirtualBookBatch, readDuskVirtualBookQuotes } from '../services/virtualBook/virtual-book-quotes';
+import { decodeDuskVirtualBookBatch, recoverExecutableVirtualBookQuotes, readDuskVirtualBookQuotes, unquotableAmount } from '../services/virtualBook/virtual-book-quotes';
 import { projectDuskVirtualBook } from '../services/virtualBook/virtual-book-view-model';
 import { DuskVirtualBookSnapshot, readDuskVirtualBook } from '../services/virtualBook/virtual-book-read';
 import type { Dusk } from '@omnipair/dusk-sdk';
@@ -118,6 +118,74 @@ test('backend decodes the saved native batch with exact cumulative sizes and pro
   assert.equal(
     decoded.quotes[3].preview.exactAssetIn.toString(),
     h.requests[3].amount.toString(),
+  );
+});
+test('depth keeps only natively executable levels when a small cumulative quote breaks an invariant', async () => {
+  const h = await setup();
+  const { BN } = await import('@coral-xyz/anchor');
+  const decoded = decodeDuskVirtualBookBatch(
+    h.dusk,
+    h.snapshot,
+    h.requests,
+    fixture.result as unknown as RpcResponseAndContext<SimulatedTransactionResponse>,
+    h.snapshot.slot,
+  );
+  const broken = (code: number) => Object.assign(new Error('Dusk simulation failed'), {
+    name: 'DuskSimulationError',
+    simulation: { value: { err: { InstructionError: [2, { Custom: code }] } } },
+  });
+  assert.equal(unquotableAmount(broken(6047)), true);
+  assert.equal(unquotableAmount(broken(999)), false);
+  assert.equal(unquotableAmount(new Error('transport unavailable')), false);
+  const rejected = new Set<bigint>();
+  let calls = 0;
+  const curve = {
+    mid: 1,
+    bids: Array.from({ length: 12 }, (_, index) => ({ total: index + 1, quoteTotal: index + 1 })),
+    asks: Array.from({ length: 12 }, (_, index) => ({ total: index + 1, quoteTotal: index + 1 })),
+  } as Parameters<typeof recoverExecutableVirtualBookQuotes>[3];
+  const fake = {
+    get: {
+      previewVirtualBookBatch: async (
+        _snapshot: unknown,
+        batch: { side: 'bids' | 'asks'; amount: bigint }[],
+      ) => {
+        calls++;
+        if (batch.length === 4 && batch[0].side === 'bids' && !rejected.size) {
+          rejected.add(batch[0].amount);
+          rejected.add(batch[1].amount);
+          throw broken(6047);
+        }
+        if (batch.length === 1 && rejected.has(batch[0].amount))
+          throw broken(6047);
+        return {
+          ...decoded,
+          quotes: batch.map(request => ({
+            ...decoded.quotes[0],
+            side: request.side,
+            preview: {
+              ...decoded.quotes[0].preview,
+              exactAssetIn: new BN(request.amount.toString()),
+            },
+          })),
+        };
+      },
+    },
+  } as unknown as Dusk;
+  const quotes = await recoverExecutableVirtualBookQuotes(fake, h.snapshot, 10, curve, h.snapshot.slot);
+  assert.equal(quotes.quotes.bids.length, 10);
+  assert.equal(quotes.quotes.asks.length, 12);
+  assert.equal(calls, 10); // six four-quote batches plus four single retries
+  assert.ok(quotes.quotes.bids.every(quote =>
+    !rejected.has(BigInt(quote.preview.exactAssetIn.toString())),
+  ));
+
+  const unrelated = {
+    get: { previewVirtualBookBatch: async () => { throw broken(999); } },
+  } as unknown as Dusk;
+  await assert.rejects(
+    recoverExecutableVirtualBookQuotes(unrelated, h.snapshot, 10, curve, h.snapshot.slot),
+    /Dusk simulation failed/,
   );
 });
 test('backend rejects old banks, wrong programs, truncated logs and changed input sizes', async () => {

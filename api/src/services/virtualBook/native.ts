@@ -28,6 +28,12 @@ export const decodeDuskVirtualBookBatch: Sdk['decodeDuskVirtualBookBatch'] = (
 export const projectDuskVirtualBook: Sdk['projectDuskVirtualBook'] = (
   ...args
 ) => sdkExports!.projectDuskVirtualBook(...args);
+export const projectDuskVirtualBookCurve: Sdk['projectDuskVirtualBookCurve'] = (
+  ...args
+) => sdkExports!.projectDuskVirtualBookCurve(...args);
+export const combineVirtualBookBatches: Sdk['combineVirtualBookBatches'] = (
+  ...args
+) => sdkExports!.combineVirtualBookBatches(...args);
 export const createLeverageDelegateProgram: Sdk['createLeverageDelegateProgram'] =
   (...args) => sdkExports!.createLeverageDelegateProgram(...args);
 export const deriveLeverageOrderAddress: Sdk['deriveLeverageOrderAddress'] = (
