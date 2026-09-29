@@ -166,6 +166,7 @@ pub struct DuskStream {
     client: reqwest::Client,
     endpoint: reqwest::Url,
     pin: Arc<Value>,
+    history_pin: Arc<Value>,
     capacity: Arc<Semaphore>,
     observation: Arc<Mutex<Option<(tokio::time::Instant, Result<Value, Status>)>>>,
 }
@@ -194,12 +195,13 @@ impl DuskStream {
             .redirect(reqwest::redirect::Policy::none())
             .build()?;
         let (sender, receiver) = watch::channel(Notice::default());
-        tokio::spawn(listen(pool, sender, historical_pin));
+        tokio::spawn(listen(pool, sender, historical_pin.clone()));
         Ok(Self {
             receiver,
             client,
             endpoint,
             pin: current_pin,
+            history_pin: historical_pin,
             capacity: Arc::new(Semaphore::new(128)),
             observation: Arc::new(Mutex::new(None)),
         })
@@ -258,6 +260,7 @@ impl DuskStream {
         crate::dusk_payloads::subscribe(
             self.endpoint.clone(),
             self.pin.clone(),
+            self.history_pin.clone(),
             self.capacity.clone(),
             request,
         )
@@ -476,6 +479,7 @@ mod tests {
             client: reqwest::Client::new(),
             endpoint: reqwest::Url::parse(&format!("http://{address}/api/dusk/v1/config")).unwrap(),
             pin: Arc::new(pin),
+            history_pin: Arc::new(serde_json::from_str(PIN).unwrap()),
             capacity: Arc::new(Semaphore::new(1)),
             observation: Arc::new(Mutex::new(None)),
         };

@@ -42,7 +42,13 @@ fn selection(r: &DuskPayloadsRequest) -> Result<Value, Status> {
     }
 }
 
-fn valid_payload(v: &Value, selected: &Value, pin: &Value, now: i64) -> bool {
+fn valid_payload(
+    v: &Value,
+    selected: &Value,
+    current_pin: &Value,
+    history_pin: &Value,
+    now: i64,
+) -> bool {
     let d = &v["data"];
     let Some(observed) = d["observedAt"].as_i64() else {
         return false;
@@ -58,7 +64,7 @@ fn valid_payload(v: &Value, selected: &Value, pin: &Value, now: i64) -> bool {
     } else {
         60_000
     };
-    let floor = pin["programs"]
+    let floor = history_pin["programs"]
         .as_array()
         .into_iter()
         .flatten()
@@ -68,7 +74,7 @@ fn valid_payload(v: &Value, selected: &Value, pin: &Value, now: i64) -> bool {
     slot > floor
         && observed > 0
         && expires <= 9_007_199_254_740_991
-        && valid_envelope(v, pin, slot, now)
+        && valid_envelope(v, current_pin, slot, now)
         && d["schemaVersion"] == "dusk-payload.v1"
         && d["selection"] == *selected
         && observed <= now + 1000
@@ -89,7 +95,8 @@ fn valid_payload(v: &Value, selected: &Value, pin: &Value, now: i64) -> bool {
 
 pub fn subscribe(
     mut endpoint: reqwest::Url,
-    pin: Arc<Value>,
+    current_pin: Arc<Value>,
+    history_pin: Arc<Value>,
     capacity: Arc<Semaphore>,
     request: DuskPayloadsRequest,
 ) -> Result<Updates, Status> {
@@ -135,7 +142,7 @@ pub fn subscribe(
                 if text.starts_with(':') { continue; }
                 let Some(body) = text.strip_prefix("event: dusk-payload\ndata: ").and_then(|v| v.strip_suffix("\n\n")) else { Err(fail())?; unreachable!() };
                 let value: Value = serde_json::from_str(body).map_err(|_| fail())?;
-                if !valid_payload(&value, &selected, &pin, chrono::Utc::now().timestamp_millis()) { Err(fail())?; }
+                if !valid_payload(&value, &selected, &current_pin, &history_pin, chrono::Utc::now().timestamp_millis()) { Err(fail())?; }
                 if sequence == 0 { identity = value["deployment"]["deploymentIdentitySha256"].clone(); stream_id = value["data"]["streamId"].clone(); }
                 if value["deployment"]["deploymentIdentitySha256"] != identity || value["data"]["streamId"] != stream_id
                     || value["data"]["sequence"].as_u64() != Some(sequence + 1) { Err(Status::failed_precondition("Payload stream continuity lost"))?; }
@@ -176,8 +183,12 @@ mod tests {
 
     #[test]
     fn frames_require_matching_selection_freshness_and_identity() {
-        let pin: Value =
+        let history_pin: Value =
             serde_json::from_str(include_str!("../../protocol/protocol.lock.json")).unwrap();
+        let pin = serde_json::to_value(
+            dusk_indexer_foundation::deployment::current_deployment().unwrap(),
+        )
+        .unwrap();
         let frame = synthetic_current_frame(&pin);
         let now = chrono::DateTime::parse_from_rfc3339(
             frame["deployment"]["observedAt"].as_str().unwrap(),
@@ -189,8 +200,14 @@ mod tests {
             "../../api/src/tests/fixtures/payload-envelope-devnet-20260920.json"
         ))
         .unwrap();
-        assert!(!valid_payload(&captured, &selected, &pin, now));
-        assert!(valid_payload(&frame, &selected, &pin, now));
+        assert!(!valid_payload(&captured, &selected, &pin, &history_pin, now));
+        assert!(valid_payload(&frame, &selected, &pin, &history_pin, now));
+        // A historical event frame can precede the compatible program upgrade
+        // while its live API envelope identifies the currently verified code.
+        let mut earlier = frame.clone();
+        earlier["data"]["sourceSlot"] =
+            json!(history_pin["programs"][0]["deployment"]["deploySlot"].as_u64().unwrap() + 1);
+        assert!(valid_payload(&earlier, &selected, &pin, &history_pin, now));
         for field in [
             "selection",
             "observedAt",
@@ -203,18 +220,19 @@ mod tests {
         ] {
             let mut broken = frame.clone();
             broken["data"][field] = Value::Null;
-            assert!(!valid_payload(&broken, &selected, &pin, now), "{field}");
+            assert!(!valid_payload(&broken, &selected, &pin, &history_pin, now), "{field}");
         }
         let mut broken = frame.clone();
         broken["data"]["sourceSlot"] = json!(0);
-        assert!(!valid_payload(&broken, &selected, &pin, now));
+        assert!(!valid_payload(&broken, &selected, &pin, &history_pin, now));
         let mut broken = frame.clone();
         broken["deployment"]["programId"] = Value::Null;
-        assert!(!valid_payload(&broken, &selected, &pin, now));
+        assert!(!valid_payload(&broken, &selected, &pin, &history_pin, now));
         assert!(!valid_payload(
             &frame,
             &selected,
             &pin,
+            &history_pin,
             frame["data"]["expiresAt"].as_i64().unwrap()
         ));
     }
@@ -224,8 +242,12 @@ mod tests {
             tokio::io::{AsyncReadExt, AsyncWriteExt},
             tokio_stream::StreamExt,
         };
-        let pin: Value =
+        let history_pin: Value =
             serde_json::from_str(include_str!("../../protocol/protocol.lock.json")).unwrap();
+        let pin = serde_json::to_value(
+            dusk_indexer_foundation::deployment::current_deployment().unwrap(),
+        )
+        .unwrap();
         let mut frame = synthetic_current_frame(&pin);
         let now = chrono::Utc::now();
         frame["deployment"]["observedAt"] = json!(now.to_rfc3339());
@@ -255,6 +277,7 @@ mod tests {
         let mut stream = subscribe(
             reqwest::Url::parse(&format!("http://{address}/api/dusk/v1/config")).unwrap(),
             Arc::new(pin),
+            Arc::new(history_pin),
             capacity.clone(),
             DuskPayloadsRequest {
                 kind: "markets".into(),
