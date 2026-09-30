@@ -3,7 +3,8 @@
 ## Recognise it
 
 `/status` returns 503 with `degraded: ["deployment-identity"]` and a
-`deploymentError` naming a transport or rate-limit failure. Keepers fail
+`deploymentError` saying the Dusk stream is stale: the daemon reads the same
+provider, so its cursor stops advancing. Keepers fail
 `/readyz` while `/healthz` still passes — that split is deliberate: the process
 is alive, it just cannot see the chain.
 
@@ -12,9 +13,11 @@ as an outage only if it persists past a minute.
 
 ## What it breaks
 
-Reads that need the chain: `/config`, `/markets/state`, and the deployment
-envelope on every other response. **Indexed history keeps serving** — the
-event stream is in the database and does not need the RPC. Keepers stop
+Reads that need the chain: `/config` and `/markets/state` (market discovery)
+and live previews. The deployment envelope comes from the protocol pin and the
+stream cursor; only its one-time genesis check per process needs the RPC.
+**Indexed history keeps serving** while the stream is fresh — the event stream
+is in the database and does not need the RPC. Keepers stop
 discovering, which means they stop acting; nothing they have already sent is
 affected.
 

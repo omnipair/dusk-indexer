@@ -237,7 +237,6 @@ export interface DuskApiConfig {
   readonly network: string;
   readonly rpcUrl: string;
   readonly buildRevision: string;
-  readonly envelopeCacheTtlMs: number;
   /** Pins which market the deployment presents as primary; see below. */
   readonly primaryMarket: string | null;
 }
@@ -248,14 +247,6 @@ export function duskApiConfig(): DuskApiConfig {
   if (network !== pinned.cluster) throw new Error('DUSK_CLUSTER differs from the protocol lock');
   const rpcUrl = process.env.DUSK_RPC_URL?.trim();
   if (!rpcUrl) throw new Error('DUSK_RPC_URL is required');
-  // Cache quiet-market observations briefly. A read requiring a newer source
-  // slot bypasses the cache, while an idle market avoids repeated loader RPCs.
-  // Binary bytes are fetched only when the observed ProgramData header changes.
-  const ttlRaw = process.env.DUSK_ENVELOPE_CACHE_TTL_MS?.trim();
-  const ttl = ttlRaw ? Number(ttlRaw) : 5_000;
-  if (!Number.isSafeInteger(ttl) || ttl < 0) {
-    throw new Error('DUSK_ENVELOPE_CACHE_TTL_MS must be a nonnegative integer');
-  }
 
   return {
     network,
@@ -264,7 +255,6 @@ export function duskApiConfig(): DuskApiConfig {
       process.env.DUSK_BUILD_REVISION?.trim() ||
       process.env.RAILWAY_GIT_COMMIT_SHA?.trim() ||
       `${pinned.revision}-unversioned`,
-    envelopeCacheTtlMs: ttl,
     // Without this the primary market is whichever account
     // getProgramAccounts happens to return first, so creating a market can
     // silently repoint the deployment -- its default pair, and every script

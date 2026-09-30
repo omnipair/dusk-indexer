@@ -7,7 +7,7 @@ import {
   sha256,
 } from '../../config/duskProtocol';
 import {
-  observedDeploymentEnvelope,
+  deploymentEnvelopeAt,
   DuskDeploymentEnvelope,
 } from '../duskDeploymentService';
 export { BN };
@@ -73,7 +73,7 @@ export interface DuskReadBoundary {
   ): Promise<{ observedSlot: number }>;
 }
 export function createVirtualBookBoundary(
-  observe: (minimumSourceSlot: number) => Promise<DuskDeploymentEnvelope> = observedDeploymentEnvelope,
+  observe: (minimumSourceSlot: number) => Promise<DuskDeploymentEnvelope> = deploymentEnvelopeAt,
 ): DuskReadBoundary {
   return {
     async assertCompatibleForRead(expected, signal, minimumSourceSlot = expected.sourceSlot) {
