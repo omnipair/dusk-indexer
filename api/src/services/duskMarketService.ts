@@ -640,17 +640,33 @@ export interface DiscoveredMarket {
   account: unknown;
 }
 
+// `/config` takes its envelope slot from this discovery, and a client signing
+// a prepared transaction rejects an envelope whose slot went backwards. A
+// lagging RPC replica must therefore never answer below a bank already served.
+let discoveryFloor = 0;
+
 /** Every Market account the program owns, at the observed slot. */
 export async function discoverMarkets(): Promise<{
   markets: DiscoveredMarket[];
   sourceSlot: number;
 }> {
   const { connection, program } = initializeRuntime();
-  const observation = await connection.getProgramAccounts(program.programId, {
+  const floor = discoveryFloor;
+  const read = () => connection.getProgramAccounts(program.programId, {
     commitment: DUSK_DEPLOYMENT_COMMITMENT,
     withContext: true,
+    minContextSlot: floor || undefined,
     filters: [{ memcmp: program.coder.accounts.memcmp('market') }],
   });
+  let observation: Awaited<ReturnType<typeof read>>;
+  for (let attempt = 0; ; attempt++) {
+    try { observation = await read(); break; }
+    catch (error) {
+      if (attempt>=3 || !(error instanceof Error) || !error.message.includes('Minimum context slot has not been reached')) throw error;
+      await new Promise<void>((resolve) => setTimeout(resolve,500*(attempt+1)));
+    }
+  }
+  discoveryFloor = Math.max(discoveryFloor, observation.context.slot);
   return {
     markets: observation.value.map((entry) => {
       if (!entry.account.owner.equals(program.programId)) throw new Error('Market account owner mismatch');

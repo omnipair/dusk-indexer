@@ -3,14 +3,14 @@
  *
  * Every Dusk response carries the identity of the deployment it was read
  * from, so a client can refuse data from a program it was not built against.
- * The protocol identity is the vendored cluster, program IDs, IDL digests and
- * event revision. Executable metadata is observed from the chain for capture
- * provenance, but a binary change does not stop ingestion or require a new
- * indexer build. The original event revision stays registered in the database.
+ * The identity is the vendored protocol pin: cluster, program IDs, IDL digests,
+ * event revision and the executable metadata recorded for the current release
+ * (`protocol/compatible-deployment.json`). It is not re-read from the chain for
+ * each response. The RPC's genesis hash is checked once per process so a
+ * misconfigured endpoint cannot serve another cluster's state.
  */
 
 import { Connection } from '@solana/web3.js';
-import { createDuskProgramObserver } from './duskProgramObservation';
 import { readStreamedDeployment } from './duskHistoryCoverage';
 
 import {
@@ -21,8 +21,6 @@ import {
   loadCurrentProtocol,
   sha256,
 } from '../config/duskProtocol';
-
-import type { DuskApiConfig } from '../config/duskProtocol';
 
 export interface DuskDeploymentEnvelope {
   readonly schemaVersion: string;
@@ -51,19 +49,6 @@ export interface DuskDeploymentEnvelope {
 }
 
 const API_STARTED_AT = new Date().toISOString();
-
-let connection: Connection | undefined;
-let config: DuskApiConfig | undefined;
-
-function runtime(): { connection: Connection; config: DuskApiConfig } {
-  if (!connection || !config) {
-    config = duskApiConfig();
-    connection = new Connection(config.rpcUrl, DUSK_DEPLOYMENT_COMMITMENT);
-  }
-  return { connection, config };
-}
-
-let observePrograms: ReturnType<typeof createDuskProgramObserver> | undefined;
 
 export function deploymentIdentityFingerprint(
   deployment: Omit<DuskDeploymentEnvelope, 'deploymentIdentitySha256'>,
@@ -101,120 +86,81 @@ function withIdentity(envelope: Omit<DuskDeploymentEnvelope, 'deploymentIdentity
   return { ...envelope,deploymentIdentitySha256: deploymentIdentityFingerprint(envelope) };
 }
 
-/** Use the stream cursor for liveness and observe current program metadata.
- * An authorized upgrade does not require a new binary pin in this service. */
-async function streamedEnvelope(minimumSourceSlot = 0): Promise<DuskDeploymentEnvelope> {
-  const stream = await readStreamedDeployment();
-  if (!stream) throw Object.assign(new Error('The Dusk stream has not attested this release'),{ status: 503 });
-  const now = Date.now();
-  if (now-stream.updatedAt.getTime()>DUSK_STREAM_STALE_MS)
-    throw Object.assign(new Error('The Dusk stream is stale'),{ status: 503 });
-  return observedDeploymentEnvelope(Math.max(stream.slot, minimumSourceSlot));
+const verifiedGenesis = new Map<string, Promise<string>>();
+
+/** Check the RPC's cluster once per endpoint; a failed lookup is retried by the next envelope. */
+function rpcGenesis(rpcUrl: string, pinned: string): Promise<string> {
+  let pending = verifiedGenesis.get(rpcUrl);
+  if (!pending) {
+    pending = new Connection(rpcUrl, DUSK_DEPLOYMENT_COMMITMENT).getGenesisHash().then((genesisHash) => {
+      if (genesisHash !== pinned)
+        throw new Error(`RPC genesis ${genesisHash} does not match the pinned cluster ${pinned}`);
+      return genesisHash;
+    });
+    verifiedGenesis.set(rpcUrl, pending);
+    const owned = pending;
+    void owned.catch(() => {
+      if (verifiedGenesis.get(rpcUrl) === owned) verifiedGenesis.delete(rpcUrl);
+    });
+  }
+  return pending;
 }
 
-async function buildEnvelope(minimumSourceSlot: number): Promise<DuskDeploymentEnvelope> {
+async function pinnedEnvelope(sourceSlot: number): Promise<DuskDeploymentEnvelope> {
   const pinned = loadCurrentProtocol();
-  const { connection: rpc, config: apiConfig } = runtime();
-  const floor = Math.max(minimumSourceSlot, cached?.value.sourceSlot ?? 0);
-
-  // The pinned loader addresses can be read together while genesis and tip
-  // checks run. No envelope is accepted until all three observations agree.
-  observePrograms ??= createDuskProgramObserver(rpc);
-  const [genesisHash, slot, programs] = await Promise.all([
-    rpc.getGenesisHash(),
-    rpc.getSlot({ commitment: DUSK_DEPLOYMENT_COMMITMENT, minContextSlot: floor }),
-    observePrograms([pinned.dusk,pinned.leverageDelegate], floor),
-  ]);
-  const [duskProgram,delegateProgram] = programs;
-  if (!Number.isSafeInteger(slot) || slot < floor)
-    throw new Error(`RPC tip did not satisfy the deployment source-slot floor ${floor}`);
-  if (genesisHash !== pinned.genesisHash) {
-    throw new Error(
-      `RPC genesis ${genesisHash} does not match the pinned cluster ${pinned.genesisHash}`,
-    );
-  }
-
+  const apiConfig = duskApiConfig();
+  const { dusk, leverageDelegate } = pinned;
   return withIdentity({
     schemaVersion: DUSK_DEPLOYMENT_SCHEMA_VERSION,
     network: apiConfig.network,
-    genesisHash,
-    programId: pinned.dusk.programId,
-    programDataAddress: duskProgram.programDataAddress,
-    programDataSlot: duskProgram.programDataSlot,
-    programUpgradeAuthority: duskProgram.upgradeAuthority,
-    leverageDelegateProgramId: pinned.leverageDelegate.programId,
-    leverageDelegateProgramDataAddress: delegateProgram.programDataAddress,
-    leverageDelegateProgramDataSlot: delegateProgram.programDataSlot,
-    leverageDelegateUpgradeAuthority: delegateProgram.upgradeAuthority,
-    idlSha256: pinned.dusk.idlCanonicalSha256,
-    idlRawSha256: pinned.dusk.idlRawSha256,
-    leverageDelegateIdlSha256: pinned.leverageDelegate.idlCanonicalSha256,
-    leverageDelegateIdlRawSha256: pinned.leverageDelegate.idlRawSha256,
+    genesisHash: await rpcGenesis(apiConfig.rpcUrl, pinned.genesisHash),
+    programId: dusk.programId,
+    programDataAddress: dusk.deployment.programData,
+    programDataSlot: String(dusk.deployment.deploySlot),
+    programUpgradeAuthority: dusk.deployment.upgradeAuthority,
+    leverageDelegateProgramId: leverageDelegate.programId,
+    leverageDelegateProgramDataAddress: leverageDelegate.deployment.programData,
+    leverageDelegateProgramDataSlot: String(leverageDelegate.deployment.deploySlot),
+    leverageDelegateUpgradeAuthority: leverageDelegate.deployment.upgradeAuthority,
+    idlSha256: dusk.idlCanonicalSha256,
+    idlRawSha256: dusk.idlRawSha256,
+    leverageDelegateIdlSha256: leverageDelegate.idlCanonicalSha256,
+    leverageDelegateIdlRawSha256: leverageDelegate.idlRawSha256,
     commitment: DUSK_DEPLOYMENT_COMMITMENT,
-    sourceSlot: Math.min(slot, duskProgram.sourceSlot, delegateProgram.sourceSlot),
+    sourceSlot,
     observedAt: new Date().toISOString(),
     apiStartedAt: API_STARTED_AT,
     buildRevision: apiConfig.buildRevision,
-    programBinarySha256: duskProgram.binarySha256,
-    leverageDelegateBinarySha256: delegateProgram.binarySha256,
+    programBinarySha256: dusk.binarySha256,
+    leverageDelegateBinarySha256: leverageDelegate.binarySha256,
   });
 }
 
-let cached: { value: DuskDeploymentEnvelope; observedAtMs: number } | undefined;
-let inflight: Promise<DuskDeploymentEnvelope> | undefined;
-
-/**
- * @param minimumSourceSlot The envelope must be at least this fresh. A payload
- * read at slot N cannot be stamped with an envelope observed before N — the
- * client rejects that as a source-slot mismatch, correctly, since the identity
- * would not yet have covered the data. Database reads sit at or below the
- * stream's slot and take the stream's envelope; a chain capture past it
- * observes the loader accounts at its own slot.
- */
-export async function deploymentEnvelope(minimumSourceSlot = 0): Promise<DuskDeploymentEnvelope> {
-  if (!Number.isSafeInteger(minimumSourceSlot) || minimumSourceSlot < 0)
+function assertSlot(slot: number) {
+  if (!Number.isSafeInteger(slot) || slot < 0)
     throw new Error('Invalid deployment source-slot floor');
-  return streamedEnvelope(minimumSourceSlot);
 }
 
-/** Live RPC captures can run ahead of the ingestion cursor. Observe the
- * programs at the capture's bank instead of reusing the stream's older slot. */
-export async function observedDeploymentEnvelope(minimumSourceSlot = 0): Promise<DuskDeploymentEnvelope> {
-  if (!Number.isSafeInteger(minimumSourceSlot) || minimumSourceSlot < 0)
-    throw new Error('Invalid deployment source-slot floor');
-  const { config: apiConfig } = runtime();
-  if (
-    cached &&
-    Date.now() - cached.observedAtMs < apiConfig.envelopeCacheTtlMs &&
-    cached.value.sourceSlot >= minimumSourceSlot
-  ) {
-    return cached.value;
-  }
-  // Collapse concurrent refreshes; a cold start under load would otherwise
-  // issue one full observation per in-flight request.
-  if (!inflight) {
-    inflight = buildEnvelope(minimumSourceSlot)
-      .then((value) => {
-        cached = { value, observedAtMs: Date.now() };
-        return value;
-      })
-      .finally(() => {
-        inflight = undefined;
-      });
-  }
-  const envelope = await inflight;
-  if (envelope.sourceSlot >= minimumSourceSlot) return envelope;
+/**
+ * @param minimumSourceSlot The envelope must cover this slot. A payload read
+ * at slot N cannot be stamped with an envelope below N — the client rejects
+ * that as a source-slot mismatch. Database reads sit at or below the stream's
+ * slot and take the stream's envelope, which requires a live stream.
+ */
+export async function deploymentEnvelope(minimumSourceSlot = 0): Promise<DuskDeploymentEnvelope> {
+  assertSlot(minimumSourceSlot);
+  const stream = await readStreamedDeployment();
+  if (!stream) throw Object.assign(new Error('The Dusk stream has not attested this release'),{ status: 503 });
+  if (Date.now()-stream.updatedAt.getTime()>DUSK_STREAM_STALE_MS)
+    throw Object.assign(new Error('The Dusk stream is stale'),{ status: 503 });
+  return pinnedEnvelope(Math.max(stream.slot, minimumSourceSlot));
+}
 
-  // A coalesced request may have started with a lower floor. Rebuild once
-  // with this caller's requirement; a node that ignores it is still rejected.
-  const rebuilt = await buildEnvelope(minimumSourceSlot);
-  cached = { value: rebuilt, observedAtMs: Date.now() };
-  if (rebuilt.sourceSlot < minimumSourceSlot) {
-    throw new Error(
-      `deployment envelope observed slot ${rebuilt.sourceSlot} but the response needs at least ${minimumSourceSlot}`,
-    );
-  }
-  return rebuilt;
+/** Live RPC captures can run ahead of the ingestion cursor and do not depend
+ * on it; their envelope covers the capture's own slot. */
+export async function deploymentEnvelopeAt(sourceSlot: number): Promise<DuskDeploymentEnvelope> {
+  assertSlot(sourceSlot);
+  return pinnedEnvelope(sourceSlot);
 }
 
 /** Wrap a payload in the identity envelope every Dusk client validates. */

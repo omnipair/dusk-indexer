@@ -467,5 +467,5 @@ Not served: TVL, APY, and live position health. Those need account-state
 projection, which the daemon does not do yet — the tables hold events.
 
 Environment: `DATABASE_URL`, `DUSK_RPC_URL`, `DUSK_CLUSTER`, optional
-`DUSK_PROTOCOL_DIR` (defaults to the repo's `protocol/`),
-`DUSK_ENVELOPE_CACHE_TTL_MS` (default 15000), `CORS_ORIGIN`, `PORT`.
+`DUSK_PROTOCOL_DIR` (defaults to the repo's `protocol/`), `CORS_ORIGIN`,
+`PORT`.
