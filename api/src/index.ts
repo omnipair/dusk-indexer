@@ -1,3 +1,6 @@
+import { createServer } from 'node:http';
+import { createDuskSocketServer } from './services/duskSocket';
+import { stopDuskChangeStreams } from './services/duskChangeStream';
 import { stopDuskSnapshotStreams } from './services/duskSnapshotStream';
 import app from './app';
 import pool from './config/database';
@@ -10,12 +13,16 @@ if (!process.env.DATABASE_URL?.trim()) throw new Error('DATABASE_URL is required
 
 const PORT = process.env.PORT || 3000;
 
-let server: any;
+const server = createServer(app);
+const socketServer = createDuskSocketServer(server);
 
 // Graceful shutdown function
 const gracefulShutdown = async (signal: string) => {
   console.log(`${signal} received, shutting down gracefully`);
   perfMetrics.stopReporting();
+  socketServer.disconnectSockets(true);
+  socketServer.engine.close();
+  stopDuskChangeStreams();
   stopDuskSnapshotStreams();
   await stopActivityInvalidationListener();
   await stopPoolInvalidationListener();
@@ -44,7 +51,7 @@ const gracefulShutdown = async (signal: string) => {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-server = app.listen(PORT, async () => {
+server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   try {
     await startDuskInvalidationListener();
@@ -65,6 +72,10 @@ server = app.listen(PORT, async () => {
 
 process.on('unhandledRejection', (err: any) => {
   console.error('Unhandled Promise Rejection:', err);
+  socketServer.disconnectSockets(true);
+  socketServer.engine.close();
+  stopDuskChangeStreams();
+  stopDuskSnapshotStreams();
   if (server) {
     server.close(async () => {
       await pool.end();

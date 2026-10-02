@@ -5,7 +5,7 @@ import {
   openDuskSnapshotStream,
 } from './duskSnapshotStream';
 
-const hub = createDuskSnapshotHub(currentPayload, (selection) =>
+export const payloadHub = createDuskSnapshotHub(currentPayload, (selection) =>
   JSON.stringify(selection),
 );
 export function openDuskPayloadStream(req: Request, res: Response) {
@@ -14,6 +14,6 @@ export function openDuskPayloadStream(req: Request, res: Response) {
     res,
     payloadSelection(req.query),
     'dusk-payload',
-    hub,
+    payloadHub,
   );
 }
