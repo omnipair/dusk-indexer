@@ -2,11 +2,11 @@ import { randomUUID } from 'node:crypto';
 import type { Request, Response } from 'express';
 import { currentVirtualBook, virtualBookSelection } from './duskVirtualBook';
 
-interface SnapshotValue {
+export interface SnapshotValue {
   data: { revision: string; expiresAt: number };
   deployment: { deploymentIdentitySha256: string };
 }
-interface Subscriber<T> {
+export interface Subscriber<T> {
   snapshot(value: T): void;
   unavailable(): void;
 }
@@ -100,7 +100,7 @@ export function createVirtualBookHub(read = currentVirtualBook) {
     (selection) => `${selection.market}:${selection.groupingBps}`,
   );
 }
-const hub = createVirtualBookHub();
+export const virtualBookHub = createVirtualBookHub();
 const active = new Set<() => void>();
 /** Room for a backlog of roughly two maximum-size frames, never a queue that
  * grows with how far behind a reader falls. */
@@ -111,7 +111,7 @@ export function stopDuskSnapshotStreams() {
 export async function openVirtualBookStream(
   req: Request,
   res: Response,
-  source: Pick<typeof hub, 'subscribe'> = hub,
+  source: Pick<typeof virtualBookHub, 'subscribe'> = virtualBookHub,
 ): Promise<void> {
   return openDuskSnapshotStream(
     req,
