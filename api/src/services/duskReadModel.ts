@@ -18,6 +18,54 @@ function identityValues(cluster: string): string[] {
 }
 
 
+/** Where the stream saw a market created in the current release. */
+export interface DuskMarketCreation {
+  signature: string;
+  slot: number;
+  time: string;
+}
+
+/**
+ * Each market's `MarketCreated` event in the current release, keyed by market.
+ * A market missing from the map was created before the release, under an
+ * earlier program revision, so the stream holds none of its earlier history:
+ * its LP holders, eligibility and proposals before the release are unknown,
+ * not zero.
+ */
+export async function marketCreations(
+  cluster: string,
+  markets: readonly string[],
+): Promise<Map<string, DuskMarketCreation>> {
+  if (markets.length === 0) return new Map();
+  const rows = await pool.query<{ market: string; transaction_signature: string; slot: string; time: Date }>(
+    `SELECT DISTINCT ON (market) market, transaction_signature, slot::text AS slot, time
+       FROM dusk_ingestion.event_stream
+      WHERE cluster = $1 AND program_id = $2 AND idl_hash = $3 AND protocol_revision = $4
+        AND event_name = 'MarketCreated' AND market = ANY($5::text[])
+      ORDER BY market, slot ASC, time ASC`,
+    [...identityValues(cluster), [...markets]],
+  );
+  return new Map(rows.rows.map((row) => [row.market, {
+    signature: row.transaction_signature,
+    slot: Number(row.slot),
+    time: row.time.toISOString(),
+  }]));
+}
+
+/** A market payload with where its history in this release begins. */
+export function withMarketCreation<T extends Record<string, unknown>>(
+  payload: T,
+  creation: DuskMarketCreation | undefined,
+): T & { createdTxSig: string | null; createdSlot: number | null; createdAt: string | null; historyFromCreation: boolean } {
+  return {
+    ...payload,
+    createdTxSig: creation?.signature ?? null,
+    createdSlot: creation?.slot ?? null,
+    createdAt: creation?.time ?? null,
+    historyFromCreation: creation !== undefined,
+  };
+}
+
 export interface DuskEventRow {
   time: string;
   eventName: string;

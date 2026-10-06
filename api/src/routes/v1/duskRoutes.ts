@@ -33,7 +33,9 @@ import {
   ingestionHealth,
   listEvents,
   listMarkets,
+  marketCreations,
   marketDetail,
+  withMarketCreation,
 } from '../../services/duskReadModel';
 
 import { cache } from '../../utils/cache';
@@ -239,7 +241,11 @@ router.get(
     }
     res.json(await withDeploymentRead(async (deployment) => {
       const { account, sourceSlot } = await fetchMarket(address);
-      const payload = await marketPayload(address, account, sourceSlot, deployment);
+      const [projected, creations] = await Promise.all([
+        marketPayload(address, account, sourceSlot, deployment),
+        marketCreations(loadPinnedProtocol().cluster, [address.toBase58()]),
+      ]);
+      const payload = withMarketCreation(projected, creations.get(address.toBase58()));
       return { data: payload, sourceSlot: Math.max(sourceSlot, marketPayloadSourceSlot(payload)) };
     }));
   }),

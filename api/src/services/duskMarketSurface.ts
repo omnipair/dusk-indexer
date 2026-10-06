@@ -1,6 +1,7 @@
 import { duskApiConfig, loadPinnedProtocol } from '../config/duskProtocol';
 import { DuskDeploymentEnvelope } from './duskDeploymentService';
 import { discoverMarkets, marketPayload, marketPayloadSourceSlot } from './duskMarketService';
+import { marketCreations, withMarketCreation } from './duskReadModel';
 import { cache } from '../utils/cache';
 
 /**
@@ -12,10 +13,19 @@ async function deploymentPayload(deployment: DuskDeploymentEnvelope) {
   const pinned = loadPinnedProtocol();
   const config = duskApiConfig();
   const { markets, sourceSlot } = await discoverMarkets();
-  const projected = await Promise.all(
-    markets.map((market) =>
-      marketPayload(market.address, market.account, sourceSlot, deployment),
+  const [payloads, creations] = await Promise.all([
+    Promise.all(
+      markets.map((market) =>
+        marketPayload(market.address, market.account, sourceSlot, deployment),
+      ),
     ),
+    marketCreations(
+      pinned.cluster,
+      markets.map((market) => market.address.toBase58()),
+    ),
+  ]);
+  const projected = payloads.map((payload) =>
+    withMarketCreation(payload, creations.get(String(payload.marketAddress))),
   );
   // Deterministic ordering first: getProgramAccounts has none, so without
   // this the list reshuffles as markets are created and `primary` moves with
