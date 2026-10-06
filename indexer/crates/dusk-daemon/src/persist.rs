@@ -142,6 +142,29 @@ pub async fn advance_cursor(
     Ok(())
 }
 
+/// The highest slot the stream or a replay has written for this release.
+pub async fn last_observed_slot(pool: &PgPool, cluster: &str) -> Result<Option<u64>> {
+    let slot: Option<i64> = sqlx::query_scalar(
+        r#"
+        SELECT last_observed_slot FROM dusk_ingestion.ingestion_cursors
+         WHERE cluster = $1 AND program_id = $2 AND idl_hash = $3
+           AND protocol_revision = $4 AND stream_name = $5
+        "#,
+    )
+    .bind(cluster)
+    .bind(DUSK_PROGRAM_ID)
+    .bind(DUSK_IDL_SHA256)
+    .bind(PROTOCOL_REVISION)
+    .bind(STREAM_NAME)
+    .fetch_optional(pool)
+    .await
+    .context("reading ingestion cursor")?
+    .flatten();
+    slot.map(u64::try_from)
+        .transpose()
+        .context("negative cursor slot")
+}
+
 /// Events before the pinned release belong to another deployment.
 pub fn require_release_slot(slot: u64, first_slot: u64) -> Result<()> {
     if slot < first_slot {

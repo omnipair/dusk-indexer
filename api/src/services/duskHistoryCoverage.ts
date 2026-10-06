@@ -15,9 +15,10 @@ export interface StreamCursor {
 }
 
 /** The stream's cursor. Its time advances only after a transaction's writes or
- * on a heartbeat while the WebSocket delivers verified Clock updates. As in the
- * v1 indexer there is no backfill: a reconnect can drop transactions, which
- * `--replay` re-ingests.
+ * on a heartbeat while the WebSocket delivers verified Clock updates. The
+ * daemon reads back what it missed across a restart or a dropped connection
+ * once the stream delivers again, so coverage can briefly trail the cursor's
+ * time while that catch-up runs.
  */
 export async function readStreamCursor(client: Pool | PoolClient): Promise<StreamCursor | null> {
   const pin = loadPinnedProtocol();

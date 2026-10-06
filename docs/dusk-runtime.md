@@ -14,12 +14,18 @@ The active event revision starts at slot **504809897**. At startup the daemon ch
 
 Migration 034 records the immutable original deployment pin and first slot, plus a historical verified-through bound. The compatible upgrade does not advance that bound using the newer binary. Migration 044 stops the bound from capping rows: the daemon streams confirmed transactions over a Helius Atlas WebSocket, so events can land after the original binary was replaced. Event persistence and cursor advancement still enforce the event revision's first slot. Database triggers reject mismatched program/IDL identities or slots before the release for registered revisions. Registration and observations share transaction locks, so a concurrent observation cannot evade the initial check. Contaminated existing current-revision history blocks registration; it is not relabelled or deleted. Historical identities remain intact.
 
-An empty new-release history creates a cursor at the first deployment slot with no fabricated last signature. Each transaction raises the cursor's slot before its rows are written and sets the cursor's time after them. A 5-second heartbeat also sets the time, but only while the WebSocket delivers verified Clock updates, and it shares a lock with transaction writes, so every transaction that arrived before the cursor's time is written. The API serves the cursor as history coverage (`confirmed-stream.v1`) from the release's registration to the cursor's time. That is liveness, not proof of gap-free coverage: there is no backfill, and transactions confirmed while the stream is down stay missing unless replayed. The same cursor stamps the deployment envelope: database reads carry the stream's slot, and the API refuses every read (503) once the cursor is more than 15 s old.
+An empty new-release history creates a cursor at the first deployment slot with no fabricated last signature. Each transaction raises the cursor's slot before its rows are written and sets the cursor's time after them. A 5-second heartbeat also sets the time, but only while the WebSocket delivers verified Clock updates, and it shares a lock with transaction writes, so every transaction that arrived before the cursor's time is written. The API serves the cursor as history coverage (`confirmed-stream.v1`) from the release's registration to the cursor's time. That is liveness, not proof of gap-free coverage. The stream starts at the chain tip, so a restart or a dropped connection leaves a gap; the daemon closes it itself. It records the cursor's last written slot when the stream starts or goes quiet (3 s without a Clock update), and once the stream delivers again it reads every successful transaction for both pinned programs from that slot with `getSignaturesForAddress` at `confirmed` and replays each through the stream's path. Writes are idempotent by event key and the streamed projections order by slot, so the overlap deduplicates and a late older event lands in its place. Catch-up is bounded by the release's first slot: history from earlier program revisions is never replayed under this identity. The same cursor stamps the deployment envelope: database reads carry the stream's slot, and the API refuses every read (503) once the cursor is more than 15 s old.
 
 Re-ingest one transaction, for example one the stream logged as dropped:
 
 ```sh
 target/debug/dusk-indexer-daemon --replay <signature>
+```
+
+Re-ingest everything from a slot onward (clamped to the release's first slot), then exit:
+
+```sh
+target/debug/dusk-indexer-daemon --catch-up-from <slot>
 ```
 
 `npm run test:deployment-integration --prefix api` checks registration, immutable identity, boundary slots, contaminated history, cursor guards and concurrent writes in a disposable PostgreSQL database. All fixtures roll back. Native adapter tests also require fresh `--scan-accounts-once` and LP ownership captures under the current pin. CI provisions PostgreSQL, applies the checksummed manifest, captures read-only devnet discovery, runs the native tests and builds both service images. The container checks verify that every manifest migration and both pinned IDLs are actually present in the images.
@@ -49,7 +55,7 @@ Migration 046 derives current protocol state from canonical streamed events, as 
 - `streamed_lp_balances`: yLP and hLP balances per owner, from liquidity and hLP events (mints and burns) and `LpTransferred`, which the Token-2022 transfer hook on every LP mint emits for each transfer.
 - `streamed_market_snapshots`: post-swap prices, growth indexes, reserves and yLP supply from canonical `SwapExecuted`, joined to `MarketCreated` for asset mints and decimals.
 
-State covers markets created after ingestion of the release began; there is no backfill, so a gap in the stream is a gap in state. The account scan, the LP token scan, `/api/dusk/v1/accounts/:kind` and `/api/dusk/v1/lp-ownership` are removed.
+State covers markets created since the release's first slot. Stream gaps inside the release are caught up; markets created under an earlier program revision have no events in this identity, so their state (LP holders, eligibility, proposals) is unknown rather than zero. The account scan, the LP token scan, `/api/dusk/v1/accounts/:kind` and `/api/dusk/v1/lp-ownership` are removed.
 
 ## Live reads
 
