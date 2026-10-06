@@ -31,11 +31,13 @@ prices beside stale history.
    [RPC provider outage](rpc-provider-outage.md). A rate-limited daemon falls
    behind without erroring.
 3. If the daemon is alive and the RPC is healthy, restart `dusk-indexer`. The
-   stream resumes at the current slot; transactions confirmed while it was down
-   are not backfilled.
-4. Re-ingest anything that matters with `dusk-indexer-daemon --replay
-   <signature>`. Transactions the processor refused are in the logs as
-   `dropped transaction <signature>`.
+   stream resumes at the current slot, and the daemon replays what confirmed
+   while it was down: look for `catch-up from slot <n>: … replayed` in the
+   logs. A failed catch-up logs `catch-up from slot <n> failed` and retries.
+4. Re-ingest a transaction the processor refused (`dropped transaction
+   <signature>` or `catch-up dropped transaction <signature>` in the logs) with
+   `dusk-indexer-daemon --replay <signature>`, or a whole window with
+   `dusk-indexer-daemon --catch-up-from <slot>`.
 
 ## Over when
 

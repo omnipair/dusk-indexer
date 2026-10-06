@@ -355,10 +355,13 @@ transports) and persisted as observation + canonical + stream rows at
 `confirmed` commitment, idempotently by event key. Streamed updates carry no
 block, so rows are stamped with arrival time and a fixed blockhash marker.
 
-There is no backfill. The stream starts at the current slot; a dropped
-connection, a deploy or a transaction the processor refuses leaves a gap,
-as in v1. Every dropped transaction is logged with its signature, and
-`--replay <signature>` re-ingests one through the same path. Nothing reads
+The stream starts at the current slot, so a dropped connection or a deploy
+would leave a gap. The daemon closes it itself: when the stream delivers
+again after a restart or a silence, it reads the gap back from the cursor's
+last written slot with `getSignaturesForAddress` and replays each transaction
+through the same path, idempotently by event key. A transaction the processor
+refuses is logged with its signature; `--replay <signature>` re-ingests one,
+and `--catch-up-from <slot>` re-ingests a window and exits. Nothing reads
 program accounts: state comes from events. The deployment is attested once
 at startup; a streamed loader transaction that upgrades, re-authorizes or
 closes either pinned program stops the daemon, and the next start refuses the
@@ -369,7 +372,7 @@ Environment:
 | Variable | Meaning |
 | --- | --- |
 | `DUSK_CLUSTER` | Chain namespace in every event key (e.g. `devnet`) |
-| `DUSK_RPC_URL` | RPC for the startup attestation and `--replay` |
+| `DUSK_RPC_URL` | RPC for the startup attestation, catch-up and `--replay` |
 | `HELIUS_API_KEY` | Helius key for the WebSocket; defaults to the `api-key` in `DUSK_RPC_URL` |
 | `DATABASE_URL` | Postgres; Timescale turns `event_stream` into a hypertable |
 | `METRICS_PORT` | Prometheus `/metrics` (default 8080) |

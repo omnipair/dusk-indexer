@@ -7,11 +7,14 @@
 //! decoder, and persists them into the `dusk_ingestion` schema plus the
 //! `event_stream` hypertable as they land. This is the v1 indexer's shape.
 //!
-//! There is no backfill. The stream starts at the current slot, and a dropped
-//! connection or a restart leaves its window out, as in v1. The deployment is
-//! attested once at startup. Nothing reads program accounts: every table is
-//! built from the events the stream carries.
+//! The stream starts at the current slot, so a restart or a dropped
+//! connection would leave its window out. `catchup` reads each such gap back
+//! from the cursor's last written slot and replays it through the same path
+//! once the stream delivers again. The deployment is attested once at
+//! startup. Nothing reads program accounts: every table is built from the
+//! events the program emitted.
 
+mod catchup;
 mod extract;
 mod identity;
 mod liveness;
@@ -133,6 +136,44 @@ async fn main() -> Result<()> {
         pinned: Arc::new(identity::PinnedDeployments::load()?),
     };
 
+    // Everything confirmed since the previous process's last write, read
+    // before this process's stream can move the cursor.
+    let since_restart = catchup::gap_start(&pool, &config.cluster, window.first_slot).await?;
+
+    // Re-ingests every transaction from a slot onward, then exits.
+    if let Some(slot) = flag_value("--catch-up-from") {
+        let from_slot = slot
+            .parse::<u64>()
+            .context("invalid --catch-up-from slot")?
+            .max(window.first_slot);
+        let processor = processors::DuskTransactionProcessor::new(
+            pool,
+            decoder,
+            config.cluster.clone(),
+            window.first_slot,
+            Arc::default(),
+            guard,
+        );
+        let report = catchup::catch_up(
+            &confirmed_rpc(&config),
+            &processor,
+            &Mutex::new(()),
+            from_slot,
+        )
+        .await?;
+        println!(
+            "{}",
+            serde_json::json!({
+                "catchUpFromSlot": report.from_slot,
+                "transactions": report.found,
+                "replayed": report.replayed,
+                "events": report.events,
+                "failed": report.failed,
+            })
+        );
+        return Ok(());
+    }
+
     // The stream logs every transaction it drops; this re-ingests one.
     if let Some(signature) = flag_value("--replay") {
         let fetched = rpc
@@ -178,6 +219,23 @@ async fn main() -> Result<()> {
         liveness.clone(),
         cursor.clone(),
     ));
+    let catch_up = tokio::spawn(catchup::watch(
+        Arc::new(confirmed_rpc(&config)),
+        processors::DuskTransactionProcessor::new(
+            pool.clone(),
+            decoder.clone(),
+            config.cluster.clone(),
+            window.first_slot,
+            cursor.clone(),
+            guard.clone(),
+        ),
+        pool.clone(),
+        config.cluster.clone(),
+        window.first_slot,
+        since_restart,
+        liveness.clone(),
+        cursor.clone(),
+    ));
 
     let result = tokio::select! {
         result = stream(&config, pool, decoder, window.first_slot, liveness, cursor, guard) => result,
@@ -187,7 +245,13 @@ async fn main() -> Result<()> {
         }
     };
     heartbeat.abort();
+    catch_up.abort();
     result
+}
+
+/// Catch-up reads at the stream's commitment, not the attestation's.
+fn confirmed_rpc(config: &Config) -> RpcClient {
+    RpcClient::new_with_commitment(config.rpc_url.clone(), CommitmentConfig::confirmed())
 }
 
 /// The pipeline, rebuilt after any failure with the v1 indexer's backoff. The
