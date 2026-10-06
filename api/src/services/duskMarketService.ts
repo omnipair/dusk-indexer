@@ -27,6 +27,7 @@ import type { DuskDeploymentEnvelope } from './duskDeploymentService';
 import { cache } from '../utils/cache';
 import { captureLiveMarketSimulation, duskRawIdl, LiveMarketSimulationSnapshot } from './duskMarketSimulation';
 import { CapacityDependencies, captureMarketCapacities, MarketCapacities } from './duskMarketCapacity';
+import { withHlpRates } from './duskHlpRates';
 import { indexedPortfolioDebt } from './duskPortfolioMath';
 import { parsePriceReferences, projectMarketPrices } from './duskPriceMath';
 import { leverageCollateralAddress, snapshotCollateralAmount, snapshotTokenMetadata, tokenMetadataAddress } from './duskMarketExtras';
@@ -365,7 +366,7 @@ export async function marketPayload(
   const snapshot = await currentMarketSnapshot(market,marketAccount,sourceSlot,envelope.deploymentIdentitySha256);
   const capacities = await currentMarketCapacities(snapshot,
     process.env.DUSK_PREVIEW_PAYER?.trim() || envelope.programUpgradeAuthority);
-  return projectMarketSnapshot(snapshot,undefined,capacities);
+  return withHlpRates(projectMarketSnapshot(snapshot,undefined,capacities),envelope.deploymentIdentitySha256);
 }
 
 /** The highest bank one market payload read, including its capacity previews. */
