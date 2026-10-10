@@ -91,11 +91,18 @@ impl HeliusWebsocket {
         }
     }
 
-    /// The endpoint with the key as its query. The base URLs already end in
-    /// a slash; appending `/?api-key=` produced `//?api-key=`, which Helius
-    /// devnet began answering with 404 Not Found on 2026-10-10.
+    /// The endpoint with the key as its only query parameter, on the root
+    /// path. The base URLs end in a slash, and joining one with `/?api-key=`
+    /// gave `//?api-key=`, which Helius devnet began refusing with 404 Not
+    /// Found on 2026-10-10. The base's trailing slashes and the key's
+    /// surrounding whitespace are trimmed, so the URL has exactly one slash
+    /// before the query whatever either holds.
     fn ws_url(cluster: &Cluster, api_key: &str) -> String {
-        format!("{}?api-key={}", Self::get_ws_url(cluster), api_key)
+        format!(
+            "{}/?api-key={}",
+            Self::get_ws_url(cluster).trim_end_matches('/'),
+            api_key.trim()
+        )
     }
 }
 #[async_trait]
@@ -687,5 +694,15 @@ mod tests {
             HeliusWebsocket::ws_url(&Cluster::MainnetBeta, "abc123"),
             "wss://mainnet.helius-rpc.com/?api-key=abc123"
         );
+    }
+
+    #[test]
+    fn never_doubles_the_slash_or_keeps_key_whitespace() {
+        for cluster in [Cluster::Devnet, Cluster::MainnetBeta] {
+            let url = HeliusWebsocket::ws_url(&cluster, " abc123\n");
+            assert!(!url.contains("//?"), "{url}");
+            assert!(url.ends_with(".helius-rpc.com/?api-key=abc123"), "{url}");
+            assert_eq!(url.matches("?api-key=").count(), 1, "{url}");
+        }
     }
 }
