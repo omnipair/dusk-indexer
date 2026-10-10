@@ -90,6 +90,13 @@ impl HeliusWebsocket {
             _ => DEVNET_WS_URL,
         }
     }
+
+    /// The endpoint with the key as its query. The base URLs already end in
+    /// a slash; appending `/?api-key=` produced `//?api-key=`, which Helius
+    /// devnet began answering with 404 Not Found on 2026-10-10.
+    fn ws_url(cluster: &Cluster, api_key: &str) -> String {
+        format!("{}?api-key={}", Self::get_ws_url(cluster), api_key)
+    }
 }
 #[async_trait]
 impl Datasource for HeliusWebsocket {
@@ -130,11 +137,7 @@ impl Datasource for HeliusWebsocket {
                 }
             };
 
-            let ws_url = format!(
-                "{}/?api-key={}",
-                Self::get_ws_url(&self.cluster),
-                self.api_key
-            );
+            let ws_url = Self::ws_url(&self.cluster, &self.api_key);
 
             let ws = match EnhancedWebsocket::new(&ws_url, None, None).await {
                 Ok(ws) => ws,
@@ -667,5 +670,22 @@ impl Datasource for HeliusWebsocket {
             UpdateType::AccountUpdate,
             UpdateType::AccountDeletion,
         ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn puts_the_key_on_the_root_path() {
+        assert_eq!(
+            HeliusWebsocket::ws_url(&Cluster::Devnet, "abc123"),
+            "wss://devnet.helius-rpc.com/?api-key=abc123"
+        );
+        assert_eq!(
+            HeliusWebsocket::ws_url(&Cluster::MainnetBeta, "abc123"),
+            "wss://mainnet.helius-rpc.com/?api-key=abc123"
+        );
     }
 }
