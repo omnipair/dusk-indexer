@@ -14,6 +14,7 @@
 //! startup. Nothing reads program accounts: every table is built from the
 //! events the program emitted.
 
+mod alerts;
 mod catchup;
 mod extract;
 mod identity;
@@ -31,7 +32,11 @@ use {
     solana_signature::Signature,
     solana_transaction_status::UiTransactionEncoding,
     sqlx::PgPool,
-    std::{str::FromStr, sync::Arc, time::Duration},
+    std::{
+        str::FromStr,
+        sync::Arc,
+        time::{Duration, Instant},
+    },
     tokio::sync::Mutex,
 };
 
@@ -304,16 +309,38 @@ async fn stream(
 /// A quiet market must not look like a dead ingester, and a dead stream must
 /// not look like a quiet market. The cursor's time is history coverage and
 /// `/status` liveness, so it moves only while the WebSocket delivers verified
-/// Clock updates.
+/// Clock updates. The same samples drive the Discord stall alerts.
 async fn heartbeat(
     pool: PgPool,
     cluster: String,
     liveness: Arc<liveness::StreamLiveness>,
     cursor: Arc<Mutex<()>>,
 ) {
+    // A misconfigured webhook disables alerts; it never stops ingestion.
+    let discord = match alerts::Discord::from_env() {
+        Ok(Some(discord)) => {
+            log::info!("stall alerts post to Discord");
+            Some(discord)
+        }
+        Ok(None) => {
+            log::info!("DUSK_ALERT_DISCORD_WEBHOOK unset; stall alerts disabled");
+            None
+        }
+        Err(error) => {
+            log::error!("stall alerts disabled: {error:#}");
+            None
+        }
+    };
+    let mut alarm = alerts::StallAlarm::from_env();
     loop {
         tokio::time::sleep(HEARTBEAT).await;
-        if !liveness.live_within(STREAM_LIVENESS) {
+        let live = liveness.live_within(STREAM_LIVENESS);
+        if let Some(notice) = alarm.observe(live, Instant::now()) {
+            if let Some(discord) = &discord {
+                discord.send(alerts::message(&notice, &cluster));
+            }
+        }
+        if !live {
             log::warn!(
                 "no verified Clock update for {}s; cursor heartbeat withheld",
                 STREAM_LIVENESS.as_secs()
