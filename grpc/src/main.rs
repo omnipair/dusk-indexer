@@ -4,6 +4,7 @@ mod db_listener;
 mod dusk_payloads;
 mod dusk_stream;
 mod grpc_server;
+mod logging;
 
 use grpc_server::stream::SwapsUpdate;
 
@@ -20,7 +21,7 @@ struct Args {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize environment and logging
     dotenv::dotenv().ok();
-    env_logger::init();
+    logging::init();
 
     let args = Args::parse();
 
