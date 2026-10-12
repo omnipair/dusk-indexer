@@ -19,6 +19,7 @@ mod catchup;
 mod extract;
 mod identity;
 mod liveness;
+mod logging;
 mod orders;
 mod persist;
 mod pipeline;
@@ -102,7 +103,7 @@ fn api_key_from_url(url: &str) -> Option<String> {
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenv_optional();
-    env_logger::init();
+    logging::init();
 
     // Refuse to start on artifacts that disagree with the compiled pin —
     // exactly the check the decoder performs, surfaced before any I/O.
