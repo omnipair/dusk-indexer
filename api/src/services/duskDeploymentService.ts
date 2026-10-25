@@ -110,6 +110,12 @@ async function pinnedEnvelope(sourceSlot: number): Promise<DuskDeploymentEnvelop
   const pinned = loadCurrentProtocol();
   const apiConfig = duskApiConfig();
   const { dusk, leverageDelegate } = pinned;
+  const firstActiveSlot = Math.max(
+    dusk.deployment.deploySlot,
+    leverageDelegate.deployment.deploySlot,
+  ) + 1;
+  if (sourceSlot < firstActiveSlot)
+    throw new Error('Deployment source slot predates the current executable');
   return withIdentity({
     schemaVersion: DUSK_DEPLOYMENT_SCHEMA_VERSION,
     network: apiConfig.network,
@@ -153,7 +159,12 @@ export async function deploymentEnvelope(minimumSourceSlot = 0): Promise<DuskDep
   if (!stream) throw Object.assign(new Error('The Dusk stream has not attested this release'),{ status: 503 });
   if (Date.now()-stream.updatedAt.getTime()>DUSK_STREAM_STALE_MS)
     throw Object.assign(new Error('The Dusk stream is stale'),{ status: 503 });
-  return pinnedEnvelope(Math.max(stream.slot, minimumSourceSlot));
+  const current = loadCurrentProtocol();
+  const firstActiveSlot = Math.max(
+    current.dusk.deployment.deploySlot,
+    current.leverageDelegate.deployment.deploySlot,
+  ) + 1;
+  return pinnedEnvelope(Math.max(stream.slot,minimumSourceSlot,firstActiveSlot));
 }
 
 /** Live RPC captures can run ahead of the ingestion cursor and do not depend
