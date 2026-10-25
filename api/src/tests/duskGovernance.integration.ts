@@ -27,9 +27,10 @@ test('a proposal carries its creation terms, latest totals and lifecycle times',
   await streamedEvent(client,'LiquidityAdded',{ market,owner: proposer,ylp_amount: '1000' });
   await streamedEvent(client,'LpTransferred',{ market,lp_mint: fixtureMarket.ylp,
     source_owner: proposer,destination_owner: market,amount: '200' });
-  await streamedEvent(client,'ParameterProposalCreated',{ proposal,market,proposer,nonce: '7',family: '0',family_revision: '3',
+  await streamedEvent(client,'ParameterProposalCreated',{ proposal,market,proposer,nonce: '7',
+    family_revisions: ['3','0','0','0','0','0','0'],
     digest: bytes(1),sponsorship_floor: '20',initial_support: '25',status: '0',
-    update: { variant: 'Fee',fields: [{ swap_fee_bps: '30' }] },
+    updates: [{ variant: 'Fee',fields: [{ swap_fee_bps: '30' }] }],
     metadata: { version: '1',title: 'Lower the fee',description_uri: 'ipfs://cid',description_sha256: bytes(9),description_len: '120' } });
   await streamedEvent(client,'ParameterProposalSupported',{ proposal,supporter: alice,amount: '100',supporter_locked: '100',total_locked: '125',status: '0' });
   await streamedEvent(client,'ParameterProposalSupportWithdrawn',{ proposal,supporter: alice,amount: '40',total_locked: '85',status: '0' });
@@ -37,7 +38,8 @@ test('a proposal carries its creation terms, latest totals and lifecycle times',
   let [row] = (await readGovernanceProposals(client,null)).proposals;
   assert.equal(row.totalLocked,'135'); assert.equal(row.status,0); assert.equal(row.queuedAt,null);
   assert.equal(row.digest,bytes(1).slice(2));
-  assert.deepEqual(row.update,{ variant: 'Fee',fields: [{ swap_fee_bps: '30' }] });
+  assert.deepEqual(row.familyRevisions,['3','0','0','0','0','0','0']);
+  assert.deepEqual(row.updates,[{ variant: 'Fee',fields: [{ swap_fee_bps: '30' }] }]);
   assert.deepEqual(row.metadata,{ version: 1,title: 'Lower the fee',descriptionUri: 'ipfs://cid',
     descriptionSha256: bytes(9).slice(2),descriptionLen: 120 });
   await streamedEvent(client,'ParameterProposalQueued',{ proposal,total_locked: '135',eligible_supply: '800',
@@ -45,7 +47,8 @@ test('a proposal carries its creation terms, latest totals and lifecycle times',
   [row] = (await readGovernanceProposals(client,market)).proposals;
   assert.equal(row.status,1); assert.equal(row.eligibleSupplyAtQueue,'800'); assert.equal(row.queuedSupport,'135');
   assert.equal(row.executeAfter,1790086400); assert.equal(row.executionDeadline,1790172800);
-  await streamedEvent(client,'ParameterProposalExecuted',{ proposal,market,family: '0',new_family_revision: '4',executed_at: '1790090000' });
+  await streamedEvent(client,'ParameterProposalExecuted',{ proposal,market,families: '0x00',
+    new_family_revisions: ['4','0','0','0','0','0','0'],executed_at: '1790090000' });
   const result = await readGovernanceProposals(client,market);
   [row] = result.proposals;
   assert.equal(row.status,2); assert.equal(row.executedAt,1790090000); assert.equal(row.totalLocked,'135');

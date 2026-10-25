@@ -41,10 +41,10 @@ export async function captureLiquidations(
   if (Date.now() >= observedAt + 15_000) throw new Error('Liquidation capture expired');
   const candidates = valuations.filter(
     (row): row is BorrowValuation =>
-      row.status === 'available' && (row.base.isLiquidatable || row.quote.isLiquidatable || row.auction !== null),
+      row.status === 'available' && (row.base.isLiquidatable || row.quote.isLiquidatable),
   );
   return {
-    schemaVersion: 'dusk-liquidations.v1' as const,
+    schemaVersion: 'dusk-liquidations.v2' as const,
     observedAt,
     expiresAt: observedAt + 15_000,
     sourceSlot: Math.max(discovery.sourceSlot, ...valuations.map((row) => row.sourceSlot)),

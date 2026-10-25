@@ -20,6 +20,7 @@ import type {
   LeveragePosition,
   Market,
 } from '@omnipair/dusk-sdk';
+import { MARKET_LAYOUT_VERSION } from '@omnipair/dusk-sdk';
 
 type Name = 'leverageOrder' | 'leverageEntryOrder' | 'hlpOrder';
 type Account<N extends Name> = Awaited<
@@ -90,7 +91,7 @@ export function assertDuskOrderIdentity<N extends Name>(
     if (
       ![0, 1].includes(entry.debtAsset) ||
       !entry.position.equals(
-        deriveLeveragePositionAddress(entry.market, entry.positionId)[0],
+        deriveLeveragePositionAddress(entry.market, entry.owner, entry.positionId)[0],
       )
     )
       throw new Error('Invalid entry position identity');
@@ -254,7 +255,7 @@ export async function readDuskOrders(options: {
           market.paramsHash,
         );
         if (
-          market.version !== 1 ||
+          market.version !== MARKET_LAYOUT_VERSION ||
           !marketKey.equals(account.market) ||
           market.bump !== marketBump
         )
@@ -279,6 +280,7 @@ export async function readDuskOrders(options: {
             );
             const [positionKey, bump] = deriveLeveragePositionAddress(
               position.market,
+              position.owner,
               position.positionId,
             );
             if (

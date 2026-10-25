@@ -473,7 +473,9 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
     swapFeeBps: config.swapFeeBps,
     config,
     insurance: {
-      perEventDrawBps: numberValue(field(insurance, 'perEventDrawBps', 'per_event_draw_bps')),
+      principalCoverageBps: numberValue(
+        field(insurance, 'principalCoverageBps', 'principal_coverage_bps'),
+      ),
       perDayDrawBps: numberValue(field(insurance, 'perDayDrawBps', 'per_day_draw_bps')),
       baseWindow: insuranceWindow('base'),
       quoteWindow: insuranceWindow('quote'),

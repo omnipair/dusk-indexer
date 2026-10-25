@@ -1,15 +1,15 @@
 {
   "$schema": "./protocol/schemas/protocol-lock.schema.json",
   "schemaVersion": 1,
-  "revision": "devnet-2026-09-27-5644e5d",
+  "revision": "devnet-2026-10-25-296263d",
   "status": "deployed",
-  "generatedAt": "2026-09-27T14:19:35.099Z",
+  "generatedAt": "2026-10-25T14:57:41.000Z",
   "source": {
     "repository": "https://github.com/omnipair/dusk",
-    "branch": "feat/market-observed-event",
-    "gitCommit": "5644e5db86d63311b35b8373992f8fa210ef3ccf",
-    "worktreeFingerprintSha256": "205e3adbe8bf2b3de2b49d7ef3550925e5baeec61e4bcc6c16113ace2345873c",
-    "note": "Dusk PR #40 event snapshot source was built and upgraded on devnet. Finalized ProgramData bytes match the tested binary exactly at slot 504809896. SDK 2.10.2-devnet.20260927 was packaged from follow-up commit c60160b; no program source changed. The unchanged delegate retains its previous pin. Historical observations keep their original identities. The deployment-scoped SDK retains the pinned delegate IDL and omits undeployed protection methods."
+    "branch": "fix/benchmark-replay-owner",
+    "gitCommit": "296263d0f4f34478b2701c32e337550a26aa3c4b",
+    "worktreeFingerprintSha256": "7402e5cad63210ee34a56a5f5270561fb6bd5fe5dfbc411ddcd12104b425ab21",
+    "note": "Dusk PR #45 programs were upgraded on devnet under the existing program IDs. Finalized ProgramData bytes match the tested binaries at slots 515007663 and 515001929. SDK 2.14.2-devnet.20261025 carries the matching interfaces."
   },
   "cluster": {
     "name": "devnet",
@@ -21,18 +21,18 @@
       "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
       "binary": {
         "path": "on-chain (devnet)",
-        "sha256": "7d16d18d70514ed5d883908619c72be30c436926ae6ddd366f6b2dd5b8f3efc9"
+        "sha256": "b604aeb48e991c3ed8ac4ac707f42425fa049c31ddbfb2055d3d936b1f7b1541"
       },
       "idl": {
         "path": "protocol/idl/dusk.json",
-        "sha256": "5c2839cd1f022b9ab83cfbe135306f5efb3e4eb19a9abeac39fe0277d0c577d0",
-        "canonicalSha256": "72cfca415c1638045c46aef9e184b2e5280b3568bc5f61234bc03ce2081439d7"
+        "sha256": "83393e1a28d65b26f2e5098966d3d9ccd9778c99b814807d6adea1381152deb3",
+        "canonicalSha256": "af08b935a2e6018957a2a9a8486c32a286325caf6c09e2c52b0ce31e94c09a71"
       },
       "deployment": {
         "programData": "FH3oEMmx2n7YMeEsrLM8dzr7FxuZLQgMacwQF6ZHdWk",
-        "deploySlot": 504809896,
+        "deploySlot": 515007663,
         "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
-        "allocatedBinaryBytes": 2652240
+        "allocatedBinaryBytes": 3493688
       }
     },
     {
@@ -40,24 +40,24 @@
       "programId": "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv",
       "binary": {
         "path": "on-chain (devnet)",
-        "sha256": "7903449634d559bba246d779a993b2afd27050e48692702d6714ac6f3a713858"
+        "sha256": "4c1f7e1b326ff91d34d87edc888dee38bfde44058be50df3bb7ecdbe11845e1f"
       },
       "idl": {
         "path": "protocol/idl/leverage_delegate.json",
-        "sha256": "b2d39d3575f72ad334a0f853784bdb5909ddead5e0ebf3dc84ccd5253eccdce3",
-        "canonicalSha256": "d9caaebbe1839263ad91dab2eab43ff628f612bc25c02e0746b33a8a32631f27"
+        "sha256": "59acc8a10b41c235156e593017b1e88dd6657fd192df4a1f1c0cc4275a1dd658",
+        "canonicalSha256": "7c3b403ffb735b2bd8c3e224dc65afc1303a98d89c525af0ede32dec6be858fc"
       },
       "deployment": {
         "programData": "8y1gTuEN5t417sBWNbeerGFQ5v49MpRmxVBgVDatnJjv",
-        "deploySlot": 497831834,
+        "deploySlot": 515001929,
         "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
-        "allocatedBinaryBytes": 901880
+        "allocatedBinaryBytes": 1149896
       }
     }
   ],
   "sdk": {
     "package": "@omnipair/dusk-sdk",
-    "version": "2.10.2-devnet.20260927",
-    "sha256": "bc2373ec73ec9b7fac654e0d64df951c63445bb3d0827ec902d437a5e13210e4"
+    "version": "2.14.2-devnet.20261025",
+    "sha256": "36c99b7a475b0c6b449445c747a40a75ed5b7a97a0262c61f9bdf1a0c80e35ea"
   }
 }

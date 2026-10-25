@@ -263,7 +263,7 @@ pub struct LeverageOrderDiscoveryProjection {
     pub kind_code: u8,
     pub trigger_closeout_price_nad: UnsignedInteger,
     pub staged_margin: UnsignedInteger,
-    pub staged_custody_token_account: String,
+    pub staged_owner_token_account: String,
     pub staged_output_mint: String,
     pub staged_output_amount: UnsignedInteger,
 }
@@ -274,7 +274,7 @@ pub struct ProposalExecutionDiscoveryProjection {
     pub market: String,
     pub proposer: String,
     pub nonce: UnsignedInteger,
-    pub family: String,
+    pub families: Vec<String>,
     pub status: String,
     pub total_locked: UnsignedInteger,
     pub queued_support: UnsignedInteger,
@@ -672,7 +672,7 @@ fn project_leverage_order(account: &str, fields: &Value) -> Result<AccountProjec
         kind_code: portfolio.kind_code,
         trigger_closeout_price_nad: portfolio.trigger_closeout_price_nad.clone(),
         staged_margin: unsigned(fields, &["staged_margin"])?,
-        staged_custody_token_account: pubkey(fields, &["staged_custody_token_account"])?,
+        staged_owner_token_account: pubkey(fields, &["staged_owner_token_account"])?,
         staged_output_mint: pubkey(fields, &["staged_output_mint"])?,
         staged_output_amount: unsigned(fields, &["staged_output_amount"])?,
     };
@@ -693,7 +693,7 @@ fn project_parameter_proposal(account: &str, fields: &Value) -> Result<AccountPr
                 market: pubkey(fields, &["market"])?,
                 proposer: pubkey(fields, &["proposer"])?,
                 nonce: unsigned(fields, &["nonce"])?,
-                family: enum_variant(fields, &["family"])?,
+                families: enum_variants(fields, &["updates"])?,
                 status: enum_variant(fields, &["status"])?,
                 total_locked: unsigned(fields, &["total_locked"])?,
                 queued_support: unsigned(fields, &["queued_support"])?,
@@ -818,6 +818,27 @@ fn enum_variant(value: &Value, path: &[&str]) -> Result<String, String> {
     let mut variant_path = path.to_vec();
     variant_path.push("variant");
     text(value, &variant_path)
+}
+
+fn enum_variants(value: &Value, path: &[&str]) -> Result<Vec<String>, String> {
+    at(value, path)?
+        .as_array()
+        .ok_or_else(|| format!("projection field {} is not an array", path.join(".")))?
+        .iter()
+        .enumerate()
+        .map(|(index, value)| {
+            value
+                .get("variant")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .ok_or_else(|| {
+                    format!(
+                        "projection field {}[{index}].variant is not a string",
+                        path.join(".")
+                    )
+                })
+        })
+        .collect()
 }
 
 fn hex_string(value: &Value, path: &[&str], bytes: usize) -> Result<String, String> {

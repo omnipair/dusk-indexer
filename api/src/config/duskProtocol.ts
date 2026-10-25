@@ -167,13 +167,18 @@ export function loadCurrentProtocol(): DuskPinnedProtocol {
   const slot = compatible.deploySlot;
   const bytes = compatible.allocatedBinaryBytes;
   const hash = compatible.binarySha256;
+  const isPinnedDeployment =
+    slot === dusk.deployment.deploySlot &&
+    bytes === dusk.deployment.allocatedBinaryBytes &&
+    hash === dusk.binarySha256;
   if (
     compatible.eventRevision !== pinned.revision ||
     compatible.programId !== dusk.programId ||
     compatible.idlCanonicalSha256 !== dusk.idlCanonicalSha256 ||
     typeof slot !== 'number' ||
     !Number.isSafeInteger(slot) ||
-    slot <= dusk.deployment.deploySlot ||
+    (slot < dusk.deployment.deploySlot ||
+      (slot === dusk.deployment.deploySlot && !isPinnedDeployment)) ||
     typeof bytes !== 'number' ||
     !Number.isSafeInteger(bytes) ||
     bytes < 4 ||

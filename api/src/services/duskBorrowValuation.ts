@@ -2,7 +2,7 @@
  * Live borrow-position values from the program's `preview_borrow_position`,
  * which accrues market interest before it reports debt, health and each debt
  * side's liquidation terms. The position account and Clock come back from the
- * same simulated bank, so auction state and its elapsed time match the debt.
+ * same simulated bank, so liquidation health, rates and distress match the debt.
  *
  * Discovery never happens here: callers pass positions found in the streamed
  * state (`streamed_borrow_positions`).
@@ -16,6 +16,7 @@ import {
   VersionedTransaction,
 } from '@solana/web3.js';
 import type { Pool, PoolClient } from 'pg';
+import { MARKET_LAYOUT_VERSION } from '@omnipair/dusk-sdk';
 import type { BorrowPosition, BorrowPositionPreview, Dusk, Market } from '@omnipair/dusk-sdk';
 
 import pool from '../config/database';
@@ -43,7 +44,20 @@ export interface BorrowDebtSide {
   liquidationReferencePriceNad: string;
   liquidationHealthBps: string;
   isLiquidatable: boolean;
-  maxRepayAmount: string;
+  liquidationHealth: {
+    collateralValue: string;
+    debt: string;
+    maintenanceBps: number;
+  };
+  liquidationRates: {
+    buyerDiscountBps: number;
+    emergencyRewardBps: number;
+  } | null;
+  liquidationDistress: {
+    active: boolean;
+    startedAt: string;
+    observedSlot: string;
+  };
 }
 
 export interface BorrowValuation {
@@ -56,8 +70,6 @@ export interface BorrowValuation {
   quoteCollateral: string;
   fixedBaseShares: string;
   fixedQuoteShares: string;
-  /** Present only while a liquidation auction runs; the debt side it covers. */
-  auction: { debtAsset: 'base' | 'quote'; startTime: string; startPriceNad: string; floorPriceNad: string } | null;
   /** The Clock of the simulated bank, in unix seconds. */
   unixTimestamp: string;
   sourceSlot: number;
@@ -113,7 +125,22 @@ function side(preview: BorrowPositionPreview['baseDebt']): BorrowDebtSide {
     liquidationReferencePriceNad: preview.liquidationReferencePriceNad.toString(),
     liquidationHealthBps: preview.liquidationHealthBps.toString(),
     isLiquidatable: preview.isLiquidatable,
-    maxRepayAmount: preview.maxRepayAmount.toString(),
+    liquidationHealth: {
+      collateralValue: preview.liquidationHealth.collateralValue.toString(),
+      debt: preview.liquidationHealth.debt.toString(),
+      maintenanceBps: preview.liquidationHealth.maintenanceBps,
+    },
+    liquidationRates: preview.liquidationRates
+      ? {
+          buyerDiscountBps: preview.liquidationRates.buyerDiscountBps,
+          emergencyRewardBps: preview.liquidationRates.emergencyRewardBps,
+        }
+      : null,
+    liquidationDistress: {
+      active: preview.liquidationDistress.active,
+      startedAt: preview.liquidationDistress.startedAt.toString(),
+      observedSlot: preview.liquidationDistress.observedSlot.toString(),
+    },
   };
 }
 
@@ -130,11 +157,14 @@ export async function captureBorrowValuation(
   if (programId.toBase58() !== loadPinnedProtocol().dusk.programId)
     throw new Error('Borrow valuation SDK deployment mismatch');
   const addresses = [position.market, position.address, SYSVAR_CLOCK_PUBKEY.toBase58()];
+  const instructionMarket = await dusk.get.market(position.market);
   const instruction = await dusk.program.methods
     .previewBorrowPosition()
     .accountsStrict({
       market: new PublicKey(position.market),
       borrowPosition: new PublicKey(position.address),
+      baseMint: instructionMarket.baseSide.assetMint,
+      quoteMint: instructionMarket.quoteSide.assetMint,
     })
     .instruction();
   const transaction = new VersionedTransaction(
@@ -190,7 +220,7 @@ export async function captureBorrowValuation(
   const market = dusk.program.coder.accounts.decode<Market>('market', bytes[0]);
   const account = dusk.program.coder.accounts.decode<BorrowPosition>('borrowPosition', bytes[1]);
   const preview = decodePreviewBorrowPositionReturnData(returned.data);
-  const [expected, bump] = deriveBorrowPositionAddress(account.market, account.positionId);
+  const [expected, bump] = deriveBorrowPositionAddress(account.market, account.owner, account.positionId);
   for (const identity of [account, preview])
     if (
       identity.owner.toBase58() !== position.owner ||
@@ -199,26 +229,20 @@ export async function captureBorrowValuation(
     )
       throw new Error('Borrow valuation identity changed');
   if (
-    market.version !== 1 ||
+    market.version !== MARKET_LAYOUT_VERSION ||
     expected.toBase58() !== position.address ||
     account.bump !== bump ||
     unixTimestamp <= 0n ||
-    ![0, 1, 255].includes(account.auctionDebtAsset) ||
     preview.baseCollateral.toString() !== account.baseCollateral.toString() ||
-    preview.quoteCollateral.toString() !== account.quoteCollateral.toString()
+    preview.quoteCollateral.toString() !== account.quoteCollateral.toString() ||
+    preview.baseDebt.liquidationDistress.active !== account.baseDistress.active ||
+    preview.baseDebt.liquidationDistress.startedAt.toString() !== account.baseDistress.startedAt.toString() ||
+    preview.baseDebt.liquidationDistress.observedSlot.toString() !== account.baseDistress.observedSlot.toString() ||
+    preview.quoteDebt.liquidationDistress.active !== account.quoteDistress.active ||
+    preview.quoteDebt.liquidationDistress.startedAt.toString() !== account.quoteDistress.startedAt.toString() ||
+    preview.quoteDebt.liquidationDistress.observedSlot.toString() !== account.quoteDistress.observedSlot.toString()
   )
     throw new Error('Borrow valuation account state changed');
-  const auction =
-    account.auctionDebtAsset === 255
-      ? null
-      : {
-          debtAsset: account.auctionDebtAsset === 0 ? ('base' as const) : ('quote' as const),
-          startTime: account.auctionStartTime.toString(),
-          startPriceNad: account.auctionStartPriceNad.toString(),
-          floorPriceNad: account.auctionFloorPriceNad.toString(),
-        };
-  if (auction && (BigInt(auction.startTime) <= 0n || BigInt(auction.startTime) > unixTimestamp))
-    throw new Error('Invalid borrow auction start time');
   return {
     status: 'available',
     ...position,
@@ -227,7 +251,6 @@ export async function captureBorrowValuation(
     quoteCollateral: account.quoteCollateral.toString(),
     fixedBaseShares: account.fixedBaseShares.toString(),
     fixedQuoteShares: account.fixedQuoteShares.toString(),
-    auction,
     unixTimestamp: unixTimestamp.toString(),
     sourceSlot: slot,
     base: side(preview.baseDebt),

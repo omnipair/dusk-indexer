@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { BorshAccountsCoder, BN } from '@coral-xyz/anchor';
 import {
   Connection,
   RpcResponseAndContext,
@@ -13,7 +14,10 @@ import {
 import { decodeDuskVirtualBookBatch, recoverExecutableVirtualBookQuotes, readDuskVirtualBookQuotes, unquotableAmount } from '../services/virtualBook/virtual-book-quotes';
 import { projectDuskVirtualBook } from '../services/virtualBook/virtual-book-view-model';
 import { DuskVirtualBookSnapshot, readDuskVirtualBook } from '../services/virtualBook/virtual-book-read';
-import type { Dusk } from '@omnipair/dusk-sdk';
+import {
+  MARKET_LAYOUT_VERSION,
+  type Dusk,
+} from '@omnipair/dusk-sdk';
 import fixture from './fixtures/virtual-book-batch-devnet-20260920.json';
 import {
   currentVirtualBook,
@@ -23,10 +27,105 @@ import {
 } from '../services/duskVirtualBook';
 import type { DuskDeploymentEnvelope } from '../services/duskDeploymentService';
 
+// This immutable devnet capture predates the current market layout. Adapt the
+// saved bytes through the explicit historical schema so the fixture continues
+// to test its original quotes instead of pretending an old account is v6.
+let fixtureAdaptation: Promise<void> | undefined;
+const adaptFixture = (program: Dusk['program']) =>
+  (fixtureAdaptation ??= (async () => {
+  const saved = Buffer.from(
+    fixture.result.value.accounts[0].data[0],
+    'base64',
+  );
+  assert.equal(saved.length, 2917);
+  const borrowIndexEnd = 1623;
+  const withCarries = Buffer.concat([
+    saved.subarray(0, borrowIndexEnd),
+    Buffer.alloc(32),
+    saved.subarray(borrowIndexEnd),
+  ]);
+  const debtEnd = borrowIndexEnd + 32 + 128;
+  const withExposure = Buffer.concat([
+    withCarries.subarray(0, debtEnd),
+    Buffer.alloc(16),
+    withCarries.subarray(debtEnd),
+  ]);
+  const baseFeesOffset = 250;
+  const quoteFeesOffset = 755;
+  const layout3 = Buffer.concat([
+    withExposure.subarray(0, baseFeesOffset),
+    Buffer.alloc(32),
+    withExposure.subarray(baseFeesOffset, quoteFeesOffset),
+    Buffer.alloc(32),
+    withExposure.subarray(quoteFeesOffset),
+  ]);
+  layout3[8] = 3;
+
+  const oldIdl: any = structuredClone(program.idl);
+  for (const type of oldIdl.types ?? []) {
+    if (!('fields' in type.type) || !type.type.fields) continue;
+    type.type.fields = type.type.fields.filter(
+      (field: any) =>
+        ![
+          'flashReceivable',
+          'flashCollateralDebit',
+          'frozenHlpMask',
+          'frozenBaseVaultBaseOffsetNad',
+          'frozenBaseVaultQuoteOffsetNad',
+          'frozenQuoteVaultBaseOffsetNad',
+          'frozenQuoteVaultQuoteOffsetNad',
+        ].includes(field.name) &&
+        !(type.name === 'insuranceDrawWindow' && field.name === 'initialized'),
+    );
+  }
+  const oldAccount = new BorshAccountsCoder(oldIdl).decode(
+    'market',
+    layout3,
+  ) as any;
+  oldAccount.version = MARKET_LAYOUT_VERSION;
+  oldAccount.baseSide.reserves.flashReceivable = new BN(0);
+  oldAccount.quoteSide.reserves.flashReceivable = new BN(0);
+  oldAccount.baseHlpVault.flashCollateralDebit = new BN(0);
+  oldAccount.quoteHlpVault.flashCollateralDebit = new BN(0);
+  Object.assign(oldAccount.amm, {
+    frozenHlpMask: 0,
+    frozenBaseVaultBaseOffsetNad: new BN(0),
+    frozenBaseVaultQuoteOffsetNad: new BN(0),
+    frozenQuoteVaultBaseOffsetNad: new BN(0),
+    frozenQuoteVaultQuoteOffsetNad: new BN(0),
+  });
+  oldAccount.insurance.baseDrawWindow.initialized = false;
+  oldAccount.insurance.quoteDrawWindow.initialized = false;
+  const body = Buffer.alloc(layout3.length + 128),
+    entry = (program.coder.accounts as any).accountLayouts.get('market'),
+    size = entry.layout.encode(oldAccount, body);
+  fixture.result.value.accounts[0].data[0] = Buffer.concat([
+    layout3.subarray(0, 8),
+    body.subarray(0, size),
+  ]).toString('base64');
+
+  const prefix = `Program return: ${fixture.programId} `;
+  const currentPreviewBytes = (encoded: string) => {
+    const old = Buffer.from(encoded, 'base64'),
+      added = Buffer.alloc(16);
+    added.writeBigUInt64LE(old.readBigUInt64LE(27), 8);
+    return Buffer.concat([old, added]).toString('base64');
+  };
+  fixture.result.value.logs = fixture.result.value.logs.map((line) =>
+    line.startsWith(prefix)
+      ? prefix + currentPreviewBytes(line.slice(prefix.length))
+      : line,
+  );
+  fixture.result.value.returnData.data[0] = currentPreviewBytes(
+    fixture.result.value.returnData.data[0],
+  );
+})());
+
 const setup = async () => {
   const { dusk } = await createVirtualBookRuntime(
     new Connection('http://localhost:8899'),
   );
+  await adaptFixture(dusk.program);
   const account = dusk.program.coder.accounts.decode(
     'market',
     Buffer.from(fixture.result.value.accounts[0].data[0], 'base64'),

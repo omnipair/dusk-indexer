@@ -15,7 +15,12 @@ import {
   VersionedTransaction,
 } from '@solana/web3.js';
 import type { AccountInfo } from '@solana/web3.js';
-import type { Dusk, LeveragePosition, Market } from '@omnipair/dusk-sdk';
+import {
+  MARKET_LAYOUT_VERSION,
+  type Dusk,
+  type LeveragePosition,
+  type Market,
+} from '@omnipair/dusk-sdk';
 import type { DuskDeploymentEnvelope } from './duskDeploymentService';
 import { displayPublicKey } from './duskOwnerAccounts';
 import { readDuskLeverageCloseReceipt } from './duskLeverageCloseReceipt';
@@ -90,7 +95,7 @@ export async function captureLeverageValuation(
     position.owner.toBase58() !== selection.owner ||
     ![0, 1].includes(position.debtAsset) ||
     !address.equals(
-      dusk.get.pda.leveragePosition(position.market, position.positionId)[0],
+      dusk.get.pda.leveragePosition(position.market, position.owner, position.positionId)[0],
     ) ||
     position.collateralAmount.isZero() ||
     position.debtShares.isZero()
@@ -111,7 +116,8 @@ export async function captureLeverageValuation(
     'market',
     assertProgramAccount(marketRead.value).data,
   );
-  if (market.version !== 1) throw new Error('Unsupported valuation market');
+  if (market.version !== MARKET_LAYOUT_VERSION)
+    throw new Error('Unsupported valuation market');
   const debtSide = position.debtAsset === 0 ? 'baseSide' : 'quoteSide';
   const collateralSide = position.debtAsset === 0 ? 'quoteSide' : 'baseSide';
   const mintAddress = market[debtSide].assetMint;
@@ -257,7 +263,7 @@ export async function captureLeverageValuation(
     assertProgramAccount(accountAt(2)).data,
   );
   if (
-    afterMarket.version !== 1 ||
+    afterMarket.version !== MARKET_LAYOUT_VERSION ||
     !afterMarket.ylpMint.equals(market.ylpMint) ||
     !afterMarket.baseSide.assetMint.equals(market.baseSide.assetMint) ||
     !afterMarket.quoteSide.assetMint.equals(market.quoteSide.assetMint) ||

@@ -43,6 +43,7 @@ async function fixture() {
   });
   entry.position = f.dusk.get.pda.leveragePosition(
     marketKey,
+    f.owner,
     entry.positionId,
   )[0];
   const id = Buffer.alloc(8);

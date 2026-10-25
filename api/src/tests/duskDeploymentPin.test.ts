@@ -4,7 +4,7 @@ import { loadPinnedProtocol,parseProgramDeployment } from '../config/duskProtoco
 
 test('deployment starts after both pinned upgrades and preserves exact on-chain identity',() => {
   const pin=loadPinnedProtocol();
-  assert.equal(pin.historyFirstSlot,504809897);
+  assert.equal(pin.historyFirstSlot,Math.max(pin.dusk.deployment.deploySlot,pin.leverageDelegate.deployment.deploySlot)+1);
   assert.deepEqual(parseProgramDeployment(pin.dusk.deployment,pin.dusk.programId),pin.dusk.deployment);
 });
 test('missing authority and invalid ProgramData, deployment slot or allocation cannot form a pin',() => {

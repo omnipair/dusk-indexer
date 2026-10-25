@@ -340,7 +340,7 @@ mod tests {
 
     /// A real devnet swap, delivered the way the Helius datasource delivers it
     /// (base64 transaction, meta converted to Carbon's types, no block), comes
-    /// back out of the pinned decoder as one confirmed SwapExecuted event.
+    /// back out of the pinned decoder with its hLP adjustment and swap events.
     #[test]
     fn a_streamed_devnet_swap_decodes_its_event() {
         let fixture: EncodedConfirmedTransactionWithStatusMeta =
@@ -364,17 +364,31 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(observed.event_names(), vec!["SwapExecuted"]);
+        assert_eq!(
+            observed.event_names(),
+            vec!["HlpRebalanced", "SwapExecuted"]
+        );
         assert!(observed.orders.is_empty());
-        let record = observed.events[0].canonical_record();
+        let records = observed
+            .events
+            .iter()
+            .map(|event| event.canonical_record())
+            .collect::<Vec<_>>();
+        assert!(records
+            .iter()
+            .all(|record| record.commitment == Commitment::Confirmed));
+        let record = records
+            .iter()
+            .find(|record| record.event_name.as_deref() == Some("SwapExecuted"))
+            .unwrap();
         assert_eq!(record.commitment, Commitment::Confirmed);
         assert_eq!(record.blockhash, STREAM_BLOCKHASH);
-        assert_eq!(record.slot, 504_814_959);
+        assert_eq!(record.slot, 515_002_836);
         let payload = record.decoded_payload.as_ref().unwrap();
-        assert_eq!(payload["base"]["spot_price_nad"], "1064324127");
-        assert_eq!(payload["quote"]["spot_price_nad"], "939563404");
-        assert_eq!(payload["base"]["price_ema_nad"], "1064325222");
-        assert_eq!(payload["quote"]["price_ema_nad"], "939562437");
+        assert_eq!(payload["base"]["spot_price_nad"], "999800629");
+        assert_eq!(payload["quote"]["spot_price_nad"], "1000199410");
+        assert_eq!(payload["base"]["price_ema_nad"], "1000000000");
+        assert_eq!(payload["quote"]["price_ema_nad"], "1000000000");
         assert!(record.event_key.contains(&signature));
     }
 }

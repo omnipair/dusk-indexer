@@ -109,7 +109,7 @@ router.get('/owners/:owner/yield', asyncRoute(async (req, res) => {
   res.json(await currentOwnerYield(owner));
 }));
 
-/** Open borrow positions with debt that are liquidatable or in auction. */
+/** Open borrow positions with debt that the current program preview marks liquidatable. */
 router.get('/liquidations', asyncRoute(async (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json(await currentLiquidations());

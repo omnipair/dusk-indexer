@@ -34,6 +34,11 @@ function hex32(value: unknown,label: string): string {
 }
 const nullableInteger = (value: string | null) => value === null ? null : Number(value);
 
+function list(value: unknown, label: string): unknown[] {
+  if (!Array.isArray(value)) throw new Error(`Invalid governance ${label}`);
+  return value;
+}
+
 interface ProposalRow {
   proposal: string; market: string; created: unknown; total_locked: string; status: number;
   eligible_supply_at_queue: string | null; queued_support: string | null; queued_at: string | null; execute_after: string | null;
@@ -59,7 +64,7 @@ export async function readGovernanceProposals(client: PoolClient,market: string 
   if (!stream) throw Object.assign(new Error('The Dusk stream has not started'),{ status: 503 });
   const known = new Map(governed.rows.map((row) => [row.market,row]));
   return {
-    schemaVersion: 'dusk-governance-proposals.v2' as const,
+    schemaVersion: 'dusk-governance-proposals.v3' as const,
     market,
     sourceSlot: Number(stream.throughSlot),
     // A market without MarketCreated is unknown. A known market's values fold
@@ -73,13 +78,16 @@ export async function readGovernanceProposals(client: PoolClient,market: string 
     }),
     proposals: proposals.rows.map((row) => {
       const created = fields(row.created),metadata = fields(created.metadata);
+      const familyRevisions = list(created.family_revisions,'family revisions')
+        .map((revision,index) => integer(revision,`family revision ${index}`));
+      const updates = list(created.updates,'updates');
+      if (familyRevisions.length !== 7 || updates.length < 1 || updates.length > 7)
+        throw new Error('Invalid governance proposal terms');
       if (!Number.isInteger(row.status) || row.status<0 || row.status>5) throw new Error('Invalid governance status');
       return {
         address: row.proposal,market: row.market,proposer: String(created.proposer),
-        nonce: integer(created.nonce,'nonce'),family: small(created.family,'family'),
-        familyRevision: integer(created.family_revision,'family revision'),
+        nonce: integer(created.nonce,'nonce'),familyRevisions,updates,
         digest: hex32(created.digest,'digest'),
-        update: created.update,
         metadata: { version: small(metadata.version,'metadata version'),title: String(metadata.title),
           descriptionUri: String(metadata.description_uri),descriptionSha256: hex32(metadata.description_sha256,'description hash'),
           descriptionLen: small(metadata.description_len,'description length') },

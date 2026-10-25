@@ -101,14 +101,14 @@ export async function displayFixture(
   const { dusk } = await createVirtualBookRuntime(
     connection as unknown as Connection,
   );
-  const positionAddress = dusk.get.pda.leveragePosition(marketAddress, id)[0];
+  const positionAddress = dusk.get.pda.leveragePosition(marketAddress, owner, id)[0];
   const layout = (name: string) =>
     IdlCoder.typeDefLayout({
       typeDef: dusk.program.idl.types!.find((t) => t.name === name)!,
       types: dusk.program.idl.types!,
     });
   const market = layout('market').decode(Buffer.alloc(16384)) as Market;
-  Object.assign(market, { version: 1, ylpMint: ylp });
+  Object.assign(market, { version: 6, ylpMint: ylp });
   Object.assign(market.baseSide, { assetMint: base, assetDecimals: 9 });
   Object.assign(market.quoteSide, { assetMint: quote, assetDecimals: 9 });
   const position = layout('leveragePosition').decode(

@@ -51,15 +51,19 @@ export async function readOwnerGovernanceSupports(
   client: Pool | PoolClient = pool,
 ): Promise<{ supports: GovernanceSupport[]; sourceSlot: number }> {
   const pin = loadPinnedProtocol();
-  const result = await client.query<{ event_name: string; payload: Record<string, unknown>; market: string }>(
-    `SELECT e.event_name,e.payload,c.payload->>'market' AS market
+  const result = await client.query<{ event_name: string; payload: Record<string, unknown>; market: string; reusable: boolean }>(
+    `SELECT e.event_name,e.payload,c.payload->>'market' AS market,
+      EXISTS (SELECT 1 FROM dusk_ingestion.streamed_events g
+        WHERE (g.cluster,g.program_id,g.idl_hash,g.protocol_revision)=(e.cluster,e.program_id,e.idl_hash,e.protocol_revision)
+          AND g.event_name='GovernanceSupportChanged' AND g.payload->>'proposal'=e.payload->>'proposal') AS reusable
     FROM dusk_ingestion.streamed_events e
     JOIN dusk_ingestion.streamed_events c
       ON (c.cluster,c.program_id,c.idl_hash,c.protocol_revision)=(e.cluster,e.program_id,e.idl_hash,e.protocol_revision)
       AND c.event_name='ParameterProposalCreated' AND c.payload->>'proposal'=e.payload->>'proposal'
     WHERE e.cluster=$1 AND e.program_id=$2 AND e.idl_hash=$3 AND e.protocol_revision=$4
       AND ((e.event_name='ParameterProposalCreated' AND e.payload->>'proposer'=$5)
-        OR (e.event_name IN ('ParameterProposalSupported','ParameterProposalSupportWithdrawn') AND e.payload->>'supporter'=$5))
+        OR (e.event_name IN ('ParameterProposalSupported','ParameterProposalSupportWithdrawn') AND e.payload->>'supporter'=$5)
+        OR (e.event_name='GovernanceSupportChanged' AND e.payload->>'owner'=$5))
       AND ($6::text IS NULL OR c.payload->>'market'=$6)
     ORDER BY e.slot,e.observation_id`,
     [pin.cluster, pin.dusk.programId, pin.dusk.idlCanonicalSha256, pin.revision, owner, market],
@@ -68,11 +72,13 @@ export async function readOwnerGovernanceSupports(
   for (const row of result.rows) {
     const proposal = String(row.payload.proposal),
       current = locked.get(proposal)?.amount ?? 0n;
-    const next =
-      row.event_name === 'ParameterProposalCreated'
-        ? amount(row.payload.initial_support)
-        : row.event_name === 'ParameterProposalSupported'
-          ? amount(row.payload.supporter_locked)
+    if (row.event_name === 'ParameterProposalCreated' && row.reusable) continue;
+    const next = row.event_name === 'ParameterProposalCreated'
+      ? amount(row.payload.initial_support)
+      : row.event_name === 'ParameterProposalSupported'
+        ? amount(row.payload.supporter_locked)
+        : row.event_name === 'GovernanceSupportChanged'
+          ? amount(row.payload.owner_support)
           : current - amount(row.payload.amount);
     if (next < 0n) throw new Error('Governance support withdrawn beyond its lock');
     locked.set(proposal, { market: row.market, amount: next });
