@@ -164,18 +164,39 @@ mod tests {
             "../../api/src/tests/fixtures/payload-envelope-devnet-20260920.json"
         ))
         .unwrap();
-        let program = pin["programs"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|program| program["name"] == "dusk")
-            .unwrap();
-        let floor = program["deployment"]["deploySlot"].as_u64().unwrap();
         let deployment = &mut frame["deployment"];
-        deployment["programDataSlot"] = json!(floor.to_string());
-        deployment["programBinarySha256"] = program["binary"]["sha256"].clone();
-        deployment["idlSha256"] = program["idl"]["canonicalSha256"].clone();
-        deployment["idlRawSha256"] = program["idl"]["sha256"].clone();
+        let programs = pin["programs"].as_array().unwrap();
+        let floor = programs
+            .iter()
+            .map(|program| program["deployment"]["deploySlot"].as_u64().unwrap())
+            .max()
+            .unwrap();
+        for (name, slots, binary, canonical_idl, raw_idl) in [
+            (
+                "dusk",
+                "programDataSlot",
+                "programBinarySha256",
+                "idlSha256",
+                "idlRawSha256",
+            ),
+            (
+                "leverage_delegate",
+                "leverageDelegateProgramDataSlot",
+                "leverageDelegateBinarySha256",
+                "leverageDelegateIdlSha256",
+                "leverageDelegateIdlRawSha256",
+            ),
+        ] {
+            let program = programs
+                .iter()
+                .find(|program| program["name"] == name)
+                .unwrap();
+            deployment[slots] =
+                json!(program["deployment"]["deploySlot"].as_u64().unwrap().to_string());
+            deployment[binary] = program["binary"]["sha256"].clone();
+            deployment[canonical_idl] = program["idl"]["canonicalSha256"].clone();
+            deployment[raw_idl] = program["idl"]["sha256"].clone();
+        }
         deployment["sourceSlot"] = json!(floor + 1);
         frame["data"]["sourceSlot"] = json!(floor + 1);
         frame
