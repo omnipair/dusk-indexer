@@ -1,15 +1,15 @@
 {
   "$schema": "./protocol/schemas/protocol-lock.schema.json",
   "schemaVersion": 1,
-  "revision": "devnet-2026-10-25-296263d",
+  "revision": "devnet-2026-10-26-cd6f1ec",
   "status": "deployed",
-  "generatedAt": "2026-10-25T14:57:41.000Z",
+  "generatedAt": "2026-10-25T22:15:20.000Z",
   "source": {
     "repository": "https://github.com/omnipair/dusk",
     "branch": "fix/benchmark-replay-owner",
-    "gitCommit": "296263d0f4f34478b2701c32e337550a26aa3c4b",
-    "worktreeFingerprintSha256": "7402e5cad63210ee34a56a5f5270561fb6bd5fe5dfbc411ddcd12104b425ab21",
-    "note": "Dusk PR #45 programs were upgraded on devnet under the existing program IDs. Finalized ProgramData bytes match the tested binaries at slots 515007663 and 515001929. SDK 2.14.2-devnet.20261025 carries the matching interfaces."
+    "gitCommit": "cd6f1ec0e074082b9c191b0ec741477037aa9eb3",
+    "worktreeFingerprintSha256": "801205cefccbddd7436c35200fc5d1a30cdb3b3874fe1b2faaba6684bb3ccb9f",
+    "note": "Dusk PR #45 programs were upgraded on devnet from clean commit cd6f1ec0e074082b9c191b0ec741477037aa9eb3. Finalized ProgramData executable dumps match the Dusk payload plus 10,928 zero padding bytes at slot 515117115 and the delegate payload exactly at slot 515117216. Dusk payload SHA-256 is b0f04cd524f967df97abc4d73c5b0ab8a8f17f1204ab1aa4b9054152e344ed78. The binary pins hash the complete dumped executables. worktreeFingerprintSha256 hashes git archive HEAD. SDK 2.14.2-devnet.20261025 was packaged from this clean commit."
   },
   "cluster": {
     "name": "devnet",
@@ -21,18 +21,18 @@
       "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
       "binary": {
         "path": "on-chain (devnet)",
-        "sha256": "b604aeb48e991c3ed8ac4ac707f42425fa049c31ddbfb2055d3d936b1f7b1541"
+        "sha256": "203c20214aa1ea2b624207a88606bc10ba7c0d5b36fd9171d89081627cfc43f1"
       },
       "idl": {
         "path": "protocol/idl/dusk.json",
-        "sha256": "83393e1a28d65b26f2e5098966d3d9ccd9778c99b814807d6adea1381152deb3",
-        "canonicalSha256": "af08b935a2e6018957a2a9a8486c32a286325caf6c09e2c52b0ce31e94c09a71"
+        "sha256": "574f9a347a2ecf2f85fa6d9f981fb474b1300f2e9cca5ae0ca0158da113019eb",
+        "canonicalSha256": "92d8c02d7244211df13d1549c0f396716e1fedbf2d4041e6abf2eebc4ebe2cb1"
       },
       "deployment": {
         "programData": "FH3oEMmx2n7YMeEsrLM8dzr7FxuZLQgMacwQF6ZHdWk",
-        "deploySlot": 515007663,
+        "deploySlot": 515117115,
         "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
-        "allocatedBinaryBytes": 3493688
+        "allocatedBinaryBytes": 3518552
       }
     },
     {
@@ -49,7 +49,7 @@
       },
       "deployment": {
         "programData": "8y1gTuEN5t417sBWNbeerGFQ5v49MpRmxVBgVDatnJjv",
-        "deploySlot": 515001929,
+        "deploySlot": 515117216,
         "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
         "allocatedBinaryBytes": 1149896
       }
@@ -58,6 +58,6 @@
   "sdk": {
     "package": "@omnipair/dusk-sdk",
     "version": "2.14.2-devnet.20261025",
-    "sha256": "36c99b7a475b0c6b449445c747a40a75ed5b7a97a0262c61f9bdf1a0c80e35ea"
+    "sha256": "186c3d85c5a733da446c6f00301fefd0f36170336f1d8f4fdc9807ffc8c16d8c"
   }
 }

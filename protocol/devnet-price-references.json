@@ -2,9 +2,9 @@
   "schemaVersion": "dusk-price-references.v1",
   "cluster": "devnet",
   "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
-  "idlSha256": "af08b935a2e6018957a2a9a8486c32a286325caf6c09e2c52b0ce31e94c09a71",
-  "protocolRevision": "devnet-2026-10-25-296263d",
-  "effectiveFrom": "2026-10-25T14:57:41.000Z",
+  "idlSha256": "92d8c02d7244211df13d1549c0f396716e1fedbf2d4041e6abf2eebc4ebe2cb1",
+  "protocolRevision": "devnet-2026-10-26-cd6f1ec",
+  "effectiveFrom": "2026-10-25T22:15:20.000Z",
   "references": [
     {
       "mint": "So11111111111111111111111111111111111111112",

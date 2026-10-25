@@ -13,16 +13,16 @@ use {
     thiserror::Error,
 };
 
-pub const PROTOCOL_REVISION: &str = "devnet-2026-10-25-296263d";
+pub const PROTOCOL_REVISION: &str = "devnet-2026-10-26-cd6f1ec";
 pub const DUSK_PROGRAM_ID: &str = "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X";
 pub const DUSK_IDL_RAW_SHA256: &str =
-    "83393e1a28d65b26f2e5098966d3d9ccd9778c99b814807d6adea1381152deb3";
+    "574f9a347a2ecf2f85fa6d9f981fb474b1300f2e9cca5ae0ca0158da113019eb";
 pub const LEVERAGE_DELEGATE_PROGRAM_ID: &str = "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv";
 pub const LEVERAGE_DELEGATE_IDL_RAW_SHA256: &str =
     "59acc8a10b41c235156e593017b1e88dd6657fd192df4a1f1c0cc4275a1dd658";
 
 pub const DUSK_IDL_SHA256: &str =
-    "af08b935a2e6018957a2a9a8486c32a286325caf6c09e2c52b0ce31e94c09a71";
+    "92d8c02d7244211df13d1549c0f396716e1fedbf2d4041e6abf2eebc4ebe2cb1";
 pub const LEVERAGE_DELEGATE_IDL_SHA256: &str =
     "7c3b403ffb735b2bd8c3e224dc65afc1303a98d89c525af0ede32dec6be858fc";
 

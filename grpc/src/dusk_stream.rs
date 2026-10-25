@@ -317,9 +317,14 @@ mod tests {
     fn notices_require_the_complete_native_identity() {
         let pin: Value = serde_json::from_str(PIN).unwrap();
         let p = &pin["programs"][0];
+        let first_slot = pin["programs"].as_array().unwrap().iter()
+            .filter_map(|program| program["deployment"]["deploySlot"].as_u64()).max().unwrap() + 1;
         let notice = json!({ "cluster": pin["cluster"]["name"], "protocolRevision": pin["revision"],
-            "programId": p["programId"], "idlHash": p["idl"]["canonicalSha256"], "slot": p["deployment"]["deploySlot"].as_u64().unwrap() + 1 });
+            "programId": p["programId"], "idlHash": p["idl"]["canonicalSha256"], "slot": first_slot });
         assert!(notice_slot(&notice.to_string(), &pin).is_some());
+        let mut incomplete = notice.clone();
+        incomplete["slot"] = json!(first_slot-1);
+        assert!(notice_slot(&incomplete.to_string(), &pin).is_none());
         for key in [
             "cluster",
             "protocolRevision",

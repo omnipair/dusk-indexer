@@ -114,8 +114,12 @@ function loadProgram(entry: LockProgram, root: string): DuskPinnedProgram {
     `programs[${name}].idl.sha256`,
   );
 
-  // The lock records the path relative to the repository root.
-  const absoluteIdlPath = resolve(root, '..', idlPath);
+  // Current locks use protocol/idl; an archived byte-identical lock resolves
+  // that prefix inside its own release directory. Older archives use a
+  // revision-relative path under their parent archive directory.
+  const absoluteIdlPath = idlPath.startsWith('protocol/')
+    ? resolve(root, idlPath.slice('protocol/'.length))
+    : resolve(root, '..', idlPath);
   const raw = readFileSync(absoluteIdlPath, 'utf8');
   const observedRawSha256 = sha256(raw);
   if (observedRawSha256 !== idlRawSha256) {

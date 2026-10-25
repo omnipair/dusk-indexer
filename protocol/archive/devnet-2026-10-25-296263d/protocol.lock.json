@@ -1,0 +1,63 @@
+{
+  "$schema": "./protocol/schemas/protocol-lock.schema.json",
+  "schemaVersion": 1,
+  "revision": "devnet-2026-10-25-296263d",
+  "status": "deployed",
+  "generatedAt": "2026-10-25T14:57:41.000Z",
+  "source": {
+    "repository": "https://github.com/omnipair/dusk",
+    "branch": "fix/benchmark-replay-owner",
+    "gitCommit": "296263d0f4f34478b2701c32e337550a26aa3c4b",
+    "worktreeFingerprintSha256": "7402e5cad63210ee34a56a5f5270561fb6bd5fe5dfbc411ddcd12104b425ab21",
+    "note": "Dusk PR #45 programs were upgraded on devnet under the existing program IDs. Finalized ProgramData bytes match the tested binaries at slots 515007663 and 515001929. SDK 2.14.2-devnet.20261025 carries the matching interfaces."
+  },
+  "cluster": {
+    "name": "devnet",
+    "genesisHash": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
+  },
+  "programs": [
+    {
+      "name": "dusk",
+      "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
+      "binary": {
+        "path": "on-chain (devnet)",
+        "sha256": "b604aeb48e991c3ed8ac4ac707f42425fa049c31ddbfb2055d3d936b1f7b1541"
+      },
+      "idl": {
+        "path": "protocol/idl/dusk.json",
+        "sha256": "83393e1a28d65b26f2e5098966d3d9ccd9778c99b814807d6adea1381152deb3",
+        "canonicalSha256": "af08b935a2e6018957a2a9a8486c32a286325caf6c09e2c52b0ce31e94c09a71"
+      },
+      "deployment": {
+        "programData": "FH3oEMmx2n7YMeEsrLM8dzr7FxuZLQgMacwQF6ZHdWk",
+        "deploySlot": 515007663,
+        "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+        "allocatedBinaryBytes": 3493688
+      }
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv",
+      "binary": {
+        "path": "on-chain (devnet)",
+        "sha256": "4c1f7e1b326ff91d34d87edc888dee38bfde44058be50df3bb7ecdbe11845e1f"
+      },
+      "idl": {
+        "path": "protocol/idl/leverage_delegate.json",
+        "sha256": "59acc8a10b41c235156e593017b1e88dd6657fd192df4a1f1c0cc4275a1dd658",
+        "canonicalSha256": "7c3b403ffb735b2bd8c3e224dc65afc1303a98d89c525af0ede32dec6be858fc"
+      },
+      "deployment": {
+        "programData": "8y1gTuEN5t417sBWNbeerGFQ5v49MpRmxVBgVDatnJjv",
+        "deploySlot": 515001929,
+        "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+        "allocatedBinaryBytes": 1149896
+      }
+    }
+  ],
+  "sdk": {
+    "package": "@omnipair/dusk-sdk",
+    "version": "2.14.2-devnet.20261025",
+    "sha256": "36c99b7a475b0c6b449445c747a40a75ed5b7a97a0262c61f9bdf1a0c80e35ea"
+  }
+}

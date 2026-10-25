@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadPinnedProtocol,parseProgramDeployment } from '../config/duskProtocol';
+import { readdirSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { loadPinnedProtocol,loadProtocolAt,parseProgramDeployment } from '../config/duskProtocol';
 
 test('deployment starts after both pinned upgrades and preserves exact on-chain identity',() => {
   const pin=loadPinnedProtocol();
@@ -15,4 +17,10 @@ test('missing authority and invalid ProgramData, deployment slot or allocation c
   }
   assert.throws(() => parseProgramDeployment(undefined,pin.programId));
   assert.equal(parseProgramDeployment({...pin.deployment,upgradeAuthority:null},pin.programId).upgradeAuthority,null);
+});
+
+test('every archived decoder loads from its own verified IDL files',() => {
+  const root=resolve(__dirname,'../../../protocol/archive');
+  for (const revision of readdirSync(root))
+    assert.equal(loadProtocolAt(resolve(root,revision)).revision,revision);
 });

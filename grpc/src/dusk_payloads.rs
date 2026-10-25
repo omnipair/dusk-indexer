@@ -226,8 +226,8 @@ mod tests {
         // A historical event frame can precede the compatible program upgrade
         // while its live API envelope identifies the currently verified code.
         let mut earlier = frame.clone();
-        earlier["data"]["sourceSlot"] =
-            json!(history_pin["programs"][0]["deployment"]["deploySlot"].as_u64().unwrap() + 1);
+        earlier["data"]["sourceSlot"] = json!(history_pin["programs"].as_array().unwrap().iter()
+            .filter_map(|program| program["deployment"]["deploySlot"].as_u64()).max().unwrap() + 1);
         assert!(valid_payload(&earlier, &selected, &pin, &history_pin, now));
         for field in [
             "selection",

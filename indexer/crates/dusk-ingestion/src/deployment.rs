@@ -183,7 +183,7 @@ mod tests {
     #[test]
     fn interval_starts_after_both_programs_are_active() {
         let pin = pinned_deployment().unwrap();
-        assert_eq!(pin.first_slot(), 515_007_664);
+        assert_eq!(pin.first_slot(), 515_117_217);
         let mut reordered = vendored_protocol_lock();
         reordered["programs"].as_array_mut().unwrap().reverse();
         assert_eq!(
@@ -200,11 +200,11 @@ mod tests {
             historical.programs[0].idl.canonical_sha256,
             current.programs[0].idl.canonical_sha256
         );
-        assert_eq!(historical.first_slot(), 515_007_664);
-        assert_eq!(current.programs[0].deployment.deploy_slot, 515_039_667);
+        assert_eq!(historical.first_slot(), 515_117_217);
+        assert_eq!(current.programs[0].deployment.deploy_slot, 515_117_115);
         assert_eq!(
             current.programs[0].binary.sha256,
-            "52bf0f37ddc78876f9607b8ffd7e5ca2fa648eaf7c0fb4d22576b2bb24475db6"
+            "203c20214aa1ea2b624207a88606bc10ba7c0d5b36fd9171d89081627cfc43f1"
         );
     }
     #[test]
