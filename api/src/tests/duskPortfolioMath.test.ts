@@ -25,8 +25,9 @@ function fixture() {
   function component(kind: PortfolioKind,changes: Record<string,unknown> = {},unavailable = false) {
     const positionId = fixtureKey(121);
     const [position,bump] = PublicKey.findProgramAddressSync([Buffer.from(kind === 'borrow' ? 'borrow_position_v2' : 'leverage_position_v2'),
-      new PublicKey(marketAddress).toBuffer(),positionId.toBuffer()],new PublicKey(base.programId));
-    const state = { owner: base.owner,market: marketAddress,position_id: positionId,bump,
+      new PublicKey(marketAddress).toBuffer(),new PublicKey(base.owner).toBuffer(),
+      ...(kind === 'leverage' ? [fixtureKey(124).toBuffer()] : []),positionId.toBuffer()],new PublicKey(base.programId));
+    const state = { owner: base.owner,namespace_authority: fixtureKey(124),market: marketAddress,position_id: positionId,bump,
       mint: kind === 'ylp' ? market.ylp_mint : nativeFields(market[`${kind === 'base_hlp' ? 'base' : 'quote'}_side`]).hlp_mint,
       amount: 100_000n,base_collateral: 2n*NAD,quote_collateral: 3_000_000n,fixed_base_shares: NAD,fixed_quote_shares: 0n,
       debt_asset: 1,collateral_amount: 2n*NAD,debt_shares: 1_000_000n,margin_amount: NAD,open_notional: 1_000_000n,...changes };
@@ -61,6 +62,8 @@ test('a yLP holder owns a fraction of each reserve using one internal share supp
 });
 test('position ownership seeds, mint bindings and same-bank preview ledgers are checked',() => {
   assert.throws(() => fixture().component('borrow',{ position_id: fixtureKey(123) }),/PDA/);
+  assert.throws(() => fixture().component('borrow',{ owner: fixtureKey(123) }),/PDA/);
+  assert.throws(() => fixture().component('leverage',{ namespace_authority: fixtureKey(123) }),/PDA/);
   assert.throws(() => fixture().component('ylp',{ mint: fixtureKey(123) }),/wrong mint/);
   const sample = fixture();
   nativeFields(sample.preview.base).borrow_index_nad = NAD;

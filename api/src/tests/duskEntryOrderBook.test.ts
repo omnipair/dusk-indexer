@@ -35,7 +35,7 @@ async function fixture() {
       debtAsset: 1, marginAmount: new BN(2_000_000), multiplierBps: new BN(30_000), limitPriceNad: new BN(1_250_000_000),
       expiryUnixTimestamp: new BN((state.now + 60n).toString()), bump, ...changes,
     });
-    account.position = f.dusk.get.pda.leveragePosition(market, owner, account.positionId)[0];
+    account.position = f.dusk.get.pda.leveragePosition(market, owner, account.positionId, address)[0];
     infos.set(address.toBase58(), {
       data: await delegate.coder.accounts.encode('leverageEntryOrder', account),
       owner: delegate.programId,

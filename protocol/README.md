@@ -29,3 +29,16 @@ actions, hLP recovery/yield accounting, and their lifecycle events. The
 deployment-scoped SDK package is `2.14.2-devnet.20261025`. Historical
 observations retain their original identities; new captures, projections and
 cursors use the new revision without relabeling old records.
+
+## Pending PR #45 upgrade
+
+The rollout SDK includes later PR #45 source changes, including liquidation
+post-state events and mint-specific hLP cohorts. The lock and generated IDLs in
+this directory still describe the last verified devnet deployment above. Until
+the corresponding binaries are actually upgraded and verified, the API's SDK
+compatibility check deliberately rejects this mismatch. This is an expected
+pre-upgrade state, not permission to reuse the old decoding identity.
+
+After the upgrade, vendor the generated IDLs under a new protocol revision,
+record verified ProgramData metadata, and run replay/reconciliation before
+activating that identity. Preserve the existing pin and observations as history.

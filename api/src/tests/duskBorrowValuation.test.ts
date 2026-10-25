@@ -1,11 +1,12 @@
 import test from 'node:test';
+import { createSdkTestRuntime } from './duskSdkTestRuntime';
 import assert from 'node:assert/strict';
 import { BN } from '@coral-xyz/anchor';
 import { IdlCoder } from '@coral-xyz/anchor/dist/cjs/coder/borsh/idl';
 import { Connection, PublicKey, SYSVAR_CLOCK_PUBKEY } from '@solana/web3.js';
 import type { AccountInfo, SimulateTransactionConfig, VersionedTransaction } from '@solana/web3.js';
 import type { Dusk } from '@omnipair/dusk-sdk';
-import { createVirtualBookRuntime, deriveBorrowPositionAddress } from '../services/virtualBook/native';
+import { deriveBorrowPositionAddress } from '../services/virtualBook/native';
 import { captureBorrowValuation } from '../services/duskBorrowValuation';
 import type { BorrowValuation } from '../services/duskBorrowValuation';
 import { captureLiquidations, liquidationCaptureDependencies } from '../services/duskLiquidations';
@@ -62,7 +63,7 @@ async function fixture() {
       };
     },
   };
-  ({ dusk } = await createVirtualBookRuntime(connection as unknown as Connection));
+  ({ dusk } = await createSdkTestRuntime(connection as unknown as Connection));
   const layout = (name: string) =>
     IdlCoder.typeDefLayout({ typeDef: dusk.program.idl.types!.find((t) => t.name === name)!, types: dusk.program.idl.types! });
   const encode = (name: string, value: unknown, kind: 'account' | 'type'): AccountInfo<Buffer> => {

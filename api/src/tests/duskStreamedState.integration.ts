@@ -5,6 +5,8 @@ import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { fixtureMarket, key, streamedEvent, streamedIdentity, streamedMarket, streamedRelease } from './duskStreamedFixtures';
 import { readMarketExposures } from '../services/duskStatisticsSnapshot';
+import { readStreamedHlpBalances } from '../services/duskHlpPositions';
+import { readOwnerYieldGroups } from '../services/duskOwnerYield';
 
 if (process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS !== 'true' || !process.env.DATABASE_URL)
   throw new Error('Set DUSK_ALLOW_DISPOSABLE_DB_TESTS=true and a disposable DATABASE_URL');
@@ -30,6 +32,19 @@ test('markets and their three LP mints come from MarketCreated',() => transactio
   assert.equal(created.base_decimals,9); assert.equal(created.quote_decimals,6);
   const mints = (await rows(client,'streamed_lp_mints','ORDER BY kind')).map(row => [row.kind,row.lp_mint]);
   assert.deepEqual(mints,[['base_hlp',baseHlp],['quote_hlp',quoteHlp],['ylp',ylp]]);
+}));
+
+test('wallet discovery separates retired and active hLP and yield retains both mint groups',() => transaction(async client => {
+  await streamedRelease(client,{ slot: 900_300_000,time: new Date(Date.now()-1000) });
+  await createdMarket(client);
+  const next = key(208);
+  await streamed(client,'HlpOpened',{ market,owner,asset_side: '0',hlp_amount: '50',ylp_amount: '50' });
+  await streamed(client,'HlpCohortRotated',{ market,target_asset: '0',retired_mint: baseHlp,new_mint: next,retired_supply: '50' });
+  await streamed(client,'HlpOpened',{ market,owner,asset_side: '0',hlp_amount: '20',ylp_amount: '20' });
+  const balances = (await readStreamedHlpBalances(owner,client)).balances;
+  assert.equal(balances.find((row) => row.hlpMint === baseHlp)?.retired,true);
+  assert.equal(balances.find((row) => row.hlpMint === next)?.retired,undefined);
+  assert.deepEqual(new Set((await readOwnerYieldGroups(owner,client)).groups.map((row) => row.lpMint)),new Set([baseHlp,next]));
 }));
 
 test('a leverage position carries its latest post-state and closes on its last event',() => transaction(async client => {

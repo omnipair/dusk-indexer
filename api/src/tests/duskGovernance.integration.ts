@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { readGovernanceProposals } from '../services/duskGovernance';
+import { readOwnerGovernanceSupports } from '../services/duskOwnerGovernance';
 import { fixtureMarket, key, streamedEvent, streamedIdentity, streamedMarket, streamedRelease } from './duskStreamedFixtures';
 
 if (process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS !== 'true' || !process.env.DATABASE_URL)
@@ -19,6 +20,34 @@ async function transaction(work: (client: PoolClient) => Promise<void>) {
   } finally { await client.query('ROLLBACK'); client.release(); }
 }
 const bytes = (fill: number) => `0x${Buffer.from(Array.from({ length: 32 },(_,index) => (fill+index)%256)).toString('hex')}`;
+
+test('owner support distinguishes delegated creation siblings from later reusable support',() => transaction(async client => {
+  await streamedRelease(client,{ slot: 900_400_000,time: new Date(Date.now()-1000) });
+  const { market } = fixtureMarket,owner = key(241),other = key(242),direct = key(243),delegated = key(244),zero = key(245);
+  const initial = async (proposal: string,amount: string) => streamedEvent(client,'ParameterProposalCreated',
+    { proposal,market,proposer: owner,initial_support: amount });
+  const creation = await initial(delegated,'100');
+  await streamedEvent(client,'GovernanceSupportChanged',{ proposal: delegated,market,owner,owner_support: '30' },
+    creation.slot,undefined,streamedIdentity,creation.signature,[0,2]);
+  const otherCreation = await initial(zero,'80');
+  await streamedEvent(client,'GovernanceSupportChanged',{ proposal: zero,market,owner: other,owner_support: '80' },
+    otherCreation.slot,undefined,streamedIdentity,otherCreation.signature);
+  await initial(direct,'50');
+  await streamedEvent(client,'GovernanceSupportChanged',{ proposal: direct,market,owner,owner_support: '20' });
+  const result = await readOwnerGovernanceSupports(owner,market,client);
+  assert.deepEqual(new Map(result.supports.map((row) => [row.proposal,row.lockedAmount])),new Map([[direct,'70'],[delegated,'30']]));
+}));
+
+test('direct creation retains its support when a later outer instruction adds reusable support in the same transaction',() => transaction(async client => {
+  await streamedRelease(client,{ slot: 900_400_000,time: new Date(Date.now()-1000) });
+  const { market } = fixtureMarket,owner = key(241),proposal = key(246);
+  const creation = await streamedEvent(client,'ParameterProposalCreated',
+    { proposal,market,proposer: owner,initial_support: '50' },undefined,undefined,streamedIdentity,undefined,[3,1]);
+  await streamedEvent(client,'GovernanceSupportChanged',{ proposal,market,owner,owner_support: '20' },
+    creation.slot,undefined,streamedIdentity,creation.signature,[4,1]);
+  const result = await readOwnerGovernanceSupports(owner,market,client);
+  assert.deepEqual(result.supports,[{ proposal,market,lockedAmount: '70' }]);
+}));
 
 test('a proposal carries its creation terms, latest totals and lifecycle times',() => transaction(async client => {
   await streamedRelease(client,{ slot: 900_400_000,time: new Date(Date.now()-1000) });

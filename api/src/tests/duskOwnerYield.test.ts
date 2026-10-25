@@ -15,8 +15,11 @@ import {
 } from '@solana/spl-token';
 import { Connection, PublicKey } from '@solana/web3.js';
 import type { AccountInfo, SimulateTransactionConfig } from '@solana/web3.js';
-import type { Dusk, Market, YieldAccount } from '@omnipair/dusk-sdk';
-import { createVirtualBookRuntime, deriveYieldAccountAddress } from '../services/virtualBook/native';
+import { MARKET_LAYOUT_VERSION } from '@omnipair/dusk-sdk';
+import type { Dusk, HlpCohort, Market, YieldAccount } from '@omnipair/dusk-sdk';
+import { deriveYieldAccountAddress } from '../services/virtualBook/native';
+import { createSdkTestRuntime } from './duskSdkTestRuntime';
+import { hlpCohortAddress } from '../services/duskHlpCohort';
 import { captureOwnerYield, captureYieldGroup, ownerYieldDependencies } from '../services/duskOwnerYield';
 import type { YieldGroup } from '../services/duskOwnerYield';
 import { projectLiveYield } from '../services/duskYieldAccounting';
@@ -51,7 +54,7 @@ async function fixture(hlp = false, taxed = false) {
       return response;
     },
   };
-  const { dusk } = await createVirtualBookRuntime(connection as unknown as Connection);
+  const { dusk } = await createSdkTestRuntime(connection as unknown as Connection);
   response.value.returnData.programId = dusk.program.programId.toBase58();
   const layout = (name: string) =>
     IdlCoder.typeDefLayout({ typeDef: dusk.program.idl.types!.find((type) => type.name === name)!, types: dusk.program.idl.types! });
@@ -68,7 +71,7 @@ async function fixture(hlp = false, taxed = false) {
     return coder.decode<T>(name, bytes);
   };
   const market = blank<Market>('market');
-  market.version = 1;
+  market.version = MARKET_LAYOUT_VERSION;
   market.ylpMint = ylp;
   market.baseSide.assetMint = base;
   market.quoteSide.assetMint = quote;
@@ -81,6 +84,11 @@ async function fixture(hlp = false, taxed = false) {
   market.baseSide.fees.interestGrowthIndexQ64 = new BN(Q.toString());
   market.baseHlpVault.ylpShares = new BN(20);
   market.baseHlpVault.hlpSupply = new BN(10);
+  const cohort = blank<HlpCohort>('hlpCohort');
+  Object.assign(cohort, { market: marketAddress, mint: lpMint, targetAsset: 0, retired: true,
+    bump: hlpCohortAddress(marketAddress, lpMint, dusk.program.programId)[1] });
+  cohort.finalVault.baseSwapFeeGrowthIndexQ64 = new BN((2n * Q).toString());
+  cohort.finalVault.baseInterestGrowthIndexQ64 = new BN(Q.toString());
   const yields = [base, quote].map((asset) => {
     const account = blank<YieldAccount>('yieldAccount');
     const [address, bump] = deriveYieldAccountAddress(marketAddress, owner, lpMint, asset, kind, dusk.program.programId);
@@ -126,6 +134,7 @@ async function fixture(hlp = false, taxed = false) {
       mint(owner, taxed ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID, taxed),
       mint(owner, TOKEN_PROGRAM_ID),
       raw(new PublicKey('Sysvar1111111111111111111111111111111111111'), clock),
+      ...(hlp ? [encodeAccount('hlpCohort', cohort)] : []),
     ].map(serialize);
     const preview = layout('marketPreview').decode(Buffer.alloc(32768));
     preview.slot = new BN(1010);
@@ -134,7 +143,7 @@ async function fixture(hlp = false, taxed = false) {
   encode();
   const group: YieldGroup = { holder: owner.toBase58(), market: marketAddress.toBase58(), lpMint: lpMint.toBase58(), kind,
     baseMint: base.toBase58(), quoteMint: quote.toBase58() };
-  return { dusk: dusk as Dusk, market, yields, response, encode, group, simulations, payer: owner.toBase58() };
+  return { dusk: dusk as Dusk, market, cohort, yields, response, encode, group, simulations, payer: owner.toBase58() };
 }
 
 test('live yield carries undistributed growth forward and checkpoints both hLP layers', async () => {
@@ -153,7 +162,7 @@ test('a group is valued in one updated bank with transfer fees applied to fees a
   const streams = (await captureYieldGroup(f.dusk, f.group, f.payer, 1005))!;
   assert.deepEqual(streams[0], {
     address: f.yields[0].address.toBase58(), holder: f.group.holder, market: f.group.market, lpMint: f.group.lpMint,
-    assetMint: f.group.baseMint, kind: 'ylp', recipient: f.group.holder, initialized: true, needsGrowth: false,
+    assetMint: f.group.baseMint, kind: 'ylp', retired: false, recipient: f.group.holder, initialized: true, needsGrowth: false,
     lpBalance: '3', lpDecimals: 9, assetDecimals: 9, swapFeeAmount: '5', interestAmount: '4', recipientCredit: '7', sourceSlot: 1010,
   });
   assert.equal(streams[1].recipientCredit, '0');
@@ -204,4 +213,37 @@ test('owner yield values every discovered group at or after the stream and names
   assert.deepEqual(result.unavailable, [{ holder: escrow.holder, market: escrow.market, lpMint: escrow.lpMint }]);
   assert.equal(result.sourceSlot, 1010);
   assert.equal(result.expiresAt - result.observedAt, 15_000);
+});
+
+test('retired hLP yield uses the cohort frozen indexes without new vault growth', async () => {
+  const f = await fixture(true);
+  f.market.baseSide.hlpMint = key(90);
+  f.market.baseSide.fees.unallocatedSwapFeeLiability = new BN(1_000_000);
+  f.market.baseHlpVault.baseSwapFeeGrowthIndexQ64 = new BN((100n * Q).toString());
+  f.encode();
+  const [stream] = (await captureYieldGroup(f.dusk, f.group, f.payer, 1005))!;
+  assert.equal(stream.retired, true);
+  assert.equal(stream.swapFeeAmount, '8');
+  assert.equal(stream.interestAmount, '4');
+  const addresses = f.simulations[0].accounts!.addresses;
+  assert.equal(addresses[8], hlpCohortAddress(new PublicKey(f.group.market), new PublicKey(f.group.lpMint), f.dusk.program.programId)[0].toBase58());
+  for (const change of [
+    () => { f.cohort.market = key(91); },
+    () => { f.cohort.mint = key(91); },
+    () => { f.cohort.retired = false; },
+    () => { f.cohort.bump ^= 1; },
+    () => { f.cohort.targetAsset = 2; },
+  ]) {
+    const saved = { ...f.cohort };
+    change(); f.encode();
+    await assert.rejects(captureYieldGroup(f.dusk, f.group, f.payer, 1005), /retired hLP cohort/);
+    Object.assign(f.cohort, saved);
+  }
+});
+
+test('the SDK market layout version is required by yield capture', async () => {
+  const f = await fixture();
+  f.market.version = MARKET_LAYOUT_VERSION - 1;
+  f.encode();
+  await assert.rejects(captureYieldGroup(f.dusk, f.group, f.payer, 1005), /market, LP mint or bank changed/);
 });

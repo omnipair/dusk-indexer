@@ -11,11 +11,13 @@ import { previewDuskEntryOrder } from './duskEntryOrderPreview';
 import { minimumDuskReadSlot } from './virtualBook/native';
 import { previewDuskHlpOrderTrigger } from './duskOrderTrigger';
 import { boundedDuskRpcRead } from './virtualBook/native';
+import { assertRetiredHlpCohort, hlpCohortAddress } from './duskHlpCohort';
 
 import type { DuskDeploymentEnvelope } from './duskDeploymentService';
 import type { DuskReadBoundary } from './virtualBook/native';
 import type {
   Dusk,
+  HlpCohort,
   LeverageDelegateProgram,
   LeveragePosition,
   Market,
@@ -36,6 +38,7 @@ export type DuskOrderRow<N extends Name> = {
   slot: number;
   trigger?: Awaited<ReturnType<typeof previewDuskHlpOrderTrigger>>['value'];
   entryMark?: Awaited<ReturnType<typeof previewDuskEntryOrder>>;
+  retiredHlp?: { targetAsset: 0 | 1 };
 };
 export interface DuskOrderSnapshot {
   owner: string;
@@ -91,7 +94,7 @@ export function assertDuskOrderIdentity<N extends Name>(
     if (
       ![0, 1].includes(entry.debtAsset) ||
       !entry.position.equals(
-        deriveLeveragePositionAddress(entry.market, entry.owner, entry.positionId)[0],
+        deriveLeveragePositionAddress(entry.market, entry.owner, entry.positionId, address)[0],
       )
     )
       throw new Error('Invalid entry position identity');
@@ -183,6 +186,8 @@ export async function readDuskOrders(options: {
           ...(name === 'leverageOrder'
             ? [(raw as Account<'leverageOrder'>).position]
             : []),
+          ...(name === 'hlpOrder' ? [hlpCohortAddress(raw.market,
+            (raw as Account<'hlpOrder'>).targetHlpMint,dusk.program.programId)[0]] : []),
         ])
           keys.set(key.toBase58(), key);
       }
@@ -262,6 +267,18 @@ export async function readDuskOrders(options: {
           throw new Error('Invalid order market identity');
         let position: LeveragePosition | null = null;
         let positionBytes: Buffer | null = null;
+        let retiredHlp: { targetAsset: 0 | 1 } | undefined;
+        if (name === 'hlpOrder') {
+          const target = (account as Account<'hlpOrder'>).targetHlpMint;
+          if (!market.baseSide.hlpMint.equals(target) && !market.quoteSide.hlpMint.equals(target)) {
+            const proof = infos.get(hlpCohortAddress(account.market,target,dusk.program.programId)[0].toBase58());
+            if (!proof || proof.executable || !proof.owner.equals(dusk.program.programId))
+              throw new Error('Unknown hLP order cohort');
+            const cohort = dusk.program.coder.accounts.decode<HlpCohort>('hlpCohort',proof.data);
+            assertRetiredHlpCohort(cohort,account.market,target,dusk.program.programId);
+            retiredHlp = { targetAsset: cohort.targetAsset as 0 | 1 };
+          }
+        }
         if (name === 'leverageOrder') {
           const exit = account as Account<'leverageOrder'>;
           if (!exit.position.equals((raw as Account<'leverageOrder'>).position))
@@ -282,6 +299,7 @@ export async function readDuskOrders(options: {
               position.market,
               position.owner,
               position.positionId,
+              position.namespaceAuthority,
             );
             if (
               !positionKey.equals(exit.position) ||
@@ -305,6 +323,7 @@ export async function readDuskOrders(options: {
           position,
           unixTimestamp,
           slot,
+          ...(retiredHlp ? { retiredHlp } : {}),
         });
       }
     }
@@ -328,6 +347,7 @@ export async function readDuskOrders(options: {
   if (options.previewPayer)
     for (const row of hlp) {
       if (row.account.status !== 0) continue;
+      if (row.retiredHlp) { row.trigger = null; continue; }
       const targetAsset = row.market.baseSide.hlpMint.equals(
         row.account.targetHlpMint,
       )

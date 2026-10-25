@@ -95,7 +95,7 @@ export async function captureLeverageValuation(
     position.owner.toBase58() !== selection.owner ||
     ![0, 1].includes(position.debtAsset) ||
     !address.equals(
-      dusk.get.pda.leveragePosition(position.market, position.owner, position.positionId)[0],
+      dusk.get.pda.leveragePosition(position.market, position.owner, position.positionId, position.namespaceAuthority)[0],
     ) ||
     position.collateralAmount.isZero() ||
     position.debtShares.isZero()

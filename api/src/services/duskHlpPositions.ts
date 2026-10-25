@@ -25,6 +25,7 @@ export interface StreamedHlpBalance {
   side: 'base' | 'quote';
   hlpMint: string;
   amount: string;
+  retired?: boolean;
 }
 
 export interface StreamedLpBalance {
@@ -38,6 +39,8 @@ export interface HlpPosition {
   market: string;
   side: 'base' | 'quote';
   hlpMint: string;
+  /** Retired receipts retain yield but have no principal backing. */
+  retired?: boolean;
   /** Streamed wallet balance the withdrawal price was quoted for. */
   walletBalance: string;
   /** Shares escrowed by open stop orders; they still belong to the owner. */
@@ -59,11 +62,20 @@ export async function readStreamedHlpBalances(
   client: Pool | PoolClient = pool,
 ): Promise<{ balances: StreamedHlpBalance[]; lpBalances: StreamedLpBalance[]; sourceSlot: number }> {
   const pin = loadPinnedProtocol();
-  const result = await client.query<{ market: string; kind: string; lp_mint: string; amount: string }>(
-    `SELECT market,kind,lp_mint,amount::text FROM dusk_ingestion.streamed_lp_balances
-    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND owner=$5
-      AND kind IN ('ylp','base_hlp','quote_hlp') AND amount>0
-    ORDER BY market,kind`,
+  const result = await client.query<{ market: string; kind: string; lp_mint: string; amount: string; retired: boolean }>(
+    `SELECT b.market,b.kind,b.lp_mint,b.amount::text,
+      b.kind<>'ylp' AND b.lp_mint<>COALESCE((
+        SELECT e.payload->>'new_mint' FROM dusk_ingestion.streamed_events e
+        WHERE (e.cluster,e.program_id,e.idl_hash,e.protocol_revision)=(b.cluster,b.program_id,b.idl_hash,b.protocol_revision)
+          AND e.event_name='HlpCohortRotated' AND e.payload->>'market'=b.market
+          AND e.payload->>'target_asset'=CASE b.kind WHEN 'base_hlp' THEN '0' ELSE '1' END
+        ORDER BY e.slot DESC,e.observation_id DESC LIMIT 1),
+        CASE b.kind WHEN 'base_hlp' THEN m.base_hlp_mint ELSE m.quote_hlp_mint END) AS retired
+    FROM dusk_ingestion.streamed_lp_balances b
+    JOIN dusk_ingestion.streamed_markets m USING(cluster,program_id,idl_hash,protocol_revision,market)
+    WHERE b.cluster=$1 AND b.program_id=$2 AND b.idl_hash=$3 AND b.protocol_revision=$4 AND b.owner=$5
+      AND b.kind IN ('ylp','base_hlp','quote_hlp') AND b.amount>0
+    ORDER BY b.market,b.kind,b.lp_mint`,
     [pin.cluster, pin.dusk.programId, pin.dusk.idlCanonicalSha256, pin.revision, owner],
   );
   const stream = await readStreamCursor(client);
@@ -74,8 +86,9 @@ export async function readStreamedHlpBalances(
     return { market: row.market, kind: row.kind, lpMint: row.lp_mint, amount: row.amount };
   });
   return {
-    balances: lpBalances.filter((row) => row.kind !== 'ylp').map((row) => ({
-      market: row.market, side: row.kind === 'base_hlp' ? 'base' as const : 'quote' as const, hlpMint: row.lpMint, amount: row.amount,
+    balances: result.rows.filter((row) => row.kind !== 'ylp').map((row) => ({
+      market: row.market, side: row.kind === 'base_hlp' ? 'base' as const : 'quote' as const, hlpMint: row.lp_mint, amount: row.amount,
+      ...(row.retired ? { retired: true } : {}),
     })),
     lpBalances,
     sourceSlot: Number(stream.throughSlot),
@@ -92,12 +105,13 @@ export async function captureHlpPositions(
   preview: typeof previewDuskHlpOrderTrigger = previewDuskHlpOrderTrigger,
 ): Promise<HlpPosition[]> {
   const positions = new Map<string, Omit<HlpPosition, 'principalNavPerTokenNad' | 'sourceSlot'>>();
-  const entry = (market: string, side: 'base' | 'quote', hlpMint: string) => {
-    const key = `${market}:${side}`;
+  const entry = (market: string, side: 'base' | 'quote', hlpMint: string, retired = false) => {
+    const key = `${market}:${side}:${hlpMint}`;
     const current = positions.get(key) ?? {
       market,
       side,
       hlpMint,
+      ...(retired ? { retired: true } : {}),
       walletBalance: '0',
       protectedBalance: '0',
       hasStopLoss: false,
@@ -107,19 +121,19 @@ export async function captureHlpPositions(
     positions.set(key, current);
     return current;
   };
-  for (const holding of holdings) entry(holding.market, holding.side, holding.hlpMint).walletBalance = holding.amount;
+  for (const holding of holdings) entry(holding.market, holding.side, holding.hlpMint, holding.retired).walletBalance = holding.amount;
   for (const order of orders) {
     // Executed and cancelled orders stay open accounts only to settle yield.
     if (order.account.status !== 0) continue;
     const market = order.account.market.toBase58(),
       target = order.account.targetHlpMint;
-    const side = order.market.baseSide.hlpMint.equals(target)
+    const side = order.retiredHlp ? (order.retiredHlp.targetAsset === 0 ? 'base' : 'quote') : order.market.baseSide.hlpMint.equals(target)
       ? 'base'
       : order.market.quoteSide.hlpMint.equals(target)
         ? 'quote'
         : null;
     if (!side) throw new Error('Unknown hLP order vault');
-    const row = entry(market, side, target.toBase58());
+    const row = entry(market, side, target.toBase58(), !!order.retiredHlp);
     const escrowed = BigInt(row.protectedBalance) + BigInt(order.account.hlpAmount.toString());
     if (escrowed > U64_MAX) throw new Error('hLP escrow overflow');
     row.protectedBalance = escrowed.toString();
@@ -127,16 +141,21 @@ export async function captureHlpPositions(
     row.hasStopRate ||= order.account.kind === 2;
   }
   const result: HlpPosition[] = [];
-  for (const row of [...positions.values()].sort((a, b) => `${a.market}:${a.side}`.localeCompare(`${b.market}:${b.side}`))) {
+  for (const row of [...positions.values()].sort((a, b) => `${a.market}:${a.side}:${a.hlpMint}`.localeCompare(`${b.market}:${b.side}:${b.hlpMint}`))) {
+    if (row.retired) {
+      result.push({ ...row, principalNavPerTokenNad: '0', sourceSlot: minSlot });
+      continue;
+    }
     const total = BigInt(row.walletBalance) + BigInt(row.protectedBalance);
     if (total === 0n || total > U64_MAX || !payer) {
       result.push({ ...row, principalNavPerTokenNad: null, sourceSlot: minSlot });
       continue;
     }
-    const quote = await preview(dusk, new PublicKey(row.market), row.side === 'base' ? 0 : 1, total, payer, minSlot, undefined, signal);
+    const quote = await preview(dusk, new PublicKey(row.market), row.side === 'base' ? 0 : 1, total, payer, minSlot, undefined, signal, new PublicKey(row.hlpMint));
     result.push({
       ...row,
-      principalNavPerTokenNad: quote.value ? quote.value.principalNavPerTokenNad.toString() : null,
+      ...(quote.retired ? { retired: true } : {}),
+      principalNavPerTokenNad: quote.retired ? '0' : quote.value ? quote.value.principalNavPerTokenNad.toString() : null,
       sourceSlot: quote.slot,
     });
   }

@@ -196,6 +196,7 @@ export async function captureWalletSnapshot(
       position: row.raw.position?.toString('base64') ?? null,
       unixTimestamp: row.unixTimestamp.toString(),
       slot: row.slot,
+      ...(row.retiredHlp ? { retiredHlp: row.retiredHlp } : {}),
       entryMark: row.entryMark
         ? { ...row.entryMark, priceNad: row.entryMark.priceNad.toString() }
         : null,

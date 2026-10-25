@@ -1,3 +1,4 @@
+import { createSdkTestRuntime } from './duskSdkTestRuntime';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BorshAccountsCoder, BN } from '@coral-xyz/anchor';
@@ -8,7 +9,6 @@ import {
 } from '@solana/web3.js';
 import {
   createVirtualBookBoundary,
-  createVirtualBookRuntime,
   decodePreviewSwapReturnData,
 } from '../services/virtualBook/native';
 import { decodeDuskVirtualBookBatch, recoverExecutableVirtualBookQuotes, readDuskVirtualBookQuotes, unquotableAmount } from '../services/virtualBook/virtual-book-quotes';
@@ -122,7 +122,7 @@ const adaptFixture = (program: Dusk['program']) =>
 })());
 
 const setup = async () => {
-  const { dusk } = await createVirtualBookRuntime(
+  const { dusk } = await createSdkTestRuntime(
     new Connection('http://localhost:8899'),
   );
   await adaptFixture(dusk.program);

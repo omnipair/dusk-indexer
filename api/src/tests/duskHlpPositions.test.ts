@@ -60,3 +60,35 @@ test('without a preview payer the withdrawal price is unknown, and a foreign vau
   assert.equal(position.sourceSlot, 700);
   await assert.rejects(captureHlpPositions({} as Dusk, [], [order(displayKey(43), 1, 1)], payer, 700), /Unknown hLP order vault/);
 });
+
+test('active and retired receipts for the same side remain separate and retired principal is zero', async () => {
+  let calls = 0;
+  const retired = displayKey(43).toBase58();
+  const preview = (async () => { calls++; return { slot: 701, value: { principalNavPerTokenNad: new BN(1_000_000_000) } }; }) as unknown as Parameters<typeof captureHlpPositions>[6];
+  const positions = await captureHlpPositions({} as Dusk, [
+    { market: market.toBase58(), side: 'base', hlpMint: baseHlp.toBase58(), amount: '4' },
+    { market: market.toBase58(), side: 'base', hlpMint: retired, amount: '9', retired: true },
+  ], [], payer, 700, undefined, preview);
+  assert.equal(calls, 1);
+  assert.equal(positions.length, 2);
+  assert.equal(positions.find((row) => row.hlpMint === retired)?.principalNavPerTokenNad, '0');
+  assert.equal(positions.find((row) => row.hlpMint === baseHlp.toBase58())?.principalNavPerTokenNad, '1000000000');
+});
+
+test('rotation between discovery and preview cannot value old receipts against a new vault', async () => {
+  const preview = (async () => ({ slot: 702, value: null, retired: true })) as Parameters<typeof captureHlpPositions>[6];
+  const [position] = await captureHlpPositions({} as Dusk,
+    [{ market: market.toBase58(), side: 'base', hlpMint: baseHlp.toBase58(), amount: '4' }], [], payer, 700, undefined, preview);
+  assert.equal(position.retired, true);
+  assert.equal(position.principalNavPerTokenNad, '0');
+});
+
+test('open orders from a retired cohort preserve escrow ownership without quoting new principal', async () => {
+  const retiredOrder = order(displayKey(43), 7, 1);
+  retiredOrder.retiredHlp = { targetAsset: 0 };
+  const [position] = await captureHlpPositions({} as Dusk, [], [retiredOrder], payer, 700, undefined,
+    (async () => { throw new Error('retired principal must not preview'); }) as Parameters<typeof captureHlpPositions>[6]);
+  assert.equal(position.protectedBalance, '7');
+  assert.equal(position.retired, true);
+  assert.equal(position.principalNavPerTokenNad, '0');
+});

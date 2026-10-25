@@ -51,12 +51,25 @@ export async function readOwnerGovernanceSupports(
   client: Pool | PoolClient = pool,
 ): Promise<{ supports: GovernanceSupport[]; sourceSlot: number }> {
   const pin = loadPinnedProtocol();
-  const result = await client.query<{ event_name: string; payload: Record<string, unknown>; market: string }>(
-    `SELECT e.event_name,e.payload,c.payload->>'market' AS market
+  const result = await client.query<{ event_name: string; payload: Record<string, unknown>; market: string; delegated_creation: boolean }>(
+    `SELECT e.event_name,e.payload,c.payload->>'market' AS market,
+      EXISTS (SELECT 1 FROM dusk_ingestion.streamed_events g
+        JOIN dusk_ingestion.event_observations support_observation
+          ON (support_observation.cluster,support_observation.program_id,support_observation.idl_hash,
+              support_observation.protocol_revision,support_observation.observation_id)
+            =(g.cluster,g.program_id,g.idl_hash,g.protocol_revision,g.observation_id)
+        WHERE (g.cluster,g.program_id,g.idl_hash,g.protocol_revision)=(c.cluster,c.program_id,c.idl_hash,c.protocol_revision)
+          AND g.signature=c.signature AND g.event_name='GovernanceSupportChanged'
+          AND support_observation.instruction_path[1]=creation_observation.instruction_path[1]
+          AND g.payload->>'proposal'=c.payload->>'proposal') AS delegated_creation
     FROM dusk_ingestion.streamed_events e
     JOIN dusk_ingestion.streamed_events c
       ON (c.cluster,c.program_id,c.idl_hash,c.protocol_revision)=(e.cluster,e.program_id,e.idl_hash,e.protocol_revision)
       AND c.event_name='ParameterProposalCreated' AND c.payload->>'proposal'=e.payload->>'proposal'
+    JOIN dusk_ingestion.event_observations creation_observation
+      ON (creation_observation.cluster,creation_observation.program_id,creation_observation.idl_hash,
+          creation_observation.protocol_revision,creation_observation.observation_id)
+        =(c.cluster,c.program_id,c.idl_hash,c.protocol_revision,c.observation_id)
     WHERE e.cluster=$1 AND e.program_id=$2 AND e.idl_hash=$3 AND e.protocol_revision=$4
       AND ((e.event_name='ParameterProposalCreated' AND e.payload->>'proposer'=$5)
         OR (e.event_name IN ('ParameterProposalSupported','ParameterProposalSupportWithdrawn') AND e.payload->>'supporter'=$5)
@@ -70,7 +83,9 @@ export async function readOwnerGovernanceSupports(
     const proposal = String(row.payload.proposal),
       current = locked.get(proposal) ?? { market: row.market, direct: 0n, reusable: 0n };
     if (row.event_name === 'ParameterProposalCreated')
-      current.direct = amount(row.payload.initial_support);
+      // Delegated creation reports the proposal's aggregate reusable support;
+      // owner events from that same outer instruction give individual balances.
+      current.direct = row.delegated_creation ? 0n : amount(row.payload.initial_support);
     else if (row.event_name === 'ParameterProposalSupported')
       current.direct = amount(row.payload.supporter_locked);
     else if (row.event_name === 'GovernanceSupportChanged')

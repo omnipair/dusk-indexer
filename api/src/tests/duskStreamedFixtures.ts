@@ -15,14 +15,14 @@ export const fixtureMarket = { market: key(200),baseMint: key(206),quoteMint: ke
 let nextSlot = 900_100_000;
 /** One canonical streamed event, as the daemon writes it. */
 export async function streamedEvent(client: PoolClient,name: string,payload: Record<string,unknown>,slot = nextSlot++,time?: string,
-  identity: readonly string[] = streamedIdentity) {
-  const eventKey = createHash('sha256').update(randomUUID()).digest('hex'),signature = `fixture-${eventKey}`;
+  identity: readonly string[] = streamedIdentity,transactionSignature?: string,instructionPath: number[] = [0,1]) {
+  const eventKey = createHash('sha256').update(randomUUID()).digest('hex'),signature = transactionSignature ?? `fixture-${eventKey}`;
   const inserted = await client.query(`INSERT INTO dusk_ingestion.event_observations
     (cluster,program_id,idl_hash,protocol_revision,event_key,transaction_signature,instruction_path,event_ordinal,
       slot,blockhash,commitment,event_name,payload_hash,decoded_payload,source)
-    VALUES($1,$2,$3,$4,$5,$6,'{0,1}',0,$7,'unavailable:helius-atlas-ws','confirmed',$8,$9,$10,'disposable-integration-fixture')
+    VALUES($1,$2,$3,$4,$5,$6,$11,0,$7,'unavailable:helius-atlas-ws','confirmed',$8,$9,$10,'disposable-integration-fixture')
     RETURNING observation_id`,
-    [...identity,eventKey,signature,slot,name,createHash('sha256').update(JSON.stringify(payload)).digest('hex'),JSON.stringify(payload)]);
+    [...identity,eventKey,signature,slot,name,createHash('sha256').update(JSON.stringify(payload)).digest('hex'),JSON.stringify(payload),instructionPath]);
   await client.query(`INSERT INTO dusk_ingestion.canonical_events
     (cluster,program_id,idl_hash,protocol_revision,event_key,observation_id,commitment) VALUES($1,$2,$3,$4,$5,$6,'confirmed')`,
     [...identity,eventKey,inserted.rows[0].observation_id]);

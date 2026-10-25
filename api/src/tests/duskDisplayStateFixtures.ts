@@ -8,7 +8,7 @@ import {
   VersionedTransaction,
 } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, NATIVE_MINT } from '@solana/spl-token';
-import { createVirtualBookRuntime } from '../services/virtualBook/native';
+import { createSdkTestRuntime } from './duskSdkTestRuntime';
 import { mintAccount, tokenAccount } from './duskDisplayTokenFixtures';
 import type { DuskDeploymentEnvelope } from '../services/duskDeploymentService';
 import type { LeveragePosition, Market } from '@omnipair/dusk-sdk';
@@ -98,7 +98,7 @@ export async function displayFixture(
       };
     },
   };
-  const { dusk } = await createVirtualBookRuntime(
+  const { dusk } = await createSdkTestRuntime(
     connection as unknown as Connection,
   );
   const positionAddress = dusk.get.pda.leveragePosition(marketAddress, owner, id)[0];
@@ -118,6 +118,7 @@ export async function displayFixture(
     owner,
     market: marketAddress,
     positionId: id,
+    namespaceAuthority: owner,
     debtAsset: 1,
     debtShares: new BN(10),
     collateralAmount: new BN(100),
