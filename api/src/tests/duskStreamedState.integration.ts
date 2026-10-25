@@ -47,6 +47,23 @@ test('a leverage position carries its latest post-state and closes on its last e
   assert.equal(row.collateral_amount,'150','the last post-state is kept after close');
 }));
 
+test('PR45 liquidation settlement events update partial and closed leverage state',() => transaction(async client => {
+  const position = key(211),base = { market,position,owner,debt_asset_mint: key(206),collateral_asset_mint: key(207) };
+  await streamed(client,'LeveragePositionOpened',{ ...base,collateral_amount: '150',debt_amount: '70',debt_shares: '69',closeout_value: '80' });
+  const state = (collateral: string,shares: string,closed: boolean) => ({ owner,base_collateral: '0',quote_collateral: '0',
+    fixed_base_shares: '0',fixed_quote_shares: '0',global_health_base_contribution_for_quote_debt: '0',
+    global_health_quote_contribution_for_base_debt: '0',base_liquidation_cf_bps: '0',quote_liquidation_cf_bps: '0',
+    leverage_collateral_amount: collateral,leverage_debt_shares: shares,closed });
+  await streamed(client,'FlashLiquidationSettled',{ market,position,buyer: other,leverage: true,debt_asset: '1',
+    collateral_debit: '40',remaining_collateral: '110',remaining_debt: '30',position_state: state('110','29',false) });
+  let [row] = await rows(client,'streamed_leverage_positions');
+  assert.equal(row.open,true); assert.equal(row.collateral_amount,'110'); assert.equal(row.debt_amount,'30'); assert.equal(row.debt_shares,'29');
+  await streamed(client,'EmergencyLiquidationSettled',{ market,position,owner,caller: other,leverage: true,debt_asset: '1',
+    remaining_collateral: '0',remaining_debt: '0',position_state: state('0','0',true) });
+  [row] = await rows(client,'streamed_leverage_positions');
+  assert.equal(row.open,false); assert.equal(row.last_event,'EmergencyLiquidationSettled');
+}));
+
 test('a borrow position folds collateral, debt shares, auctions and closure from lending events',() => transaction(async client => {
   const position = key(220),health = { global_health_base_contribution_for_quote_debt: '5',global_health_quote_contribution_for_base_debt: '0',
     base_liquidation_cf_bps: '8000',quote_liquidation_cf_bps: '8500' };
@@ -75,6 +92,23 @@ test('a borrow position folds collateral, debt shares, auctions and closure from
   assert.equal((await rows(client,'streamed_borrow_positions'))[0].open,true,'a reopened position under the same id is open');
 }));
 
+test('PR45 liquidation settlement events update borrow post-state',() => transaction(async client => {
+  const position = key(221),health = { global_health_base_contribution_for_quote_debt: '5',
+    global_health_quote_contribution_for_base_debt: '0',base_liquidation_cf_bps: '8000',quote_liquidation_cf_bps: '8500' };
+  await streamed(client,'MarketCollateralDeposited',{ market,position,owner,base_collateral: '10',quote_collateral: '0',auction_debt_asset: '255',...health });
+  await streamed(client,'MarketDebtUpdated',{ market,position,owner,fixed_base_shares: '0',fixed_quote_shares: '7',auction_debt_asset: '255',...health });
+  const position_state = { owner,base_collateral: '4',quote_collateral: '0',fixed_base_shares: '0',fixed_quote_shares: '2',
+    ...health,global_health_base_contribution_for_quote_debt: '2',leverage_collateral_amount: '0',leverage_debt_shares: '0',closed: false };
+  await streamed(client,'FlashLiquidationSettled',{ market,position,buyer: other,leverage: false,debt_asset: '1',
+    remaining_collateral: '4',remaining_debt: '2',position_state });
+  let [row] = await rows(client,'streamed_borrow_positions');
+  assert.equal(row.open,true); assert.equal(row.base_collateral,'4'); assert.equal(row.fixed_quote_shares,'2');
+  await streamed(client,'EmergencyLiquidationSettled',{ market,position,owner,caller: other,leverage: false,debt_asset: '1',
+    remaining_collateral: '0',remaining_debt: '0',position_state: { ...position_state,base_collateral: '0',fixed_quote_shares: '0',closed: true } });
+  [row] = await rows(client,'streamed_borrow_positions');
+  assert.equal(row.open,false); assert.equal(row.last_event,'EmergencyLiquidationSettled');
+}));
+
 test('LP balances follow mints, burns and hook transfers per owner and mint',() => transaction(async client => {
   await createdMarket(client);
   await streamed(client,'LiquidityAdded',{ market,owner,ylp_amount: '1000' });
@@ -86,6 +120,19 @@ test('LP balances follow mints, burns and hook transfers per owner and mint',() 
   const balances = (await rows(client,'streamed_lp_balances','ORDER BY kind,owner'))
     .map(row => [row.kind,row.owner === owner ? 'owner' : 'other',row.amount]);
   assert.deepEqual(balances,[['quote_hlp','owner','30'],['ylp','owner','700'],['ylp','other','200']]);
+}));
+
+test('hLP cohort rotation assigns deposits and burns to the correct receipt mint',() => transaction(async client => {
+  await createdMarket(client);
+  const next = key(209);
+  await streamed(client,'HlpOpened',{ market,owner,asset_side: '0',hlp_amount: '50',ylp_amount: '50' });
+  await streamed(client,'HlpCohortRotated',{ market,target_asset: '0',retired_mint: baseHlp,new_mint: next,retired_supply: '50' });
+  await streamed(client,'HlpOpened',{ market,owner: other,asset_side: '0',hlp_amount: '20',ylp_amount: '20' });
+  await streamed(client,'LpTransferred',{ market,lp_mint: next,source_owner: other,destination_owner: owner,amount: '5' });
+  await streamed(client,'HlpRetiredReceiptBurned',{ market,owner,mint: baseHlp,amount: '10',remaining_supply: '40' });
+  const balances = (await rows(client,'streamed_lp_balances',"AND kind='base_hlp' ORDER BY lp_mint,owner"))
+    .map(row => [row.lp_mint,row.owner,row.amount]);
+  assert.deepEqual(balances,[[baseHlp,owner,'40'],[next,owner,'5'],[next,other,'15']]);
 }));
 
 test('swap snapshots join the created market decimals and latest state',() => transaction(async client => {

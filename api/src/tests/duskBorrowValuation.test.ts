@@ -100,6 +100,7 @@ async function fixture() {
     liquidationReferencePriceNad: new BN(1_000_000_000),
     liquidationHealthBps: new BN(9100),
     isLiquidatable: liquidatable,
+    maxRepayAmount: new BN(liquidatable ? 91 : 0),
     liquidationHealth: {
       collateralValue: new BN(700),
       debt: new BN(fixed),
@@ -152,7 +153,7 @@ test('a borrow valuation reads accrued debt, liquidation terms and distress from
   assert.deepEqual(valuation.quote, {
     fixedDebt: '91', collateralAmount: '500', collateralValueNad: '700', healthBps: '7700', maxCfBps: 6000,
     liquidationCfBps: 7000, liquidationReferencePriceNad: '1000000000', liquidationHealthBps: '9100',
-    isLiquidatable: true,
+    isLiquidatable: true, maxRepayAmount: '91',
     liquidationHealth: { collateralValue: '700', debt: '91', maintenanceBps: 700 },
     liquidationRates: { buyerDiscountBps: 500, emergencyRewardBps: 30 },
     liquidationDistress: { active: false, startedAt: '0', observedSlot: '0' },

@@ -44,6 +44,7 @@ export interface BorrowDebtSide {
   liquidationReferencePriceNad: string;
   liquidationHealthBps: string;
   isLiquidatable: boolean;
+  maxRepayAmount: string;
   liquidationHealth: {
     collateralValue: string;
     debt: string;
@@ -125,6 +126,7 @@ function side(preview: BorrowPositionPreview['baseDebt']): BorrowDebtSide {
     liquidationReferencePriceNad: preview.liquidationReferencePriceNad.toString(),
     liquidationHealthBps: preview.liquidationHealthBps.toString(),
     isLiquidatable: preview.isLiquidatable,
+    maxRepayAmount: preview.maxRepayAmount.toString(),
     liquidationHealth: {
       collateralValue: preview.liquidationHealth.collateralValue.toString(),
       debt: preview.liquidationHealth.debt.toString(),

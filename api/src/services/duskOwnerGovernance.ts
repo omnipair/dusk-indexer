@@ -51,11 +51,8 @@ export async function readOwnerGovernanceSupports(
   client: Pool | PoolClient = pool,
 ): Promise<{ supports: GovernanceSupport[]; sourceSlot: number }> {
   const pin = loadPinnedProtocol();
-  const result = await client.query<{ event_name: string; payload: Record<string, unknown>; market: string; reusable: boolean }>(
-    `SELECT e.event_name,e.payload,c.payload->>'market' AS market,
-      EXISTS (SELECT 1 FROM dusk_ingestion.streamed_events g
-        WHERE (g.cluster,g.program_id,g.idl_hash,g.protocol_revision)=(e.cluster,e.program_id,e.idl_hash,e.protocol_revision)
-          AND g.event_name='GovernanceSupportChanged' AND g.payload->>'proposal'=e.payload->>'proposal') AS reusable
+  const result = await client.query<{ event_name: string; payload: Record<string, unknown>; market: string }>(
+    `SELECT e.event_name,e.payload,c.payload->>'market' AS market
     FROM dusk_ingestion.streamed_events e
     JOIN dusk_ingestion.streamed_events c
       ON (c.cluster,c.program_id,c.idl_hash,c.protocol_revision)=(e.cluster,e.program_id,e.idl_hash,e.protocol_revision)
@@ -68,27 +65,27 @@ export async function readOwnerGovernanceSupports(
     ORDER BY e.slot,e.observation_id`,
     [pin.cluster, pin.dusk.programId, pin.dusk.idlCanonicalSha256, pin.revision, owner, market],
   );
-  const locked = new Map<string, { market: string; amount: bigint }>();
+  const locked = new Map<string, { market: string; direct: bigint; reusable: bigint }>();
   for (const row of result.rows) {
     const proposal = String(row.payload.proposal),
-      current = locked.get(proposal)?.amount ?? 0n;
-    if (row.event_name === 'ParameterProposalCreated' && row.reusable) continue;
-    const next = row.event_name === 'ParameterProposalCreated'
-      ? amount(row.payload.initial_support)
-      : row.event_name === 'ParameterProposalSupported'
-        ? amount(row.payload.supporter_locked)
-        : row.event_name === 'GovernanceSupportChanged'
-          ? amount(row.payload.owner_support)
-          : current - amount(row.payload.amount);
-    if (next < 0n) throw new Error('Governance support withdrawn beyond its lock');
-    locked.set(proposal, { market: row.market, amount: next });
+      current = locked.get(proposal) ?? { market: row.market, direct: 0n, reusable: 0n };
+    if (row.event_name === 'ParameterProposalCreated')
+      current.direct = amount(row.payload.initial_support);
+    else if (row.event_name === 'ParameterProposalSupported')
+      current.direct = amount(row.payload.supporter_locked);
+    else if (row.event_name === 'GovernanceSupportChanged')
+      current.reusable = amount(row.payload.owner_support);
+    else current.direct -= amount(row.payload.amount);
+    if (current.direct < 0n) throw new Error('Governance support withdrawn beyond its lock');
+    locked.set(proposal, current);
   }
   const stream = await readStreamCursor(client);
   if (!stream) throw Object.assign(new Error('The Dusk stream has not started'), { status: 503 });
   return {
     supports: [...locked.entries()]
-      .filter(([, value]) => value.amount > 0n)
-      .map(([proposal, value]) => ({ proposal, market: value.market, lockedAmount: value.amount.toString() }))
+      .filter(([, value]) => value.direct + value.reusable > 0n)
+      .map(([proposal, value]) => ({ proposal, market: value.market,
+        lockedAmount: (value.direct + value.reusable).toString() }))
       .sort((a, b) => a.market.localeCompare(b.market) || a.proposal.localeCompare(b.proposal)),
     sourceSlot: Number(stream.throughSlot),
   };

@@ -6,6 +6,7 @@ import { priceFixture } from './duskPriceFixtures';
 import { externalPriceTargets, fetchExternalPrices } from '../services/duskExternalPrices';
 import { parsePriceReferences } from '../services/duskPriceMath';
 import { loadPinnedProtocol } from '../config/duskProtocol';
+import { fixtureKey } from './duskYieldCheckpointFixtures';
 
 const parse = (name: string,changes = {},canonical = false) => parseActivityEvent(name,
   { ...activityPayload(name),...changes },String(activitySlot),canonical ? 'canonical-swap-events' : 'embedded-leverage-receipts');
@@ -37,6 +38,23 @@ test('margin includes closes and liquidation, but not collateral-only deposits o
   for (const delta of ['1000000','-1000000','0'])
     assert.equal(amount(parse('LeveragePositionUpdated',{ swap: null,borrowed_amount: '0',collateral_delta: delta }),'marginVolume'),undefined);
   assert.equal(amount(parse('LeveragePositionOpened',{ swap: null },true),'marginVolume'),'3000000000');
+});
+test('new liquidation settlements count leverage turnover and paid interest by market side',() => {
+  const common = { market: fixtureKey(20).toBase58(),leverage: true,debt_asset: '1' };
+  const flash = parseActivityEvent('FlashLiquidationSettled',{
+    ...common,collateral_debit: '400',loss: { interest_paid: '7' },
+  },String(activitySlot));
+  assert.deepEqual(flash.amounts,[
+    { metric: 'marginVolume',amount: '400',asset: { side: 0 } },
+    { metric: 'reportedInterest',amount: '7',asset: { side: 1 } },
+  ]);
+  const emergency = parseActivityEvent('EmergencyLiquidationSettled',{
+    ...common,quote: { collateral_debit: '500',loss: { interest_paid: '9' } },
+  },String(activitySlot));
+  assert.deepEqual(emergency.amounts,[
+    { metric: 'marginVolume',amount: '500',asset: { side: 0 } },
+    { metric: 'reportedInterest',amount: '9',asset: { side: 1 } },
+  ]);
 });
 
 const fixture = priceFixture();

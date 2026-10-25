@@ -121,13 +121,13 @@ test('governance supports fold a proposer\'s sponsorship, later supports and wit
   let result = await readOwnerGovernanceSupports(owner, null, client);
   assert.deepEqual(result.supports, [
     { proposal, market, lockedAmount: '35' },
-    { proposal: reusable, market, lockedAmount: '20' },
+    { proposal: reusable, market, lockedAmount: '45' },
     { proposal: elsewhere, market: key(242), lockedAmount: '30' },
   ].sort((a, b) => a.market.localeCompare(b.market)));
   assert.equal(result.sourceSlot, 900_500_000);
   await streamedEvent(client, 'ParameterProposalSupportWithdrawn', { proposal, supporter: owner, amount: '35', total_locked: '60', status: '0' });
   result = await readOwnerGovernanceSupports(owner, market, client);
-  assert.deepEqual(result.supports, [{ proposal: reusable, market, lockedAmount: '20' }]);
+  assert.deepEqual(result.supports, [{ proposal: reusable, market, lockedAmount: '45' }]);
   assert.deepEqual((await readOwnerGovernanceSupports(other, market, client)).supports, [{ proposal, market, lockedAmount: '60' }]);
   assert.deepEqual(await readStreamedMarketMints(market, client), { ylpMint: ylp, baseMint, quoteMint });
   assert.equal(await readStreamedMarketMints(key(242), client), null);

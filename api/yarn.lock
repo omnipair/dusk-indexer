@@ -213,7 +213,7 @@
 "@omnipair/dusk-sdk@file:vendor/dusk-sdk-2.14.2-devnet.20261025.tgz":
   version "2.14.2-devnet.20261025"
   resolved "file:vendor/dusk-sdk-2.14.2-devnet.20261025.tgz"
-  integrity sha512-H/yJUfLvWNhnpHY0Fi5QHGVdaJpPDmFpzIEnApxT7SWxGiUb9bUxkMAtAXvqhr6H34AcsRMBsPU6XbwrB+71lA==
+  integrity sha512-B2oVnXmUUHFzgnBdCK0fNBkfJi6nW+RUfrCRVZH51vVKQcNqTcLEoGgT0MDxCCWBV+Qfq+vsubn8/Vx0Gksy6Q==
   dependencies:
     "@coral-xyz/anchor" ">=0.30.0"
     "@solana/spl-token" "^0.4.0"
