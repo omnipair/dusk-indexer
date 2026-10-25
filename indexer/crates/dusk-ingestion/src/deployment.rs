@@ -201,7 +201,7 @@ mod tests {
             current.programs[0].idl.canonical_sha256
         );
         assert_eq!(historical.first_slot(), 515_007_664);
-        assert_eq!(current.programs[0].deployment.deploy_slot, 515_007_663);
+        assert_eq!(current.programs[0].deployment.deploy_slot, 515_029_010);
         assert_eq!(
             current.programs[0].binary.sha256,
             "b604aeb48e991c3ed8ac4ac707f42425fa049c31ddbfb2055d3d936b1f7b1541"
