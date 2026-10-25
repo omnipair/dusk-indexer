@@ -11,6 +11,8 @@ import { activityMarket, activityPayload, activitySlot, activityTime } from './d
 import { priceFixture } from './duskPriceFixtures';
 import { fixtureKey } from './duskYieldCheckpointFixtures';
 import { storeExternalPrices } from '../services/duskExternalPrices';
+import { deploymentIdentityFingerprint } from '../services/duskDeploymentService';
+import { historyDeploymentFixture } from './duskHistoryDeploymentFixtures';
 
 if (process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS !== 'true' || !process.env.DATABASE_URL)
   throw new Error('Set DUSK_ALLOW_DISPOSABLE_DB_TESTS=true and a disposable DATABASE_URL');
@@ -168,6 +170,30 @@ test('missing event-time evidence reports a backlog and a bad source rolls back 
   assert.equal(before.coverage.pendingEvents,'2'); assert.equal(before.coverage.projectionComplete,false);
   await rejectsAtSavepoint(client,() => projectMarketActivityBatch(client));
   assert.equal((await readMarketActivity(client,query)).events,0);
+}));
+
+test('pre-release captures and activity stay outside the active deployment epoch',() => transaction(async client => {
+  const staleBase = { ...historyDeploymentFixture(`fixture-stale-${randomUUID()}`),sourceSlot: pin.historyFirstSlot-1 };
+  const stale = { ...staleBase,deploymentIdentitySha256: deploymentIdentityFingerprint(staleBase) };
+  await client.query(`INSERT INTO dusk_ingestion.capture_deployments
+    (cluster,program_id,idl_hash,protocol_revision,deployment_identity_sha256,envelope)
+    VALUES($1,$2,$3,$4,$5,$6)`,[...active,stale.deploymentIdentitySha256,JSON.stringify(stale)]);
+  const key = await source(client,{ slot: pin.historyFirstSlot-1 });
+  await client.query(`INSERT INTO dusk_ingestion.market_activity_events
+    (cluster,program_id,idl_hash,protocol_revision,event_key,observation_id,event_name,market,signature,slot,blockhash,block_time,payload)
+    SELECT c.cluster,c.program_id,c.idl_hash,c.protocol_revision,c.event_key,c.observation_id,o.event_name,
+      o.decoded_payload->>'market',o.transaction_signature,o.slot,o.blockhash,s.time,o.decoded_payload
+    FROM dusk_ingestion.canonical_events c
+    JOIN dusk_ingestion.event_observations o USING(cluster,program_id,idl_hash,protocol_revision,event_key,observation_id)
+    JOIN dusk_ingestion.event_stream s USING(cluster,program_id,idl_hash,protocol_revision,event_key)
+    WHERE c.event_key=$1`,[key]);
+  await client.query('DELETE FROM dusk_ingestion.event_stream WHERE event_key=$1',[key]);
+  assert.equal(await projectMarketActivityBatch(client),0);
+  const deployment = historyDeploymentFixture(`fixture-current-${randomUUID()}`);
+  const view = await readMarketActivity(client,{ ...query,deployment,
+    deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
+  assert.equal(view.events,0); assert.equal(view.coverage.indexedEvents,'0');
+  assert.equal(view.coverage.pendingEvents,'0');
 }));
 
 test('contradictory event timestamps stop both projection and reads of a previously projected event',() => transaction(async (client) => {
