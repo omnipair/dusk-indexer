@@ -14,9 +14,12 @@ The current pin is `devnet-2026-10-25-296263d`, built from Dusk PR #45
 (`296263d0f4f34478b2701c32e337550a26aa3c4b`). Dusk was upgraded at
 finalized slot 515007663 and leverage delegate at slot 515001929. Both
 ProgramData accounts were dumped after deployment and matched the tested
-binaries byte for byte. After the devnet market reset, the same reviewed Dusk
-binary was restored at slot 515029010; `compatible-deployment.json` records that
-current executable without moving the event revision's original boundary. The
+binaries byte for byte. After the devnet market and vault reset, the reviewed
+Dusk binary was restored at slot 515039667. Its 3,493,688 artifact bytes match
+the on-chain executable prefix exactly; the larger ProgramData allocation ends
+with 24,864 zero bytes retained from the temporary cleanup upgrade.
+`compatible-deployment.json` records the full dumped executable without moving
+the event revision's original boundary. The
 preceding `devnet-2026-09-27-5644e5d` decoder is preserved under
 `protocol/archive/` for immutable historical reads.
 
