@@ -81,6 +81,7 @@ database/
 !database/migrations/047_dusk_streamed_governance.sql
 !database/migrations/048_dusk_reusable_governance.sql
 !database/migrations/049_dusk_pr45_event_folds.sql
+!database/migrations/050_dusk_position_cash_flows.sql
 !database/dusk-migrations.txt
 
 # Other language artifacts
