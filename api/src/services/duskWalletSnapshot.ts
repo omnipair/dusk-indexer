@@ -11,6 +11,7 @@ import { readDuskOrders } from './duskOrderCapture';
 import { type DuskReadBoundary } from './virtualBook/native';
 import { captureBorrowValuation, readStreamedBorrowPositions } from './duskBorrowValuation';
 import { captureHlpPositions, readStreamedHlpBalances } from './duskHlpPositions';
+import { readLeverageCashFlows } from './duskLeverageCashFlows';
 
 /** Publish only complete batches; retain original per-observation slots. */
 export async function completeBatch<T, R>(
@@ -49,6 +50,7 @@ export const walletCaptureDependencies = {
   borrowValuation: captureBorrowValuation,
   hlpBalances: readStreamedHlpBalances,
   hlpPositions: captureHlpPositions,
+  cashFlows: readLeverageCashFlows,
 };
 export async function captureWalletSnapshot(
   dusk: Dusk,
@@ -166,6 +168,15 @@ export async function captureWalletSnapshot(
   );
   if (JSON.stringify(accounts.accounts) !== JSON.stringify(verified.accounts))
     throw new Error('Wallet positions changed during capture');
+  const cashFlowPositions = accounts.accounts.flatMap(row => {
+    const p = dusk.program.coder.accounts.decode<LeveragePosition>('leveragePosition', Buffer.from(row.data,'base64'));
+    return p.collateralAmount.isZero() ? [] : [{address:row.address,market:p.market.toBase58(),
+      openedSlot:Number(p.openedSlot.toString()),marginRaw:p.marginAmount.toString(),
+      collateralRaw:p.collateralAmount.toString(),debtShares:p.debtShares.toString()}];
+  });
+  const cashFlows = await deps.cashFlows(owner,cashFlowPositions,deployment.sourceSlot).catch(() =>
+    cashFlowPositions.map(p => ({address:p.address,market:p.market,openedSlot:p.openedSlot,
+      sourceSlot:verified.sourceSlot,status:'unavailable' as const,reason:'history-unavailable' as const})));
   for (const value of valuations) {
     if ('status' in value) continue;
     const raw = accounts.accounts.find(
@@ -223,11 +234,12 @@ export async function captureWalletSnapshot(
     revision: randomUUID(),
     observedAt,
     expiresAt: observedAt + 15_000,
-    sourceSlot,
+    sourceSlot: Math.max(sourceSlot,...cashFlows.map(row=>row.sourceSlot)),
     verificationSlot: verified.sourceSlot,
     accounts,
     valuations,
     oracleValuations,
+    cashFlows,
     borrowValuations,
     lpBalances: { basis: 'streamed-events.v1' as const, sourceSlot: hlpBalances.sourceSlot, balances: hlpBalances.lpBalances },
     hlpPositions,

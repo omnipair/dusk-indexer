@@ -77,3 +77,39 @@ statistics coverage, SSE selection and shared subscriptions.
 
 Live hosted validation and signed transaction gates must be reported separately;
 unit and disposable-database results do not establish deployed stream behavior.
+
+
+## Leverage capital basis and history cutoffs
+
+Wallet snapshots add `cashFlows` for each positive-collateral leverage position,
+including debt-free positions. Canonical opening/update/liquidation events are
+read under one database snapshot and pinned protocol identity. The account's
+`openedSlot` identifies its generation; latest event post-state must match the
+observed account. Missing/lagging history, ambiguous same-slot reuse and
+contradictory state yield `status: "unavailable"` without hiding the position.
+No browser chain reads or new program accounts are needed.
+
+The `entry-margin-owner-flows.v1` basis starts at credited opening margin, adds
+subsequent gross `owner_debit`, and totals net `owner_credit` plus liquidation
+owner surplus. Keeper rewards are not owner capital flows. Marked equity plus
+withdrawals minus contributions is lifetime position PnL in debt tokens; it
+excludes network/order fees and does not alter the account's entry margin,
+liquidation health or protocol debt. The legacy oracle `pnlRaw` remains its
+entry-equity delta for rolling compatibility; consumers needing cash-flow
+adjusted PnL must use the explicit cash-flow basis. Migration 050 adds a scoped
+observation index; canonical rollback remains authoritative, with no separate
+contribution ledger to repair.
+
+Event, order and quote histories accept an upper cutoff up to 1,000 ms ahead
+of server time to tolerate small client clock skew. They retain the exact
+requested cutoff in cursor scope; clamping to a changing server clock would
+invalidate subsequent pages. Larger future cutoffs and malformed ranges remain
+invalid. This tolerance is not a claim of complete coverage through that time.
+
+Committed yield-growth decoding uses the SDK's `MARKET_LAYOUT_VERSION` (6 for
+this release), rejecting retired and future layouts. No program or IDL changes
+are introduced by these fixes.
+
+Local validation: 268 API unit tests and 102 rollback-only PostgreSQL integration
+tests pass, including canonical rollback, PDA reuse, contribution/withdrawal
+math, unknown-history fallback and stable cutoff cursor scope.

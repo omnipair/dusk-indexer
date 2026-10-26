@@ -6,6 +6,7 @@ import { loadPinnedProtocol } from '../config/duskProtocol';
 import { timedClientQuery } from '../utils/dbQuery';
 import { perfMetrics } from '../utils/perfMetrics';
 import { QuoteCache } from './duskQuoteCache';
+import { validHistoryUntil } from './duskHistoryTime';
 
 export const HISTORY_EVENTS = [
   'SwapExecuted', 'LiquidityAdded', 'LiquidityRemoved',
@@ -51,7 +52,7 @@ export function eventHistorySelection(query: EventHistoryQuery) {
   const supportedEvents = query.version === 2 ? HISTORY_EVENTS_V2 : HISTORY_EVENTS;
   if (!Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 500
     || !/^[0-9a-f]{64}$/.test(query.deploymentIdentitySha256)
-    || !Number.isFinite(Date.parse(query.until)) || Date.parse(query.until) > Date.now()
+    || !validHistoryUntil(Date.parse(query.until))
     || query.since !== undefined && (!Number.isFinite(Date.parse(query.since)) || Date.parse(query.since) > Date.parse(query.until))) invalid();
   if ((query.owner !== undefined) !== (query.category !== undefined)
     || query.category !== undefined && !['leverage-close', 'activity'].includes(query.category)

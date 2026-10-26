@@ -77,6 +77,8 @@ async function fixture() {
     f.deployment,
   );
   const deps: typeof walletCaptureDependencies = {
+    cashFlows: async (_owner, positions, sourceSlot) => positions.map(p=>({address:p.address,market:p.market,
+      openedSlot:p.openedSlot,sourceSlot,status:'unavailable',reason:'history-unavailable'})),
     accounts: async () => accounts,
     oracle: async (_dusk, rows, deployment) => rows.map(row => ({
       address: row.address, market: f.marketAddress.toBase58(), sourceSlot: deployment.sourceSlot,
@@ -172,6 +174,15 @@ test('an incomplete oracle batch cannot be published as a complete wallet frame'
   const f = await fixture();
   f.deps.oracle = async () => [];
   await assert.rejects(f.capture(), /oracle valuation batch is incomplete/);
+});
+
+test('cash-flow history failure leaves positions and debt available with explicit unknown PnL', async () => {
+  const f = await fixture();
+  f.deps.cashFlows = async () => {throw new Error('history database unavailable');};
+  const batch = await f.capture();
+  assert.equal(batch.accounts.accounts.length,1);
+  assert.equal(batch.valuations.length,1);
+  assert.equal(batch.cashFlows[0].status,'unavailable');
 });
 
 test('wallet frames value streamed borrow positions at or after the stream and cover every preview slot', async () => {

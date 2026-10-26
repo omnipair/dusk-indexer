@@ -30,3 +30,4 @@
 047_dusk_streamed_governance.sql
 048_dusk_reusable_governance.sql
 049_dusk_pr45_event_folds.sql
+050_dusk_position_cash_flows.sql

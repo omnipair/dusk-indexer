@@ -4,6 +4,7 @@ import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
 import { readStreamCursor } from './duskHistoryCoverage';
+import { validHistoryUntil } from './duskHistoryTime';
 
 export const CLOSED_ORDER_INSTRUCTIONS = [
   'cancel_leverage_order','after_close_order',
@@ -17,7 +18,7 @@ type Cursor = { scope: string; watermark: string; slot: string; key: string };
 export function orderHistorySelection(query: OrderHistoryQuery) {
   const pin = loadPinnedProtocol();
   if (!Number.isSafeInteger(query.limit) || query.limit<1 || query.limit>100 || !/^[0-9a-f]{64}$/.test(query.deploymentIdentitySha256)
-    || !Number.isFinite(Date.parse(query.until)) || Date.parse(query.until)>Date.now()) invalid();
+    || !validHistoryUntil(Date.parse(query.until))) invalid();
   for (const address of [query.owner,...(query.market ? [query.market] : [])]) {
     try { if (new PublicKey(address).toBase58() !== address) invalid(); } catch { invalid(); }
   }
