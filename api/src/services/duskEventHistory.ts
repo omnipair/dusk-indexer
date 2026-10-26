@@ -113,7 +113,8 @@ export function buildEventHistoryQuery(query: EventHistoryQuery, watermark: stri
   if (query.category === 'leverage-close')
     conditions.push(`(o.event_name IN ('LeveragePositionClosed','LeveragePositionLiquidated')
       OR (o.event_name IN ('FlashLiquidationSettled','EmergencyLiquidationSettled')
-        AND (o.decoded_payload->>'leverage')::boolean))`);
+        AND (o.decoded_payload->>'leverage')::boolean
+        AND (o.decoded_payload->'position_state'->>'closed')::boolean))`);
   if (window.market) conditions.push(`o.decoded_payload->>'market'=${bind(window.market)}`);
   if (cursor) conditions.push(`(o.slot,o.event_key)<(${bind(cursor.slot)}::bigint,${bind(cursor.key)}::text)`);
   const actor = 'dusk_ingestion.event_history_actor(o.event_name,o.decoded_payload)';
