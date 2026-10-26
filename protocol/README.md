@@ -42,3 +42,20 @@ canonical interfaces. The SDK archive SHA-256 is
 `186c3d85c5a733da446c6f00301fefd0f36170336f1d8f4fdc9807ffc8c16d8c`.
 Fresh cursors start under the new protocol identity; existing observations keep
 their recorded revisions and source bytes.
+
+## Compatible E2E repair upgrade — 27 October 2026
+
+Dusk PR #45 commit `9c981263e0aa0f003fd0e96e3f004c927fcf01a4`
+was upgraded under the same program ID at finalized slot `515387473`.
+It bounds emergency recovery proofs and permits concentrated-market
+reseeding after the last external yLP withdrawal. Accounts, instructions,
+events and both canonical IDL hashes are unchanged. The original protocol
+lock and event-history revision remain intact; `compatible-deployment.json`
+records the new executable for current captures and response envelopes.
+
+The verified 3,519,760-byte tested payload hashes to
+`cf80baeecd12ab3438cd347deaa19dde8b830f36d54f08a55d5aab572914fe7d`.
+The on-chain allocation adds 9,032 zero padding bytes, for 3,528,792 bytes
+and SHA-256 `46167c8e248c676e77641e339aadfc300a5515149d7bad8a9f5cfc101b6c7851`.
+The upgrade authority is unchanged. The leverage delegate and SDK archive
+are unchanged; no consumer interface migration or new market is required.
