@@ -110,6 +110,13 @@ Committed yield-growth decoding uses the SDK's `MARKET_LAYOUT_VERSION` (6 for
 this release), rejecting retired and future layouts. No program or IDL changes
 are introduced by these fixes.
 
-Local validation: 268 API unit tests and 102 rollback-only PostgreSQL integration
+Local validation: 268 API unit tests and 103 rollback-only PostgreSQL integration
 tests pass, including canonical rollback, PDA reuse, contribution/withdrawal
 math, unknown-history fallback and stable cutoff cursor scope.
+
+
+Closed-position selection requires `position_state.closed` for flash/emergency
+settlements, as well as leverage ownership, before pagination. Partial recovery
+remains activity and does not masquerade as a fully closed position. The
+companion webapp recognizes both settlement events without inventing an AMM
+swap receipt for an external fill.
