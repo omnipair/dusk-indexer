@@ -201,10 +201,10 @@ mod tests {
             current.programs[0].idl.canonical_sha256
         );
         assert_eq!(historical.first_slot(), 515_117_217);
-        assert_eq!(current.programs[0].deployment.deploy_slot, 515_387_473);
+        assert_eq!(current.programs[0].deployment.deploy_slot, 515_502_278);
         assert_eq!(
             current.programs[0].binary.sha256,
-            "46167c8e248c676e77641e339aadfc300a5515149d7bad8a9f5cfc101b6c7851"
+            "d7eb11e277e4b215e0215fb926b353e145aac8452adc61adcbbbb432cffd71b9"
         );
     }
     #[test]

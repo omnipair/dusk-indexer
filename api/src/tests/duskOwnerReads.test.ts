@@ -51,7 +51,7 @@ test('owner governance reports streamed supports and, for one market, its yLP yi
     deriveYieldAccountAddress(new PublicKey(market), new PublicKey(owner), new PublicKey(mints.ylpMint), new PublicKey(asset), 'ylp', f.dusk.program.programId)[0].toBase58());
   // A yield account created at the old, shorter layout must be grown first.
   accounts.set(baseYield, { owner: f.dusk.program.programId, executable: false, lamports: 1, data: Buffer.alloc(234) });
-  const supports = [{ proposal: displayKey(70).toBase58(), market, lockedAmount: '25' }];
+  const supports = [{ proposal: displayKey(70).toBase58(), market, lockedAmount: '25', directAmount: '25', reusableAmount: '0' }];
   const deps: typeof ownerGovernanceDependencies = {
     supports: async (selectedOwner, selectedMarket) => {
       assert.equal(selectedOwner, owner);
@@ -59,6 +59,7 @@ test('owner governance reports streamed supports and, for one market, its yLP yi
       return { supports, sourceSlot: 3001 };
     },
     marketMints: async () => mints,
+    reusable: async () => ({ balances: [], allocations: [], sourceSlot: 3001 }),
   };
   const result = await captureOwnerGovernance(f.dusk, { owner, market }, deployment, undefined, deps);
   assert.equal(result.schemaVersion, 'dusk-owner-governance.v1');

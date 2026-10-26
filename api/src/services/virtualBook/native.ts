@@ -60,6 +60,10 @@ export const deriveBorrowPositionAddress: Sdk['deriveBorrowPositionAddress'] = (
 export const deriveYieldAccountAddress: Sdk['deriveYieldAccountAddress'] = (
   ...args
 ) => sdkExports!.deriveYieldAccountAddress(...args);
+export const deriveGovernanceBalanceAddress: Sdk['deriveGovernanceBalanceAddress'] = (...args) =>
+  sdkExports!.deriveGovernanceBalanceAddress(...args);
+export const deriveGovernanceSupportAddress: Sdk['deriveGovernanceSupportAddress'] = (...args) =>
+  sdkExports!.deriveGovernanceSupportAddress(...args);
 export const minimumDuskReadSlot = (deployment: DuskDeploymentEnvelope) =>
   Math.max(
     Number(deployment.programDataSlot),

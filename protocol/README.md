@@ -59,3 +59,7 @@ The on-chain allocation adds 9,032 zero padding bytes, for 3,528,792 bytes
 and SHA-256 `46167c8e248c676e77641e339aadfc300a5515149d7bad8a9f5cfc101b6c7851`.
 The upgrade authority is unchanged. The leverage delegate and SDK archive
 are unchanged; no consumer interface migration or new market is required.
+
+### Empty-market preview follow-up, 2026-10-27
+
+Commit `77877d576018fd2bd8191d13f05534b0484e2282` fixes previews after all external liquidity exits. It was upgraded at finalized slot `515502278`. The payload is 3,519,968 bytes plus 8,824 zero padding bytes; the full allocated executable hashes to `d7eb11e277e4b215e0215fb926b353e145aac8452adc61adcbbbb432cffd71b9`. Program IDs, authority, IDL, SDK package and event revision are unchanged. Historical deployment boundaries remain intact.

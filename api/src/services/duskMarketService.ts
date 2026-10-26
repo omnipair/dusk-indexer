@@ -455,6 +455,7 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
     label: `${addresses.baseMint.slice(0, 4)}/${addresses.quoteMint.slice(0, 4)}`,
     marketKind: marketKindFromConfig(config),
     marketAddress: market.toBase58(),
+    liquidityStatus: field(field(marketAccount, 'amm'), 'initialized') === true ? 'active' : 'empty',
     ...addresses,
     tokenMetadata: { schemaVersion: 'dusk-token-labels.v1',sourceSlot,
       base: snapshotTokenMetadata(snapshot,addresses.baseMint),quote: snapshotTokenMetadata(snapshot,addresses.quoteMint) },
