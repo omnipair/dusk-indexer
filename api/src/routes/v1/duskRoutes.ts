@@ -1,5 +1,6 @@
 import { currentPayload, payloadSelection } from '../../services/duskPayloads';
 import { openVirtualBookStream } from '../../services/duskSnapshotStream';
+import { currentLeverageMaximum } from '../../services/duskLeverageMaximum';
 /**
  * Dusk read API.
  *
@@ -75,6 +76,16 @@ router.get(
     res.json(snapshot);
   }),
 );
+
+router.post('/previews/leverage-maximum', asyncRoute(async (req,res) => {
+  const controller = new AbortController();
+  res.once('close',() => { if (!res.writableEnded) controller.abort(); });
+  const result = await currentLeverageMaximum(req.body,controller.signal);
+  if (!controller.signal.aborted) {
+    res.setHeader('Cache-Control','no-store');
+    res.json(result);
+  }
+}));
 
 router.get('/payloads', asyncRoute(openDuskPayloadStream));
 
