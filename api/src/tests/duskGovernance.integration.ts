@@ -46,7 +46,7 @@ test('direct creation retains its support when a later outer instruction adds re
   await streamedEvent(client,'GovernanceSupportChanged',{ proposal,market,owner,owner_support: '20' },
     creation.slot,undefined,streamedIdentity,creation.signature,[4,1]);
   const result = await readOwnerGovernanceSupports(owner,market,client);
-  assert.deepEqual(result.supports,[{ proposal,market,lockedAmount: '70' }]);
+  assert.deepEqual(result.supports,[{ proposal,market,lockedAmount: '70',directAmount: '50',reusableAmount: '20' }]);
 }));
 
 test('a proposal carries its creation terms, latest totals and lifecycle times',() => transaction(async client => {
