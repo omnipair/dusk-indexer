@@ -23,7 +23,7 @@ same form input for its existing 15-second validity, avoiding a second automatic
 preview after Max changes the slider.
 
 Financial state is not cached. The browser may reuse account setup/address plans
-for five seconds, bounded to 16 entries per SDK program. Native-SOL funding is
+for ten seconds, bounded to 16 entries per SDK program. Native-SOL funding is
 amount-dependent and excluded. Each new amount rewrites both margin and leverage,
 each financial quote runs a fresh execution check, own confirmed mutations change
 the cache scope, and setup failures invalidate the cached plan.
