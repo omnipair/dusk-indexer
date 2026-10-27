@@ -25,7 +25,7 @@ test('exact pinned SBF searches one coherent concentrated bank without committin
   assert.deepEqual(searchFrozenLeverageMaximum(f.input,f.bank,idl,binary()),f.expected);
   assert.deepEqual(searchFrozenLeverageMaximum(f.input,f.bank,idl,binary()),f.expected);
   assert.equal(hash,createHash('sha256').update(JSON.stringify(f.bank)).digest('hex'));
-  assert.equal(f.expected.multiplierBps,'52100'); assert.ok(f.expected.candidates < 13);
+  assert.equal(f.expected.multiplierBps,'52200'); assert.ok(f.expected.candidates < 13);
 });
 test('parser binds the full unsigned preview to owner, margin, market, debt side and floor',() => {
   const f = fixture(); assert.equal(parseLeverageMaximumInput(f.input,idl).parsed.entryIndex,2);

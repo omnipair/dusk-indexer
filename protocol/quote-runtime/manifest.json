@@ -5,5 +5,6 @@
   "payloadSha256": "21e3f3c4dd3e0e5b4fad85f69e0bae702b1209ab4fe1820f6bc86e81408d07ed",
   "payloadBytes": 3519968,
   "allocatedBinaryBytes": 3528792,
-  "sourceCommit": "77877d576018fd2bd8191d13f05534b0484e2282"
+  "sourceCommit": "77877d576018fd2bd8191d13f05534b0484e2282",
+  "featureSetSha256": "84956b860fe38fdeb69b3d65e8e2e88352a12a40a00dd35a5253309e411626e8"
 }

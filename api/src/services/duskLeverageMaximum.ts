@@ -1,12 +1,12 @@
 /** One bank capture, local native search, then a caller-side fresh execution check. */
-import { Connection, ComputeBudgetProgram, PublicKey, SYSVAR_CLOCK_PUBKEY, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
+import { Connection, ComputeBudgetProgram, PublicKey, SYSVAR_CLOCK_PUBKEY, SYSVAR_RENT_PUBKEY, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import { createHash } from 'node:crypto';
 import { fork } from 'node:child_process';
 import { resolve } from 'node:path';
 import { duskApiConfig } from '../config/duskProtocol';
 import { deploymentEnvelope } from './duskDeploymentService';
 import { duskRawIdl } from './duskMarketSimulation';
-import { FrozenLeverageBank, LeverageMaximumInput, parseLeverageMaximumInput, quoteRuntimeBytes } from './duskLeverageMaximumEngine';
+import { FrozenLeverageBank, LeverageMaximumInput, parseLeverageMaximumInput, quoteRuntimeBytes } from './duskLeverageMaximumInput';
 
 const UPGRADEABLE = 'BPFLoaderUpgradeab1e11111111111111111111111';
 let inFlight = 0;
@@ -19,6 +19,7 @@ const digest = (value: Uint8Array) => createHash('sha256').update(value).digest(
 export async function captureLeverageQuoteBank(input: LeverageMaximumInput, keys: PublicKey[], payer: string, rpc: Connection): Promise<FrozenLeverageBank> {
   const unique = new Map(keys.map((key) => [key.toBase58(),key]));
   unique.set(SYSVAR_CLOCK_PUBKEY.toBase58(),SYSVAR_CLOCK_PUBKEY);
+  unique.set(SYSVAR_RENT_PUBKEY.toBase58(),SYSVAR_RENT_PUBKEY);
   const addresses = [...unique.values()];
   if (addresses.length > 96) throw fail('Quote account limit exceeded',400);
   // The preview payer may itself trade. In that case use a read-only batch,
@@ -142,7 +143,7 @@ export function runLeverageMaximumProcess(input: LeverageMaximumInput,bank: Froz
       const cleanup = () => { clearTimeout(timer); signal?.removeEventListener('abort',abort); };
       worker.once('message',(value: Record<string,unknown>) => finish(undefined,value));
       worker.once('error',(error) => finish(error));
-      worker.once('exit',() => finish(fail('Native quote worker stopped')));
+      worker.once('exit',(code,signal) => { if (!settled) console.error('Native leverage evaluator stopped',{ code,signal }); finish(fail('Native quote worker stopped')); });
       worker.send({ input,bank,idl,programId: programId,binarySha256: binarySha256 },(error) => { if (error) finish(error); });
       if (signal?.aborted) abort();
     });

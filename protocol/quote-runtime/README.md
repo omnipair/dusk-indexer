@@ -6,6 +6,11 @@
 allocation hash against `compatible-deployment.json`. A future Dusk deployment
 must update these artifacts together; a mismatched runtime refuses quotes.
 
+The preview adapter uses LiteSVM 1.6.1 in a separate process. The hashed feature
+snapshot retains the 220 features used by Dusk’s strict offline runtime; the
+request’s Clock and Rent sysvars come from the captured bank. Offline parity
+fixtures retain their original test-runtime Rent alongside their account data.
+
 The API accepts only an unsigned SDK leverage-open preview, captures one complete
 confirmed account bank and matching Clock, and searches the 0.01x grid using that
 program. It loads captured CPI executable bytes and keeps every simulation

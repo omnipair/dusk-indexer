@@ -36,7 +36,7 @@ ENV NODE_ENV=production
 ENV DUSK_PROTOCOL_DIR=/app/protocol
 # Exercise the platform-specific native addon and the pinned executable in the
 # actual runtime image, before a preview service can be released.
-RUN node -e 'const p=require("./dist/config/duskProtocol").loadCurrentProtocol(); const b=require("./dist/services/duskLeverageMaximumEngine").quoteRuntimeBytes(p.dusk.programId,p.dusk.binarySha256); new (require("litesvm").LiteSVM)().addProgram(new (require("@solana/web3.js").PublicKey)(p.dusk.programId),b)'
+RUN node -e 'const p=require("./dist/config/duskProtocol").loadCurrentProtocol(); const b=require("./dist/services/duskLeverageMaximumEngine").quoteRuntimeBytes(p.dusk.programId,p.dusk.binarySha256); new (require("litesvm").LiteSVM)().addProgram(require("@solana/kit").address(p.dusk.programId),b)'
 
 EXPOSE 3000
 CMD ["node", "dist/index.js"]
