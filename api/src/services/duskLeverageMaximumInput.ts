@@ -15,6 +15,8 @@ export interface LeverageMaximumInput {
   transaction: string; owner: string; market: string;
   debtAsset: 'base' | 'quote'; marginAmount: string;
   minimumSourceSlot: number; deploymentIdentitySha256: string;
+  /** Invert a target size at the user's fixed leverage, in raw token units. */
+  size?: { amount: string; kind: 'collateral' | 'notional'; multiplierBps: string };
 }
 export interface ParsedLeverageMaximum {
   transaction: VersionedTransaction; entryIndex: number;
@@ -37,6 +39,9 @@ export function parseLeverageMaximumInput(value: unknown, idl: Idl): { input: Le
     || transaction.signatures.some((signature) => signature.some((byte) => byte !== 0))
     || message.header.numRequiredSignatures !== 1 || message.staticAccountKeys[0].toBase58() !== v.owner
     || message.compiledInstructions.length > 12) throw new Error('Expected a bounded unsigned preview');
+  if (v.size && (!/^[1-9][0-9]{0,19}$/.test(v.size.amount) || BigInt(v.size.amount) > (1n<<64n)-1n
+    || !['collateral','notional'].includes(v.size.kind) || !/^[1-9][0-9]{0,6}$/.test(v.size.multiplierBps)
+    || BigInt(v.size.multiplierBps) < 10100n || BigInt(v.size.multiplierBps) % 100n !== 0n)) throw new Error('Invalid fixed-leverage size');
   const clientIdl = convertIdlToCamelCase(idl);
   const coder = new BorshInstructionCoder(clientIdl), programId = idl.address;
   let budgets = 0;
@@ -65,13 +70,14 @@ export function parseLeverageMaximumInput(value: unknown, idl: Idl): { input: Le
     if (!key) throw new Error('Missing leverage preview account');
     return key.toBase58();
   };
-  if (String(args.marginAmount) !== v.marginAmount || String(args.multiplierBps) !== '10100' || Number(args.debtAsset) !== (v.debtAsset === 'base' ? 0 : 1)
+  if (String(args.marginAmount) !== v.marginAmount || String(args.multiplierBps) !== (v.size?.multiplierBps ?? '10100') || Number(args.debtAsset) !== (v.debtAsset === 'base' ? 0 : 1)
     || args.referrer !== null || args.positionOwner !== null || String(args.minCollateralOut) !== '0' || String(args.limitPriceNad) !== '0'
     || named('market') !== v.market || named('owner') !== v.owner || named('payer') !== v.owner) throw new Error('Leverage preview selection mismatch');
   const rawMaximum = idl.constants?.find((constant) => constant.name === 'LEVERAGE_MAX_MULTIPLIER_BPS')?.value;
   if (!rawMaximum || !/^\d+$/.test(rawMaximum)) throw new Error('Missing native leverage limit');
   const maximumGrid = Number(rawMaximum)/100;
   if (!Number.isSafeInteger(maximumGrid) || maximumGrid < 101 || maximumGrid > 10000) throw new Error('Invalid native leverage limit');
+  if (v.size && BigInt(v.size.multiplierBps) > BigInt(rawMaximum)) throw new Error('Invalid fixed leverage');
   return { input: v as LeverageMaximumInput, parsed: { transaction,entryIndex: entry.index,args,maximumGrid } };
 }
 

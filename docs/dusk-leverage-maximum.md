@@ -29,3 +29,30 @@ each financial quote runs a fresh execution check, own confirmed mutations chang
 the cache scope, and setup failures invalidate the cached plan.
 
 See `protocol/quote-runtime/README.md` for runtime identity and metering limits.
+
+## Fixed-leverage size input
+
+The same endpoint additionally accepts `size: { amount, kind, multiplierBps }`.
+`amount` is a positive raw u64, `kind` is `collateral` (tokens bought by a long)
+or `notional` (tokens sold by a short), and the transaction's multiplier must
+exactly equal `size.multiplierBps`. The size search changes margin only. It
+returns `kind: size`, raw `marginAmount`, achieved `sizeAmount`, the unchanged
+multiplier, and the same bank/message/deployment bindings. A capacity rejection
+never silently lowers leverage. The bounded native evaluator executes all
+candidates against the original bank and decodes actual position receipts,
+including transfer fees, concentration, hLP adjustments and integer rounding.
+Native SOL candidates resize wrapping as well; the browser rebuilds its final
+SDK funding plan for the calculated margin before its one fresh RPC check.
+
+The browser requests maximum capacity automatically when debounced collateral
+changes. This indexer-only capacity hint sets the slider's current upper limit;
+it does not simulate another entry or change the selected leverage. Max is an
+explicit user action. Stream ticks, focus and timers do not request previews.
+Required margin and the entry receipt still expire and require explicit refresh
+before submission. The IDL's absolute ceiling remains enforced by the program;
+the trading form does not present it as available leverage.
+
+Validation: native round-trip size checks cover both debt directions, CPMM and
+concentrated curves, transfer fees, both hLP vaults, and compounding. The devnet
+fixture needs 76,517,341 raw margin for at least 1,000,000,000 raw collateral at
+3.5x; one less raw margin falls short. Unreachable sizes reject at fixed leverage.

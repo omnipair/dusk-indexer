@@ -9,7 +9,7 @@ import { convertIdlToCamelCase } from '@coral-xyz/anchor/dist/cjs/idl';
 import { Connection, PublicKey, SYSVAR_CLOCK_PUBKEY, VersionedTransaction } from '@solana/web3.js';
 import { duskRawIdl } from '../services/duskMarketSimulation';
 import { captureLeverageQuoteBank, quoteRpcFetch, runLeverageMaximumProcess } from '../services/duskLeverageMaximum';
-import { FrozenLeverageBank, LeverageMaximumInput, parseLeverageMaximumInput, quoteRuntimeBytes, searchFrozenLeverageMaximum } from '../services/duskLeverageMaximumEngine';
+import { FrozenLeverageBank, LeverageMaximumInput, parseLeverageMaximumInput, quoteRuntimeBytes, searchFrozenLeverageMaximum, searchFrozenLeverageSize, quoteFrozenLeverageEntry } from '../services/duskLeverageMaximumEngine';
 const idl = duskRawIdl();
 const pin = JSON.parse(readFileSync(resolve(__dirname,'../../../protocol/compatible-deployment.json'),'utf8'));
 const fixture = () => JSON.parse(gunzipSync(readFileSync(resolve(__dirname,'../../src/tests/fixtures/leverage-maximum-devnet.json.gz'))).toString()) as {
@@ -105,4 +105,39 @@ test('economic capacity matches the independent protocol runtime with both hLP v
     const bank = { ...f.bank,accounts: [...f.bank.accounts,...suite.commonAccounts] };
     assert.deepEqual(searchFrozenLeverageMaximum(f.input,bank,idl,binary()),f.expected,f.name);
   }
+});
+
+function sizeInput(input: LeverageMaximumInput, amount: string,kind: 'collateral' | 'notional', multiplierBps = '35000') {
+  const tx = VersionedTransaction.deserialize(Buffer.from(input.transaction,'base64'));
+  const parsed = parseLeverageMaximumInput(input,idl).parsed,coder = new BorshInstructionCoder(convertIdlToCamelCase(idl));
+  tx.message.compiledInstructions[parsed.entryIndex].data = coder.encode('openLeverage',{ args: { ...parsed.args,multiplierBps: new BN(multiplierBps) } });
+  return { ...input,transaction: Buffer.from(tx.serialize()).toString('base64'),size: { amount,kind,multiplierBps } };
+}
+test('fixed leverage size inversion finds the minimum raw margin, accounting for concentrated execution',() => {
+  const f = fixture(),input = sizeInput(f.input,'1000000000','collateral');
+  const result = searchFrozenLeverageSize(input,f.bank,idl,binary());
+  assert.equal(result.multiplierBps,'35000'); assert.equal(result.marginAmount,'76517341');
+  assert.equal(result.sizeAmount,'1000000001'); assert.ok(result.candidates < 40);
+  const previous = quoteFrozenLeverageEntry(input,f.bank,idl,binary(),'35000',String(BigInt(result.marginAmount)-1n));
+  assert.ok(previous.collateral < 1000000000n);
+  assert.throws(() => parseLeverageMaximumInput({ ...input,size: { ...input.size,multiplierBps: '35001' } },idl));
+  assert.throws(() => parseLeverageMaximumInput({ ...input,size: { ...input.size,amount: '18446744073709551616' } },idl));
+});
+test('size inversion preserves both debt directions, Token-2022 fees, concentration and both hLP vaults',() => {
+  const suite = JSON.parse(gunzipSync(readFileSync(resolve(__dirname,'../../src/tests/fixtures/leverage-maximum-parity.json.gz'))).toString());
+  for (const f of suite.fixtures as { name: string; input: LeverageMaximumInput; bank: FrozenLeverageBank }[]) {
+    const bank = { ...f.bank,accounts: [...f.bank.accounts,...suite.commonAccounts] };
+    for (const kind of ['collateral','notional'] as const) {
+      const receipt = quoteFrozenLeverageEntry(f.input,bank,idl,binary(),'35000',f.input.marginAmount);
+      const input = sizeInput(f.input,String(receipt[kind]),kind);
+      const result = searchFrozenLeverageSize(input,bank,idl,binary());
+      assert.equal(result.marginAmount,f.input.marginAmount,`${f.name} ${kind}`);
+      assert.equal(result.sizeAmount,String(receipt[kind]));
+      assert.equal(result.multiplierBps,'35000');
+    }
+  }
+});
+test('unreachable size remains a capacity rejection and never silently reduces leverage',() => {
+  const f = fixture(),input = sizeInput(f.input,'100000000000','collateral','50000');
+  assert.throws(() => searchFrozenLeverageSize(input,f.bank,idl,binary()),(error: Error) => error.constructor.name === 'NativeLeverageRejection');
 });

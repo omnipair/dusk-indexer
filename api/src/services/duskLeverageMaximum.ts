@@ -119,7 +119,7 @@ export async function currentLeverageMaximum(body: unknown, signal?: AbortSignal
     const captureMs = performance.now()-captureStarted;
     const result = await runLeverageMaximumProcess(input,bank,idl,before.programId,before.programBinarySha256,signal);
     signal?.throwIfAborted();
-    if (result.kind !== 'maximum' && result.kind !== 'capacity') throw fail('Native quote unavailable');
+    if (result.kind !== 'maximum' && result.kind !== 'size' && result.kind !== 'capacity') throw fail('Native quote unavailable');
     const after = await deploymentEnvelope(bank.slot);
     if (after.deploymentIdentitySha256 !== before.deploymentIdentitySha256) throw fail('Quote deployment changed',409);
     return { schemaVersion: 'dusk-leverage-maximum.v1',deployment: after,data: { ...result,captureMs,sourceSlot: bank.slot,transactionSha256: digest(transaction.serialize()),elapsedMs: performance.now()-started } };
