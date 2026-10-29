@@ -6,14 +6,25 @@ use {
     std::collections::BTreeSet,
 };
 
-const DUSK_EVENTS: [&str; 44] = [
+const DUSK_EVENTS: [&str; 57] = [
     "BorrowInterestAccrued",
     "BorrowInterestPaid",
     "BorrowPositionLiquidated",
     "DebtFreePositionClosed",
+    "EmergencyLiquidationSettled",
+    "FlashLiquidationBegun",
+    "FlashLiquidationSettled",
+    "GovernanceBalanceUpdated",
+    "GovernanceSupportChanged",
     "HarvestAuthorityUpdated",
     "HlpClosed",
+    "HlpCohortRotated",
+    "HlpFlashSettled",
+    "HlpFlashStarted",
+    "HlpInterestAllocated",
     "HlpOpened",
+    "HlpRebalanced",
+    "HlpRetiredReceiptBurned",
     "HlpTerminalLiquidated",
     "InsuranceDonated",
     "LeverageDelegationUpdated",
@@ -23,6 +34,7 @@ const DUSK_EVENTS: [&str; 44] = [
     "LeveragePositionUpdated",
     "LiquidationAuctionCancelled",
     "LiquidationAuctionStarted",
+    "LiquidationObserved",
     "LiquidityAdded",
     "LiquidityRemoved",
     "LpTransferred",
@@ -42,6 +54,7 @@ const DUSK_EVENTS: [&str; 44] = [
     "ProtocolAuctionRouteUpdated",
     "ProtocolAuctionSettled",
     "ProtocolAuctionSplitUpdated",
+    "PublicInterestFunded",
     "ReferralBound",
     "ReferralInterestAccrued",
     "ReferralInterestClaimed",
@@ -53,27 +66,39 @@ const DUSK_EVENTS: [&str; 44] = [
     "YieldRecipientUpdated",
 ];
 
-const DELEGATE_INSTRUCTIONS: [&str; 13] = [
+const DELEGATE_EVENTS: [&str; 2] = ["OrderProtocolFeePaid", "ProtectionExecuted"];
+
+const DELEGATE_INSTRUCTIONS: [&str; 18] = [
     "after_close_order",
     "before_stop_loss",
     "before_take_profit",
     "cancel_hlp_order",
     "cancel_leverage_entry_order",
     "cancel_leverage_order",
+    "cancel_protection_order",
     "create_hlp_order",
     "create_leverage_entry_order",
     "create_leverage_order",
+    "create_protection_order",
     "execute_hlp_order",
     "execute_leverage_entry_order",
+    "execute_protection_order",
+    "fund_protection_order",
+    "preview_protection_order",
     "settle_hlp_order_yield",
     "update_leverage_order",
 ];
 
-const DUSK_ACCOUNTS: [&str; 10] = [
+const DUSK_ACCOUNTS: [&str; 15] = [
     "BorrowPosition",
     "FutarchyAuthority",
+    "GovernanceBalance",
+    "GovernanceSupport",
+    "HlpCohort",
+    "HlpFlashSession",
     "LeverageDelegation",
     "LeveragePosition",
+    "LiquidationSession",
     "Market",
     "ParameterProposal",
     "ProposalSupport",
@@ -82,7 +107,8 @@ const DUSK_ACCOUNTS: [&str; 10] = [
     "YieldAccount",
 ];
 
-const DELEGATE_ACCOUNTS: [&str; 10] = [
+const DELEGATE_ACCOUNTS: [&str; 12] = [
+    "BorrowPosition",
     "FutarchyAuthority",
     "HlpOrder",
     "LeverageDelegation",
@@ -90,6 +116,7 @@ const DELEGATE_ACCOUNTS: [&str; 10] = [
     "LeverageOrder",
     "LeveragePosition",
     "Market",
+    "ProtectionOrder",
     "ReferralAccrual",
     "ReferralPartner",
     "YieldAccount",
@@ -253,12 +280,15 @@ fn registry_classifies_every_pinned_event_and_instruction() {
         .collect();
     let expected_events: BTreeSet<_> = DUSK_EVENTS.into_iter().collect();
     assert_eq!(actual_events, expected_events);
-    assert!(
-        decoder
-            .event_names(PinnedProgram::LeverageDelegate)
-            .is_empty()
+    let actual_delegate_events: BTreeSet<_> = decoder
+        .event_names(PinnedProgram::LeverageDelegate)
+        .into_iter()
+        .collect();
+    assert_eq!(
+        actual_delegate_events,
+        DELEGATE_EVENTS.into_iter().collect()
     );
-    assert_eq!(decoder.instruction_names(PinnedProgram::Dusk).len(), 66);
+    assert_eq!(decoder.instruction_names(PinnedProgram::Dusk).len(), 77);
     let actual_delegate: BTreeSet<_> = decoder
         .instruction_names(PinnedProgram::LeverageDelegate)
         .into_iter()
@@ -272,10 +302,10 @@ fn anchor_tags_and_every_idl_discriminator_are_cryptographically_verified() {
     anchor_event_digest.reverse();
     assert_eq!(anchor_event_digest, ANCHOR_EVENT_CPI_TAG);
     let decoder = decoder();
-    assert_eq!(decoder.dusk.events.len(), 44);
-    assert_eq!(decoder.dusk.instructions.len(), 66);
-    assert_eq!(decoder.delegate.events.len(), 0);
-    assert_eq!(decoder.delegate.instructions.len(), 13);
+    assert_eq!(decoder.dusk.events.len(), 57);
+    assert_eq!(decoder.dusk.instructions.len(), 77);
+    assert_eq!(decoder.delegate.events.len(), 2);
+    assert_eq!(decoder.delegate.instructions.len(), 18);
 
     let mut idl: Value = serde_json::from_slice(DUSK_IDL).unwrap();
     idl["events"][0]["discriminator"][0] = json!(0);
@@ -287,7 +317,7 @@ fn anchor_tags_and_every_idl_discriminator_are_cryptographically_verified() {
 }
 
 #[test]
-fn all_35_dusk_events_fully_decode_from_deterministic_borsh_fixtures() {
+fn all_dusk_events_fully_decode_from_deterministic_borsh_fixtures() {
     let decoder = decoder();
     for (ordinal, name) in DUSK_EVENTS.iter().enumerate() {
         let data = event_data(&decoder, name);
@@ -314,7 +344,7 @@ fn all_35_dusk_events_fully_decode_from_deterministic_borsh_fixtures() {
 }
 
 #[test]
-fn all_59_pinned_instructions_fully_decode_from_deterministic_borsh_fixtures() {
+fn all_pinned_instructions_fully_decode_from_deterministic_borsh_fixtures() {
     let decoder = decoder();
     for program in [PinnedProgram::Dusk, PinnedProgram::LeverageDelegate] {
         let registry = decoder.registry(program);
@@ -355,8 +385,11 @@ fn nonzero_event_fields_decode_with_lossless_integer_and_pubkey_representation()
     data.extend_from_slice(discriminator);
     data.extend_from_slice(proposal.as_ref());
     data.extend_from_slice(market.as_ref());
-    data.push(4);
-    data.extend_from_slice(&99_u64.to_le_bytes());
+    data.extend_from_slice(&2_u32.to_le_bytes());
+    data.extend_from_slice(&[4, 6]);
+    for revision in 99_u64..106 {
+        data.extend_from_slice(&revision.to_le_bytes());
+    }
     data.extend_from_slice(&(-7_i64).to_le_bytes());
     let decoded = decoder
         .decode_event_cpi_instruction(&context(), DUSK_PROGRAM_ID, vec![1, 0], 0, &data)
@@ -366,8 +399,8 @@ fn nonzero_event_fields_decode_with_lossless_integer_and_pubkey_representation()
         Some(json!({
             "proposal": proposal.to_string(),
             "market": market.to_string(),
-            "family": "4",
-            "new_family_revision": "99",
+            "families": "BAY=",
+            "new_family_revisions": ["99", "100", "101", "102", "103", "104", "105"],
             "executed_at": "-7"
         }))
     );
@@ -494,7 +527,7 @@ fn program_data_parser_is_bounded_and_never_attributes_after_stack_corruption() 
 }
 
 #[test]
-fn delegate_program_data_is_preserved_as_unknown_because_delegate_idl_has_no_events() {
+fn unknown_delegate_program_data_is_preserved_without_guessing() {
     let decoder = decoder();
     let raw = [77_u8; 12];
     let logs = vec![
@@ -514,6 +547,33 @@ fn delegate_program_data_is_preserved_as_unknown_because_delegate_idl_has_no_eve
         output.events[0].observation.key.identity.program_id,
         LEVERAGE_DELEGATE_PROGRAM_ID
     );
+}
+
+#[test]
+fn known_delegate_program_data_decodes_with_the_delegate_idl() {
+    let decoder = decoder();
+    let registry = decoder.registry(PinnedProgram::LeverageDelegate);
+    let (discriminator, descriptor) = registry
+        .events
+        .iter()
+        .find(|(_, descriptor)| descriptor.name == "OrderProtocolFeePaid")
+        .unwrap();
+    let mut raw = discriminator.to_vec();
+    raw.extend_from_slice(&zero_named_type(&registry.types, &descriptor.name));
+    let logs = vec![
+        format!("Program {LEVERAGE_DELEGATE_PROGRAM_ID} invoke [1]"),
+        format!("Program data: {}", STANDARD.encode(&raw)),
+        format!("Program {LEVERAGE_DELEGATE_PROGRAM_ID} success"),
+    ];
+    let output = decoder.decode_program_data_logs(&context(), &logs, &[5]);
+    assert!(output.diagnostics.is_empty());
+    assert_eq!(output.events.len(), 1);
+    assert_eq!(output.events[0].status, EventDecodeStatus::Decoded);
+    assert_eq!(
+        output.events[0].event_name.as_deref(),
+        Some("OrderProtocolFeePaid")
+    );
+    assert_eq!(output.events[0].raw_event, raw);
 }
 
 #[test]
@@ -590,7 +650,7 @@ fn instruction_envelopes_distinguish_event_cpi_unknown_and_short_data() {
 }
 
 #[test]
-fn registry_classifies_all_10_dusk_and_four_delegate_account_declarations() {
+fn registry_classifies_every_pinned_account_declaration() {
     let decoder = decoder();
     let dusk: BTreeSet<_> = decoder
         .account_names(PinnedProgram::Dusk)
@@ -602,8 +662,8 @@ fn registry_classifies_all_10_dusk_and_four_delegate_account_declarations() {
         .collect();
     assert_eq!(dusk, DUSK_ACCOUNTS.into_iter().collect());
     assert_eq!(delegate, DELEGATE_ACCOUNTS.into_iter().collect());
-    assert_eq!(decoder.dusk.accounts.len(), 10);
-    assert_eq!(decoder.delegate.accounts.len(), 10);
+    assert_eq!(decoder.dusk.accounts.len(), 15);
+    assert_eq!(decoder.delegate.accounts.len(), 12);
 
     let mut idl: Value = serde_json::from_slice(DUSK_IDL).unwrap();
     idl["accounts"][0]["discriminator"][0] = json!(0);
@@ -615,7 +675,7 @@ fn registry_classifies_all_10_dusk_and_four_delegate_account_declarations() {
 }
 
 #[test]
-fn all_14_pinned_account_declarations_decode_and_project_deterministically() {
+fn all_pinned_account_declarations_decode_and_project_deterministically() {
     let decoder = decoder();
     for (program, names) in [
         (PinnedProgram::Dusk, DUSK_ACCOUNTS.as_slice()),

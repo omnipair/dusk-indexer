@@ -13,18 +13,18 @@ use {
     thiserror::Error,
 };
 
-pub const PROTOCOL_REVISION: &str = "devnet-2026-09-27-5644e5d";
+pub const PROTOCOL_REVISION: &str = "devnet-2026-10-26-cd6f1ec";
 pub const DUSK_PROGRAM_ID: &str = "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X";
 pub const DUSK_IDL_RAW_SHA256: &str =
-    "5c2839cd1f022b9ab83cfbe135306f5efb3e4eb19a9abeac39fe0277d0c577d0";
+    "574f9a347a2ecf2f85fa6d9f981fb474b1300f2e9cca5ae0ca0158da113019eb";
 pub const LEVERAGE_DELEGATE_PROGRAM_ID: &str = "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv";
 pub const LEVERAGE_DELEGATE_IDL_RAW_SHA256: &str =
-    "b2d39d3575f72ad334a0f853784bdb5909ddead5e0ebf3dc84ccd5253eccdce3";
+    "59acc8a10b41c235156e593017b1e88dd6657fd192df4a1f1c0cc4275a1dd658";
 
 pub const DUSK_IDL_SHA256: &str =
-    "72cfca415c1638045c46aef9e184b2e5280b3568bc5f61234bc03ce2081439d7";
+    "92d8c02d7244211df13d1549c0f396716e1fedbf2d4041e6abf2eebc4ebe2cb1";
 pub const LEVERAGE_DELEGATE_IDL_SHA256: &str =
-    "d9caaebbe1839263ad91dab2eab43ff628f612bc25c02e0746b33a8a32631f27";
+    "7c3b403ffb735b2bd8c3e224dc65afc1303a98d89c525af0ede32dec6be858fc";
 
 const DUSK_IDL: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),

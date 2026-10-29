@@ -155,13 +155,17 @@ pub fn current_deployment() -> Result<DeploymentPin, FoundationError> {
         .iter_mut()
         .find(|program| program.name == "dusk")
         .expect("validated Dusk pin");
+    let same_deployment = upgrade.deploy_slot == dusk.deployment.deploy_slot;
     if upgrade.event_revision != pin.revision
         || upgrade.program_id != dusk.program_id
         || upgrade.idl_canonical_sha256 != dusk.idl.canonical_sha256
-        || upgrade.deploy_slot <= dusk.deployment.deploy_slot
+        || upgrade.deploy_slot < dusk.deployment.deploy_slot
         || upgrade.deploy_slot >= 9_007_199_254_740_991
         || !crate::is_sha256(&upgrade.binary_sha256)
         || !(4..=16 * 1024 * 1024).contains(&upgrade.allocated_binary_bytes)
+        || (same_deployment
+            && (upgrade.binary_sha256 != dusk.binary.sha256
+                || upgrade.allocated_binary_bytes != dusk.deployment.allocated_binary_bytes))
     {
         return Err(FoundationError::InvalidProtocolLock(
             "compatible deployment differs from the event revision or IDL".into(),
@@ -179,7 +183,7 @@ mod tests {
     #[test]
     fn interval_starts_after_both_programs_are_active() {
         let pin = pinned_deployment().unwrap();
-        assert_eq!(pin.first_slot(), 504_809_897);
+        assert_eq!(pin.first_slot(), 515_117_217);
         let mut reordered = vendored_protocol_lock();
         reordered["programs"].as_array_mut().unwrap().reverse();
         assert_eq!(
@@ -196,11 +200,11 @@ mod tests {
             historical.programs[0].idl.canonical_sha256,
             current.programs[0].idl.canonical_sha256
         );
-        assert_eq!(historical.first_slot(), 504_809_897);
-        assert_eq!(current.programs[0].deployment.deploy_slot, 505_509_130);
+        assert_eq!(historical.first_slot(), 515_117_217);
+        assert_eq!(current.programs[0].deployment.deploy_slot, 515_502_278);
         assert_eq!(
             current.programs[0].binary.sha256,
-            "f07fcad12a6b41d74fba69b557585c1dccd7f515677f82a5dc811832cac0f849"
+            "d7eb11e277e4b215e0215fb926b353e145aac8452adc61adcbbbb432cffd71b9"
         );
     }
     #[test]

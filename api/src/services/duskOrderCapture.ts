@@ -11,15 +11,19 @@ import { previewDuskEntryOrder } from './duskEntryOrderPreview';
 import { minimumDuskReadSlot } from './virtualBook/native';
 import { previewDuskHlpOrderTrigger } from './duskOrderTrigger';
 import { boundedDuskRpcRead } from './virtualBook/native';
+import { assertRetiredHlpCohort, hlpCohortAddress } from './duskHlpCohort';
+import { currentAccountMarkets, currentAccountMarket } from './duskAccountScope';
 
 import type { DuskDeploymentEnvelope } from './duskDeploymentService';
 import type { DuskReadBoundary } from './virtualBook/native';
 import type {
   Dusk,
+  HlpCohort,
   LeverageDelegateProgram,
   LeveragePosition,
   Market,
 } from '@omnipair/dusk-sdk';
+import { MARKET_LAYOUT_VERSION } from '@omnipair/dusk-sdk';
 
 type Name = 'leverageOrder' | 'leverageEntryOrder' | 'hlpOrder';
 type Account<N extends Name> = Awaited<
@@ -35,6 +39,7 @@ export type DuskOrderRow<N extends Name> = {
   slot: number;
   trigger?: Awaited<ReturnType<typeof previewDuskHlpOrderTrigger>>['value'];
   entryMark?: Awaited<ReturnType<typeof previewDuskEntryOrder>>;
+  retiredHlp?: { targetAsset: 0 | 1 };
 };
 export interface DuskOrderSnapshot {
   owner: string;
@@ -90,7 +95,7 @@ export function assertDuskOrderIdentity<N extends Name>(
     if (
       ![0, 1].includes(entry.debtAsset) ||
       !entry.position.equals(
-        deriveLeveragePositionAddress(entry.market, entry.positionId)[0],
+        deriveLeveragePositionAddress(entry.market, entry.owner, entry.positionId, address)[0],
       )
     )
       throw new Error('Invalid entry position identity');
@@ -128,6 +133,8 @@ export async function readDuskOrders(options: {
   const connection = dusk.program.provider.connection;
   const before = await boundary.assertCompatibleForRead(deployment, signal);
   let floor = Math.max(before.observedSlot, minimumDuskReadSlot(deployment));
+  const scope = await currentAccountMarkets(dusk, floor, signal);
+  floor = scope.sourceSlot;
   const readKind = async <N extends Name>(
     name: N,
   ): Promise<DuskOrderRow<N>[]> => {
@@ -154,20 +161,23 @@ export async function readDuskOrders(options: {
     floor = discovery.context.slot;
     const rows: DuskOrderRow<N>[] = [];
     const seen = new Set<string>();
-    const discovered = discovery.value.map(({ pubkey, account }) => {
+    const discovered = discovery.value.flatMap(({ pubkey, account }) => {
       if (
         seen.has(pubkey.toBase58()) ||
         account.executable ||
-        !account.owner.equals(delegate.programId)
+        !account.owner.equals(delegate.programId) || account.data.length < 72
       )
         throw new Error('Invalid discovered order account');
       seen.add(pubkey.toBase58());
+      if (!new PublicKey(account.data.subarray(8,40)).equals(new PublicKey(owner)))
+        throw new Error('Order belongs to another wallet');
+      if (!currentAccountMarket(account.data, scope.markets)) return [];
       const raw = delegate.coder.accounts.decode<Account<N>>(
         name,
         account.data,
       );
       assertDuskOrderIdentity(name, pubkey, raw, owner, delegate.programId);
-      return { pubkey, raw };
+      return [{ pubkey, raw }];
     });
     // Twenty orders keep each request below Solana's 100-account limit.
     for (let start = 0; start < discovered.length; start += 20) {
@@ -182,6 +192,8 @@ export async function readDuskOrders(options: {
           ...(name === 'leverageOrder'
             ? [(raw as Account<'leverageOrder'>).position]
             : []),
+          ...(name === 'hlpOrder' ? [hlpCohortAddress(raw.market,
+            (raw as Account<'hlpOrder'>).targetHlpMint,dusk.program.programId)[0]] : []),
         ])
           keys.set(key.toBase58(), key);
       }
@@ -254,13 +266,25 @@ export async function readDuskOrders(options: {
           market.paramsHash,
         );
         if (
-          market.version !== 1 ||
+          market.version !== MARKET_LAYOUT_VERSION ||
           !marketKey.equals(account.market) ||
           market.bump !== marketBump
         )
           throw new Error('Invalid order market identity');
         let position: LeveragePosition | null = null;
         let positionBytes: Buffer | null = null;
+        let retiredHlp: { targetAsset: 0 | 1 } | undefined;
+        if (name === 'hlpOrder') {
+          const target = (account as Account<'hlpOrder'>).targetHlpMint;
+          if (!market.baseSide.hlpMint.equals(target) && !market.quoteSide.hlpMint.equals(target)) {
+            const proof = infos.get(hlpCohortAddress(account.market,target,dusk.program.programId)[0].toBase58());
+            if (!proof || proof.executable || !proof.owner.equals(dusk.program.programId))
+              throw new Error('Unknown hLP order cohort');
+            const cohort = dusk.program.coder.accounts.decode<HlpCohort>('hlpCohort',proof.data);
+            assertRetiredHlpCohort(cohort,account.market,target,dusk.program.programId);
+            retiredHlp = { targetAsset: cohort.targetAsset as 0 | 1 };
+          }
+        }
         if (name === 'leverageOrder') {
           const exit = account as Account<'leverageOrder'>;
           if (!exit.position.equals((raw as Account<'leverageOrder'>).position))
@@ -279,7 +303,9 @@ export async function readDuskOrders(options: {
             );
             const [positionKey, bump] = deriveLeveragePositionAddress(
               position.market,
+              position.owner,
               position.positionId,
+              position.namespaceAuthority,
             );
             if (
               !positionKey.equals(exit.position) ||
@@ -303,6 +329,7 @@ export async function readDuskOrders(options: {
           position,
           unixTimestamp,
           slot,
+          ...(retiredHlp ? { retiredHlp } : {}),
         });
       }
     }
@@ -326,6 +353,7 @@ export async function readDuskOrders(options: {
   if (options.previewPayer)
     for (const row of hlp) {
       if (row.account.status !== 0) continue;
+      if (row.retiredHlp) { row.trigger = null; continue; }
       const targetAsset = row.market.baseSide.hlpMint.equals(
         row.account.targetHlpMint,
       )

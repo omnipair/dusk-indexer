@@ -11,12 +11,14 @@ import { captureMarketSimulation, duskRawIdl, MarketSimulationSnapshot, Snapshot
 import { nativeFields, nativeKey, PortfolioKind, projectPortfolioComponent, totalPortfolioComponents } from './duskPortfolioMath';
 import { parsePriceReferences, priceMarketBindings } from './duskPriceMath';
 import { readStreamCursor } from './duskHistoryCoverage';
+import { assertRetiredHlpCohort, hlpCohortAddress } from './duskHlpCohort';
 
 const identity = () => {
   const pin = loadPinnedProtocol();
   return [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
 };
-export interface PortfolioCatalogItem { address: string; market: string; owner: string; kind: PortfolioKind; sourceSlot: number }
+export interface PortfolioCatalogItem { address: string; market: string; owner: string; kind: PortfolioKind; sourceSlot: number; lpMint?: string }
+interface PortfolioMarketSnapshot extends MarketSimulationSnapshot { hlpCohorts?: MarketSimulationSnapshot['accounts'] }
 interface PortfolioCandidateIdentity { cluster: string; programId: string; idlHash: string; protocolRevision: string }
 /** Archived events supply addresses only. Current-bank accounts decide their state and value. */
 export interface PortfolioCatalog {
@@ -25,7 +27,7 @@ export interface PortfolioCatalog {
   candidateIdentities?: PortfolioCandidateIdentity[];
 }
 export interface PortfolioCaptureSource {
-  schemaVersion: 'dusk-portfolio-capture.v2'; catalog: PortfolioCatalog; groups: MarketSimulationSnapshot[];
+  schemaVersion: 'dusk-portfolio-capture.v2'; catalog: PortfolioCatalog; groups: PortfolioMarketSnapshot[];
   references: unknown; observedAt: string; deploymentIdentitySha256: string; maxCatalogAgeSeconds: number;
 }
 const checkedSlot = (value: number) => {
@@ -44,18 +46,15 @@ function coordinates(source: PortfolioCaptureSource) {
   return { minSlot: Math.min(...slots),maxSlot: Math.max(...slots),captureTime: new Date(Math.max(...times)).toISOString() };
 }
 
-/** Discovery only: every returned address is read again at its valuation bank.
- * A program upgrade does not re-emit MarketCreated or position-open events for
- * existing accounts. Archived events are candidate addresses, never current
- * state; the capture verifies each market and position under the current pin.
- * LP holders are valued through their canonical Token-2022 accounts. */
+/** Current-release discovery only; retired devnet events are not candidates for
+ * the current account decoder. LP holders use canonical Token-2022 accounts. */
 export async function readPortfolioCatalog(client: PoolClient): Promise<PortfolioCatalog> {
   const active = identity(),stream = await readStreamCursor(client);
   if (!stream) throw new Error('Portfolio capture needs a started Dusk stream');
-  const programFilter = 'cluster=$1 AND program_id=$2';
+  const programFilter = 'cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4';
   const markets = await client.query<{ market: string; idl_hash: string; protocol_revision: string }>(`
     SELECT market,idl_hash,protocol_revision FROM dusk_ingestion.streamed_markets
-    WHERE ${programFilter} ORDER BY market,protocol_revision`,active.slice(0,2));
+    WHERE ${programFilter} ORDER BY market,protocol_revision`,active);
   const found = await client.query<{ address: string; market: string; owner: string; kind: PortfolioKind; last_slot: string;
     lp_mint: string | null; idl_hash: string; protocol_revision: string }>(`
     SELECT position AS address,market,owner,'borrow' AS kind,last_slot::text,NULL AS lp_mint,idl_hash,protocol_revision
@@ -66,7 +65,7 @@ export async function readPortfolioCatalog(client: PoolClient): Promise<Portfoli
         AND position IS NOT NULL AND owner IS NOT NULL AND market IS NOT NULL
     UNION ALL SELECT NULL,market,owner,kind,last_slot::text,lp_mint,idl_hash,protocol_revision
       FROM dusk_ingestion.streamed_lp_balances WHERE ${programFilter} AND amount>0
-        AND lp_mint IS NOT NULL AND owner IS NOT NULL AND market IS NOT NULL`,active.slice(0,2));
+        AND lp_mint IS NOT NULL AND owner IS NOT NULL AND market IS NOT NULL`,active);
   const selectedMarkets = new Set([
     ...markets.rows.filter((row) => row.idl_hash === active[2] && row.protocol_revision === active[3]).map((row) => row.market),
     ...found.rows.map((row) => row.market),
@@ -90,7 +89,8 @@ export async function readPortfolioCatalog(client: PoolClient): Promise<Portfoli
     const owner = nativeKey(row.owner);
     const address = row.lp_mint === null ? nativeKey(row.address)
       : getAssociatedTokenAddressSync(new PublicKey(row.lp_mint),new PublicKey(owner),true,TOKEN_2022_PROGRAM_ID).toBase58();
-    const item = { address,owner,market: row.market,kind: row.kind,sourceSlot: checkedSlot(Number(row.last_slot)) };
+    const item = { address,owner,market: row.market,kind: row.kind,sourceSlot: checkedSlot(Number(row.last_slot)),
+      ...(row.lp_mint === null ? {} : { lpMint: row.lp_mint }) };
     const previous = itemsByAddress.get(address);
     if (previous && (previous.market !== item.market || previous.kind !== item.kind))
       throw new Error('Archived portfolio candidate has conflicting market or kind');
@@ -146,9 +146,13 @@ export function projectPortfolioSource(source: PortfolioCaptureSource) {
   }
   const closed: string[] = [],moved: { address: string; previousOwner: string; owner: string }[] = [];
   for (const group of source.groups) {
+    const captured = [...group.accounts,...(group.hlpCohorts ?? [])];
     if ((group.commitment !== undefined && group.commitment !== 'finalized') || !catalog.markets.includes(group.market) || group.accounts.length>20 || group.deploymentIdentitySha256 !== source.deploymentIdentitySha256
+      || captured.length>20
       || group.previewUnavailable !== (group.preview === null) || (group.preview === null ? group.basis !== 'rpc-account' : group.basis !== 'simulation-post-state'))
       throw new Error('Portfolio group identity or state basis differs');
+    if (new Set(captured.map((entry) => entry.address)).size !== captured.length)
+      throw new Error('Portfolio snapshot duplicates captured accounts');
     markets.add(group.market);
     const market = decoder.accounts.decode('Market',rawAccount(group.marketAccount,pin.dusk.programId).data);
     priceMarketBindings(pin.dusk.programId,group.market,market);
@@ -166,15 +170,31 @@ export function projectPortfolioSource(source: PortfolioCaptureSource) {
         closed.push(entry.address); continue;
       }
       let state: unknown;
+      let retiredHlp = false;
       if (item.kind === 'borrow' || item.kind === 'leverage') {
         state = decoder.accounts.decode(item.kind === 'borrow' ? 'BorrowPosition' : 'LeveragePosition',rawAccount(entry.account,pin.dusk.programId).data);
       } else {
         const token = unpackAccount(new PublicKey(entry.address),rawAccount(entry.account,TOKEN_2022_PROGRAM_ID.toBase58()),TOKEN_2022_PROGRAM_ID);
         if (!token.isInitialized) throw new Error('Portfolio LP account is not initialized');
+        if (item.lpMint && token.mint.toBase58() !== item.lpMint) throw new Error('Portfolio LP discovery mint changed');
         state = { mint: token.mint,owner: token.owner,amount: token.amount };
+        if (item.kind === 'base_hlp' || item.kind === 'quote_hlp') {
+          const target = item.kind === 'base_hlp' ? 'base' : 'quote';
+          const currentMint = nativeKey(nativeFields(nativeFields(market)[`${target}_side`]).hlp_mint);
+          if (token.mint.toBase58() !== currentMint) {
+            const address = hlpCohortAddress(new PublicKey(group.market),token.mint,new PublicKey(pin.dusk.programId))[0].toBase58();
+            const proof = group.hlpCohorts?.find((entry) => entry.address === address)?.account;
+            if (!proof) throw new Error('Retired portfolio receipt has no cohort evidence');
+            const cohort = decoder.accounts.decode('HlpCohort',rawAccount(proof,pin.dusk.programId).data) as Record<string,unknown>;
+            assertRetiredHlpCohort({ market: new PublicKey(nativeKey(cohort.market)),mint: new PublicKey(nativeKey(cohort.mint)),
+              targetAsset: Number(cohort.target_asset),retired: cohort.retired === true,bump: Number(cohort.bump) },
+              new PublicKey(group.market),token.mint,new PublicKey(pin.dusk.programId),target === 'base' ? 0 : 1);
+            retiredHlp = true;
+          }
+        }
       }
       const component = { ...projectPortfolioComponent({ pin,kind: item.kind,address: entry.address,marketAddress: group.market,market,preview,state,
-        slot: group.slot,blockTime: group.blockTime,references: source.references }),sourceBlockhash: group.blockhash,stateBasis: group.basis };
+        retiredHlp,slot: group.slot,blockTime: group.blockTime,references: source.references }),sourceBlockhash: group.blockhash,stateBasis: group.basis };
       if (component.owner !== item.owner) moved.push({ address: entry.address,previousOwner: item.owner,owner: component.owner });
       if (!owners.has(component.owner)) owners.set(component.owner,[]);
       owners.get(component.owner)!.push(component);
@@ -209,7 +229,7 @@ export async function storePortfolioCapture(client: PoolClient,source: Portfolio
   const id = inserted.rows[0].capture_id;
   for (const group of source.groups) {
     const facts = [{ address: group.market,basis: group.basis,state: [group.marketAccount,group.preview] },
-      ...group.accounts.map((entry) => ({ address: entry.address,basis: 'rpc-account',state: entry.account }))];
+      ...[...group.accounts,...(group.hlpCohorts ?? [])].map((entry) => ({ address: entry.address,basis: 'rpc-account',state: entry.account }))];
     for (const fact of facts) {
       const stateHash = sha256(canonicalJson([group.blockhash,fact.state]));
       await client.query(`INSERT INTO dusk_ingestion.portfolio_account_evidence(capture_id,account,slot,basis,blockhash,state_hash)
@@ -274,23 +294,30 @@ export async function captureDuskPortfolioSnapshots(dependencies?: {
   const root = process.env.DUSK_PROTOCOL_DIR?.trim() || resolve(__dirname,'../../../protocol');
   const references = parsePriceReferences(JSON.parse(readFileSync(process.env.DUSK_PRICE_REFERENCES_FILE?.trim()
     || resolve(root,'devnet-price-references.json'),'utf8')),loadPinnedProtocol());
-  const groups: MarketSimulationSnapshot[] = [];
+  const groups: PortfolioMarketSnapshot[] = [];
   // Valuations read finalized banks at or after the stream's slot, so every
   // discovered position exists at its valuation bank.
   const readFloor = Math.max(catalog.sourceFloor,checkedSlot(Number(before.programDataSlot)),checkedSlot(Number(before.leverageDelegateProgramDataSlot)));
-  const jobs: { market: string; addresses: string[] }[] = [];
+  const jobs: { market: string; addresses: string[]; cohorts: string[] }[] = [];
   for (const market of catalog.markets) {
     const items = catalog.items.filter((item) => item.market === market);
-    for (let offset=0; offset<Math.max(items.length,1); offset+=20) {
-      jobs.push({ market,addresses: items.slice(offset,offset+20).map((item) => item.address) });
+    for (let offset=0; offset<Math.max(items.length,1); offset+=10) {
+      const batch = items.slice(offset,offset+10);
+      const cohorts = [...new Set(batch.filter((item) => item.kind === 'base_hlp' || item.kind === 'quote_hlp').map((item) => {
+        if (!item.lpMint) throw new Error('hLP portfolio discovery omitted its mint');
+        return hlpCohortAddress(new PublicKey(market),new PublicKey(item.lpMint),new PublicKey(loadPinnedProtocol().dusk.programId))[0].toBase58();
+      }))];
+      jobs.push({ market,addresses: batch.map((item) => item.address),cohorts });
     }
   }
   for (let offset=0; offset<jobs.length; offset+=4) {
     const captured = await Promise.all(jobs.slice(offset,offset+4).map((job) =>
-      (dependencies?.capture ?? captureMarketSimulation)(job.market,readFloor,job.addresses)));
-    for (const group of captured) {
+      (dependencies?.capture ?? captureMarketSimulation)(job.market,readFloor,[...job.addresses,...job.cohorts])));
+    for (const [index,group] of captured.entries()) {
       if (group.deploymentIdentitySha256 !== before.deploymentIdentitySha256) throw new Error('Deployment changed during portfolio capture');
-      groups.push(group);
+      const cohorts = jobs[offset+index].cohorts;
+      groups.push({ ...group,accounts: group.accounts.filter((entry) => !cohorts.includes(entry.address)),
+        ...(cohorts.length ? { hlpCohorts: group.accounts.filter((entry) => cohorts.includes(entry.address)) } : {}) });
     }
   }
   const source: PortfolioCaptureSource = { schemaVersion: 'dusk-portfolio-capture.v2',catalog,groups,references,

@@ -5,6 +5,7 @@ import { canonicalJson, DuskPinnedProtocol, loadPinnedProtocol, sha256 } from '.
 import { StoredPriceCapture, verifyStoredPriceCapture } from './duskPrices';
 import { QuoteCache } from './duskQuoteCache';
 import { HistoryDeploymentQuery, historyDeploymentIdentities } from './duskHistoryDeployment';
+import { validHistoryUntil } from './duskHistoryTime';
 
 export interface QuoteHistoryQuery extends HistoryDeploymentQuery {
   market: string;
@@ -17,7 +18,7 @@ const RESOLUTIONS = [60,300,900,3600,14400,86400];
 const invalid = (): never => { throw Object.assign(new Error('Invalid native quote-history selection'),{ status: 400 }); };
 export function quoteHistorySelection(query: QuoteHistoryQuery) {
   const since = Date.parse(query.since),until = Date.parse(query.until);
-  if (!Number.isFinite(since) || !Number.isFinite(until) || since<0 || since>=until || until>Date.now()
+  if (!Number.isFinite(since) || !validHistoryUntil(until) || since<0 || since>=until
     || !RESOLUTIONS.includes(query.resolutionSeconds) || !['base','quote'].includes(query.side)
     || !/^[0-9a-f]{64}$/.test(query.deploymentIdentitySha256)
     || Math.ceil(until/1000/query.resolutionSeconds)-Math.floor(since/1000/query.resolutionSeconds)>2000) invalid();

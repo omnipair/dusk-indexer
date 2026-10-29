@@ -8,7 +8,7 @@ import {
   VersionedTransaction,
 } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, NATIVE_MINT } from '@solana/spl-token';
-import { createVirtualBookRuntime } from '../services/virtualBook/native';
+import { createSdkTestRuntime } from './duskSdkTestRuntime';
 import { mintAccount, tokenAccount } from './duskDisplayTokenFixtures';
 import type { DuskDeploymentEnvelope } from '../services/duskDeploymentService';
 import type { LeveragePosition, Market } from '@omnipair/dusk-sdk';
@@ -54,9 +54,12 @@ export async function displayFixture(
             : value,
       };
     },
-    getProgramAccounts: async () => ({
+    getProgramAccounts: async (_program: PublicKey, config: {dataSlice?: {offset: number; length: number}}) => ({
       context: { slot: state.slot },
-      value: state.discovered,
+      value: config.dataSlice ? [{pubkey: marketAddress, account: {
+        ...accounts.get(marketAddress.toBase58())!,
+        data: accounts.get(marketAddress.toBase58())!.data.subarray(0,9),
+      }}] : state.discovered,
     }),
     getMinimumBalanceForRentExemption: async () => 2_039_280,
     simulateTransaction: async (
@@ -98,17 +101,17 @@ export async function displayFixture(
       };
     },
   };
-  const { dusk } = await createVirtualBookRuntime(
+  const { dusk } = await createSdkTestRuntime(
     connection as unknown as Connection,
   );
-  const positionAddress = dusk.get.pda.leveragePosition(marketAddress, id)[0];
+  const positionAddress = dusk.get.pda.leveragePosition(marketAddress, owner, id)[0];
   const layout = (name: string) =>
     IdlCoder.typeDefLayout({
       typeDef: dusk.program.idl.types!.find((t) => t.name === name)!,
       types: dusk.program.idl.types!,
     });
   const market = layout('market').decode(Buffer.alloc(16384)) as Market;
-  Object.assign(market, { version: 1, ylpMint: ylp });
+  Object.assign(market, { version: 6, ylpMint: ylp });
   Object.assign(market.baseSide, { assetMint: base, assetDecimals: 9 });
   Object.assign(market.quoteSide, { assetMint: quote, assetDecimals: 9 });
   const position = layout('leveragePosition').decode(
@@ -118,6 +121,7 @@ export async function displayFixture(
     owner,
     market: marketAddress,
     positionId: id,
+    namespaceAuthority: owner,
     debtAsset: 1,
     debtShares: new BN(10),
     collateralAmount: new BN(100),

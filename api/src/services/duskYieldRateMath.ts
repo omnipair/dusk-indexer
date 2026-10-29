@@ -1,3 +1,4 @@
+import { MARKET_LAYOUT_VERSION } from '@omnipair/dusk-sdk';
 import { DuskPinnedProtocol } from '../config/duskProtocol';
 import { priceMarketBindings } from './duskPriceMath';
 import { formatUsd, nativeFields, nativeKey, usdUnits } from './duskPortfolioMath';
@@ -23,7 +24,7 @@ export function marketGrowthPoint(input: {
   priceMarketBindings(input.pin.dusk.programId,input.marketAddress,market);
   if (!Number.isSafeInteger(input.slot) || input.slot<input.pin.historyFirstSlot
     || !Number.isFinite(Date.parse(input.blockTime)) || !/^[0-9a-f]{64}$/.test(input.deploymentIdentitySha256)
-    || unsigned(market.version,255n) !== 1n) throw new Error('Invalid committed market growth provenance');
+    || unsigned(market.version,255n) !== BigInt(MARKET_LAYOUT_VERSION)) throw new Error('Invalid committed market growth provenance');
   let supply: bigint | null = null;
   const assets = ['base','quote'].map((name) => {
     const side = nativeFields(market[`${name}_side`]),fees = nativeFields(side.fees);

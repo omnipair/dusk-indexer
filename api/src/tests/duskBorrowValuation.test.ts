@@ -1,11 +1,12 @@
 import test from 'node:test';
+import { createSdkTestRuntime } from './duskSdkTestRuntime';
 import assert from 'node:assert/strict';
 import { BN } from '@coral-xyz/anchor';
 import { IdlCoder } from '@coral-xyz/anchor/dist/cjs/coder/borsh/idl';
 import { Connection, PublicKey, SYSVAR_CLOCK_PUBKEY } from '@solana/web3.js';
 import type { AccountInfo, SimulateTransactionConfig, VersionedTransaction } from '@solana/web3.js';
 import type { Dusk } from '@omnipair/dusk-sdk';
-import { createVirtualBookRuntime, deriveBorrowPositionAddress } from '../services/virtualBook/native';
+import { deriveBorrowPositionAddress } from '../services/virtualBook/native';
 import { captureBorrowValuation } from '../services/duskBorrowValuation';
 import type { BorrowValuation } from '../services/duskBorrowValuation';
 import { captureLiquidations, liquidationCaptureDependencies } from '../services/duskLiquidations';
@@ -15,16 +16,23 @@ import type { DuskDeploymentEnvelope } from '../services/duskDeploymentService';
 const CLOCK_OWNER = new PublicKey('Sysvar1111111111111111111111111111111111111');
 
 async function fixture() {
+  const marketAddress = displayKey(72),
+    positionId = displayKey(73);
   const state = {
     slot: 2000,
     err: null as unknown,
     clockSlot: undefined as number | undefined,
     owner: displayKey(71),
-    auction: 255,
+    distressActive: false,
     simulations: [] as SimulateTransactionConfig[],
   };
   let dusk!: Dusk;
+  let market: ReturnType<ReturnType<typeof IdlCoder.typeDefLayout>['decode']>;
   const connection = {
+    getAccountInfoAndContext: async (address: PublicKey) => ({
+      context: { slot: state.slot },
+      value: address.equals(marketAddress) ? encode('market', market, 'account') : null,
+    }),
     simulateTransaction: async (_transaction: VersionedTransaction, config: SimulateTransactionConfig) => {
       state.simulations.push(config);
       const clock = Buffer.alloc(40);
@@ -40,14 +48,22 @@ async function fixture() {
           returnData: { programId: dusk.program.programId.toBase58(), data: [preview().toString('base64'), 'base64'] },
           accounts: [
             serialize(encode('market', market, 'account')),
-            serialize(encode('borrowPosition', { ...position, owner: state.owner, auctionDebtAsset: state.auction }, 'account')),
+            serialize(encode('borrowPosition', {
+              ...position,
+              owner: state.owner,
+              quoteDistress: {
+                active: state.distressActive,
+                startedAt: new BN(state.distressActive ? 1_789_999_900 : 0),
+                observedSlot: new BN(state.distressActive ? 1_999 : 0),
+              },
+            }, 'account')),
             serialize({ owner: CLOCK_OWNER, executable: false, lamports: 1, data: clock }),
           ],
         },
       };
     },
   };
-  ({ dusk } = await createVirtualBookRuntime(connection as unknown as Connection));
+  ({ dusk } = await createSdkTestRuntime(connection as unknown as Connection));
   const layout = (name: string) =>
     IdlCoder.typeDefLayout({ typeDef: dusk.program.idl.types!.find((t) => t.name === name)!, types: dusk.program.idl.types! });
   const encode = (name: string, value: unknown, kind: 'account' | 'type'): AccountInfo<Buffer> => {
@@ -56,11 +72,9 @@ async function fixture() {
     const prefix = kind === 'account' ? Buffer.from(dusk.program.idl.accounts!.find((a) => a.name === name)!.discriminator) : Buffer.alloc(0);
     return { owner: dusk.program.programId, executable: false, lamports: 1e8, data: Buffer.concat([prefix, buffer.subarray(0, length)]) };
   };
-  const marketAddress = displayKey(72),
-    positionId = displayKey(73);
-  const [address, bump] = deriveBorrowPositionAddress(marketAddress, positionId);
-  const market = layout('market').decode(Buffer.alloc(16384));
-  Object.assign(market, { version: 1 });
+  const [address, bump] = deriveBorrowPositionAddress(marketAddress, state.owner, positionId);
+  market = layout('market').decode(Buffer.alloc(16384));
+  Object.assign(market, { version: 6 });
   const position = layout('borrowPosition').decode(Buffer.alloc(16384));
   Object.assign(position, {
     owner: state.owner,
@@ -71,9 +85,8 @@ async function fixture() {
     quoteCollateral: new BN(0),
     fixedBaseShares: new BN(0),
     fixedQuoteShares: new BN(90),
-    auctionStartTime: new BN(1_789_999_900),
-    auctionStartPriceNad: new BN(1_100_000_000),
-    auctionFloorPriceNad: new BN(900_000_000),
+    baseDistress: { active: false, startedAt: new BN(0), observedSlot: new BN(0) },
+    quoteDistress: { active: false, startedAt: new BN(0), observedSlot: new BN(0) },
   });
   const debtSide = (fixed: number, liquidatable: boolean) => ({
     debtAsset: { base: {} },
@@ -88,10 +101,16 @@ async function fixture() {
     liquidationReferencePriceNad: new BN(1_000_000_000),
     liquidationHealthBps: new BN(9100),
     isLiquidatable: liquidatable,
-    liquidationIncentiveBps: 0,
-    insuranceFundingBps: 0,
-    totalPenaltyBps: 0,
-    maxRepayAmount: new BN(fixed / 2),
+    maxRepayAmount: new BN(liquidatable ? 91 : 0),
+    liquidationHealth: {
+      collateralValue: new BN(700),
+      debt: new BN(fixed),
+      maintenanceBps: 700,
+    },
+    liquidationRates: liquidatable
+      ? { buyerDiscountBps: 500, emergencyRewardBps: 30 }
+      : null,
+    liquidationDistress: { active: false, startedAt: new BN(0), observedSlot: new BN(0) },
   });
   const previewValue = {
     owner: state.owner,
@@ -108,12 +127,23 @@ async function fixture() {
     baseDebt: debtSide(0, false),
     quoteDebt: { ...debtSide(91, true), debtAsset: { quote: {} }, collateralAsset: { base: {} } },
   };
-  const preview = () => encode('borrowPositionPreview', { ...previewValue, owner: state.owner }, 'type').data;
+  const preview = () => encode('borrowPositionPreview', {
+    ...previewValue,
+    owner: state.owner,
+    quoteDebt: {
+      ...previewValue.quoteDebt,
+      liquidationDistress: {
+        active: state.distressActive,
+        startedAt: new BN(state.distressActive ? 1_789_999_900 : 0),
+        observedSlot: new BN(state.distressActive ? 1_999 : 0),
+      },
+    },
+  }, 'type').data;
   const ref = { address: address.toBase58(), market: marketAddress.toBase58(), owner: state.owner.toBase58() };
   return { dusk, state, ref, previewValue };
 }
 
-test('a borrow valuation reads accrued debt, liquidation terms and auction state from one bank', async () => {
+test('a borrow valuation reads accrued debt, liquidation terms and distress from one bank', async () => {
   const f = await fixture();
   const valuation = (await captureBorrowValuation(f.dusk, f.ref, 1990, displayKey(80).toBase58())) as BorrowValuation;
   assert.equal(valuation.status, 'available');
@@ -121,18 +151,22 @@ test('a borrow valuation reads accrued debt, liquidation terms and auction state
   assert.equal(valuation.fixedQuoteShares, '90');
   assert.equal(valuation.sourceSlot, 2000);
   assert.equal(valuation.unixTimestamp, '1790000000');
-  assert.equal(valuation.auction, null);
   assert.deepEqual(valuation.quote, {
     fixedDebt: '91', collateralAmount: '500', collateralValueNad: '700', healthBps: '7700', maxCfBps: 6000,
     liquidationCfBps: 7000, liquidationReferencePriceNad: '1000000000', liquidationHealthBps: '9100',
-    isLiquidatable: true, maxRepayAmount: '45',
+    isLiquidatable: true, maxRepayAmount: '91',
+    liquidationHealth: { collateralValue: '700', debt: '91', maintenanceBps: 700 },
+    liquidationRates: { buyerDiscountBps: 500, emergencyRewardBps: 30 },
+    liquidationDistress: { active: false, startedAt: '0', observedSlot: '0' },
   });
   assert.equal(f.state.simulations[0].minContextSlot, 1990);
   assert.deepEqual((f.state.simulations[0].accounts as { addresses: string[] }).addresses,
     [f.ref.market, f.ref.address, SYSVAR_CLOCK_PUBKEY.toBase58()]);
-  f.state.auction = 1;
-  const auctioned = (await captureBorrowValuation(f.dusk, f.ref, 1990, displayKey(80).toBase58())) as BorrowValuation;
-  assert.deepEqual(auctioned.auction, { debtAsset: 'quote', startTime: '1789999900', startPriceNad: '1100000000', floorPriceNad: '900000000' });
+  f.state.distressActive = true;
+  const distressed = (await captureBorrowValuation(f.dusk, f.ref, 1990, displayKey(80).toBase58())) as BorrowValuation;
+  assert.deepEqual(distressed.quote.liquidationDistress, {
+    active: true, startedAt: '1789999900', observedSlot: '1999',
+  });
 });
 
 test('a rejected preview is an unavailable row; a changed owner, bank or stale slot fails', async () => {
@@ -150,7 +184,7 @@ test('a rejected preview is an unavailable row; a changed owner, bank or stale s
   await assert.rejects(captureBorrowValuation(f.dusk, { ...f.ref, owner: displayKey(79).toBase58() }, 1990, payer), /identity changed/);
 });
 
-test('liquidations publish only liquidatable or auctioned positions and keep rejected previews visible', async () => {
+test('liquidations publish only liquidatable positions and keep rejected previews visible', async () => {
   const f = await fixture(),
     payer = displayKey(80).toBase58();
   const healthy = displayKey(90).toBase58(),
@@ -169,7 +203,7 @@ test('liquidations publish only liquidatable or auctioned positions and keep rej
   };
   const deployment = { sourceSlot: 1990, programUpgradeAuthority: payer } as DuskDeploymentEnvelope;
   const result = await captureLiquidations(f.dusk, deployment, undefined, deps);
-  assert.equal(result.schemaVersion, 'dusk-liquidations.v1');
+  assert.equal(result.schemaVersion, 'dusk-liquidations.v2');
   assert.deepEqual(result.candidates.map((row) => row.address), [f.ref.address]);
   assert.deepEqual(result.unavailable, [{ address: rejected, market: f.ref.market, sourceSlot: 2001 }]);
   assert.deepEqual(result.discovery, { sourceSlot: 1995, positions: 3 });

@@ -11,8 +11,7 @@ import { activePriceReferences, projectObservedPrices } from './duskPriceMath';
 import { HistoryDeploymentQuery, historyDeploymentIdentities } from './duskHistoryDeployment';
 import { historyScanCovers, readHistoryScan } from './duskHistoryCoverage';
 
-const identity = () => {
-  const pin = loadPinnedProtocol();
+const identity = (pin = loadPinnedProtocol()) => {
   return [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
 };
 function activeSwapBasis() {
@@ -28,7 +27,7 @@ interface ActivitySource {
 /** Replay and live ingestion share this source-keyed, replica-serialized path. */
 export async function projectMarketActivityBatch(client: PoolClient,limit = 500): Promise<number> {
   if (!Number.isSafeInteger(limit) || limit<1 || limit>500) throw new Error('Invalid activity batch limit');
-  const active = identity(),swapBasis = activeSwapBasis();
+  const pin = loadPinnedProtocol(),active = identity(pin),swapBasis = activeSwapBasis();
   await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`dusk:market-activity:${JSON.stringify(active)}`]);
   const result = await client.query<ActivitySource & { stream_count: string; matching_count: string }>(`
     SELECT c.event_key,o.observation_id::text,o.event_name,o.transaction_signature AS signature,o.slot::text,
@@ -42,10 +41,11 @@ export async function projectMarketActivityBatch(client: PoolClient,limit = 500)
       FROM dusk_ingestion.event_stream s WHERE
         (s.cluster,s.program_id,s.idl_hash,s.protocol_revision,s.event_key)=(c.cluster,c.program_id,c.idl_hash,c.protocol_revision,c.event_key)) history ON true
     WHERE c.cluster=$1 AND c.program_id=$2 AND c.idl_hash=$3 AND c.protocol_revision=$4
-      AND c.commitment IN ('confirmed','finalized') AND o.commitment=c.commitment AND o.event_name=ANY($5::text[])
+      AND c.commitment IN ('confirmed','finalized') AND o.commitment=c.commitment
+      AND o.slot >= $5 AND o.event_name=ANY($6::text[])
       AND NOT EXISTS(SELECT 1 FROM dusk_ingestion.market_activity_events a WHERE
         (a.cluster,a.program_id,a.idl_hash,a.protocol_revision,a.event_key)=(c.cluster,c.program_id,c.idl_hash,c.protocol_revision,c.event_key))
-    ORDER BY o.slot,c.event_key LIMIT $6`,[...active,ACTIVITY_EVENTS,limit]);
+    ORDER BY o.slot,c.event_key LIMIT $7`,[...active,pin.historyFirstSlot,ACTIVITY_EVENTS,limit]);
   for (const row of result.rows) {
     if (row.stream_count !== '1' || row.matching_count !== '1' || !(row.block_time instanceof Date) || !Number.isFinite(row.block_time.getTime()) || typeof row.block_time_exact !== 'string')
       throw new Error('FINALIZED_INVARIANT: activity event lacks one matching event-time record');
@@ -88,15 +88,15 @@ function volumeResponse(metrics: ReturnType<typeof emptyMetrics>) {
 
 /** Caller owns a repeatable-read transaction. Range coverage is the stream's cursor. */
 export async function readMarketActivity(client: PoolClient,options: MarketActivityQuery) {
-  const active = identity(),swapBasis = activeSwapBasis();
+  const pin = loadPinnedProtocol(),active = identity(pin),swapBasis = activeSwapBasis();
   if (!/^[0-9a-f]{64}$/.test(options.deploymentIdentitySha256) || !Number.isFinite(Date.parse(options.until)) || options.since && (!Number.isFinite(Date.parse(options.since)) || Date.parse(options.since)>Date.parse(options.until)))
     throw new Error('Invalid native activity time range');
   if (options.market !== undefined && new PublicKey(options.market).toBase58() !== options.market)
     throw new Error('Invalid native activity market');
-  const deployments = await historyDeploymentIdentities(client,options);
+  const deployments = await historyDeploymentIdentities(client,options,pin);
   const historyScan = await readHistoryScan(client);
   const changedSource = await client.query(`SELECT 1 FROM dusk_ingestion.market_activity_events a
-    WHERE a.cluster=$1 AND a.program_id=$2 AND a.idl_hash=$3 AND a.protocol_revision=$4 AND (
+    WHERE a.cluster=$1 AND a.program_id=$2 AND a.idl_hash=$3 AND a.protocol_revision=$4 AND a.slot >= $5 AND (
       NOT EXISTS(SELECT 1 FROM dusk_ingestion.canonical_events c WHERE
         (c.cluster,c.program_id,c.idl_hash,c.protocol_revision,c.event_key,c.observation_id)=
         (a.cluster,a.program_id,a.idl_hash,a.protocol_revision,a.event_key,a.observation_id) AND c.commitment IN ('confirmed','finalized'))
@@ -107,7 +107,7 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
         (s.cluster,s.program_id,s.idl_hash,s.protocol_revision,s.event_key,s.slot,s.time,s.payload)=
         (a.cluster,a.program_id,a.idl_hash,a.protocol_revision,a.event_key,a.slot,a.block_time,a.payload)
         AND s.event_name=a.event_name AND s.transaction_signature=a.signature AND s.market=a.market)
-    ) LIMIT 1`,active);
+    ) LIMIT 1`,[...active,pin.historyFirstSlot]);
   if (changedSource.rowCount) throw new Error('FINALIZED_INVARIANT: recorded activity source changed');
   const coverage = await client.query<{ indexed: string; projected: string; first_slot: string | null; last_slot: string | null }>(`
     SELECT count(*)::text AS indexed,count(a.event_key)::text AS projected,min(o.slot)::text AS first_slot,max(o.slot)::text AS last_slot
@@ -115,7 +115,8 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
     JOIN dusk_ingestion.event_observations o USING(cluster,program_id,idl_hash,protocol_revision,event_key,observation_id)
     LEFT JOIN dusk_ingestion.market_activity_events a USING(cluster,program_id,idl_hash,protocol_revision,event_key,observation_id)
     WHERE c.cluster=$1 AND c.program_id=$2 AND c.idl_hash=$3 AND c.protocol_revision=$4
-      AND c.commitment IN ('confirmed','finalized') AND o.commitment=c.commitment AND o.event_name=ANY($5::text[])`,[...active,ACTIVITY_EVENTS]);
+      AND c.commitment IN ('confirmed','finalized') AND o.commitment=c.commitment
+      AND o.slot >= $5 AND o.event_name=ANY($6::text[])`,[...active,pin.historyFirstSlot,ACTIVITY_EVENTS]);
   const all = emptyMetrics(),byMarket = new Map<string,{ metrics: ReturnType<typeof emptyMetrics>; swaps: number; events: number }>();
   const prices = new Map<string,ActivityPriceBasis>();
   const digest = createHash('sha256').update(JSON.stringify([active,options.deploymentIdentitySha256,
@@ -143,13 +144,14 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
           AND x.mint IN (p.payload->'base'->>'asset_mint',p.payload->'quote'->>'asset_mint') AND x.quality='external-observation'
           AND (x.source LIKE 'dusk-provider.v1:jupiter:%' OR x.source LIKE 'dusk-provider.v1:birdeye:%')
           AND x.source_evidence->>'basis'='dusk-provider.v1' AND x.source_evidence->>'sourceCluster'='mainnet-beta'
-          AND x.source_evidence->>'deploymentIdentitySha256'=ANY($10::text[])
+          AND x.source_evidence->>'deploymentIdentitySha256'=ANY($11::text[])
           AND x.source_time<=a.block_time AND x.observed_at<=a.block_time
         ORDER BY x.mint,x.source_time DESC,x.observation_id DESC) prices) external ON true
       WHERE a.cluster=$1 AND a.program_id=$2 AND a.idl_hash=$3 AND a.protocol_revision=$4
-        AND ($5::timestamptz IS NULL OR a.block_time>=$5) AND a.block_time<=$6
-        AND ($7::text IS NULL OR a.market=$7) AND (a.slot,a.event_key)>($8::bigint,$9::text)
-      ORDER BY a.slot,a.event_key LIMIT 500`,[...active,options.since ?? null,options.until,options.market ?? null,afterSlot,afterKey,deployments]);
+        AND a.slot >= $5 AND ($6::timestamptz IS NULL OR a.block_time>=$6) AND a.block_time<=$7
+        AND ($8::text IS NULL OR a.market=$8) AND (a.slot,a.event_key)>($9::bigint,$10::text)
+      ORDER BY a.slot,a.event_key LIMIT 500`,[...active,pin.historyFirstSlot,options.since ?? null,options.until,
+        options.market ?? null,afterSlot,afterKey,deployments]);
     if (!page.rows.length) break;
     for (const row of page.rows) {
       let basis: ActivityPriceBasis | null = null;

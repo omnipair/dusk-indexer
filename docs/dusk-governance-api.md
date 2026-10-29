@@ -1,4 +1,4 @@
-# Governance proposals (`dusk-governance-proposals.v2`)
+# Governance proposals (`dusk-governance-proposals.v3`)
 
 `GET /api/dusk/v1/governance/proposals` covers every market;
 `GET /api/dusk/v1/governance/proposals?market=<base58 pubkey>` covers one. A
@@ -8,16 +8,16 @@ standard `{ success: true, deployment, data }` envelope with
 
 Proposals come from their streamed lifecycle events (migration 047):
 `ParameterProposalCreated` carries the proposal's terms, update and metadata;
-`ParameterProposalSupported`, `ParameterProposalSupportWithdrawn` and
-`ParameterProposalQueued` carry totals; `Queued` and `Executed` set status 1
-and 2. Each market's eligible yLP is the sum of streamed yLP balances outside
+`ParameterProposalSupported`, `ParameterProposalSupportWithdrawn`,
+`GovernanceSupportChanged` and `ParameterProposalQueued` carry totals;
+`Queued` and `Executed` set status 1 and 2. Each market's eligible yLP is the sum of streamed yLP balances outside
 the market-owned hLP vaults. Locked yLP is the sum of proposal totals. Direct
 Token-2022 burns outside protocol events can overstate eligibility; that is
 conservative for the API display.
 
 ```ts
 {
-  schemaVersion: 'dusk-governance-proposals.v2',
+  schemaVersion: 'dusk-governance-proposals.v3',
   market: string | null,          // the selection; null for every market
   sourceSlot: number,             // the stream's slot; covers every event included
   markets: Array<{                // every market with a proposal, plus the selected market
@@ -29,9 +29,10 @@ conservative for the API display.
   }>,
   proposals: Array<{              // sorted by market, then address
     address: string, market: string, proposer: string,
-    nonce: string, family: number, familyRevision: string,
+    nonce: string,
+    familyRevisions: string[],    // seven entries; zero for untouched families
     digest: string,               // 64-character lowercase hex
-    update: unknown,              // decoded MarketParameterUpdate: { variant, fields }, fields an array for tuple variants
+    updates: unknown[],           // one to seven decoded MarketParameterUpdate values in canonical family order
     metadata: { version: number, title: string, descriptionUri: string, descriptionSha256: string, descriptionLen: number },
     sponsorshipFloor: string, initialSupport: string, totalLocked: string,
     status: number,               // ParameterProposalStatus: Collecting, Queued, Executed, Cancelled, Expired, Stale

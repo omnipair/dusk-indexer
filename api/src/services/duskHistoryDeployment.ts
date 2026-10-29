@@ -53,7 +53,9 @@ export async function historyDeploymentIdentities(client: PoolClient,query: Hist
     throw new Error('Historical query differs from its verified deployment');
   const rows = await client.query<{ deployment_identity_sha256: string; envelope: DuskDeploymentEnvelope }>(`
     SELECT deployment_identity_sha256,envelope FROM dusk_ingestion.capture_deployments
-    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4`,identity(pin));
+    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
+      AND envelope->>'sourceSlot' ~ '^[0-9]+$' AND (envelope->>'sourceSlot')::bigint >= $5`,
+    [...identity(pin),pin.historyFirstSlot]);
   const hashes = new Set([query.deploymentIdentitySha256]);
   for (const row of rows.rows) {
     assertPinnedHistoryDeployment(row.envelope,pin);

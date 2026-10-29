@@ -91,7 +91,7 @@ test('a failed preview preserves market inventory and marks every preview-only v
 });
 test('insurance caps and both draw windows come from the same decoded market bank even without a preview',() => {
   const sample = liveFixture();
-  sample.market.insurance.per_event_draw_bps = 700;
+  sample.market.insurance.principal_coverage_bps = 7500;
   sample.market.insurance.per_day_draw_bps = 1500;
   sample.market.insurance.base_available = new BN('9007199254740993');
   sample.market.insurance.base_draw_window = { start_slot: new BN(12), opening_available: new BN('9007199254740993'), credited: new BN(55), drawn: new BN(23) };
@@ -99,7 +99,7 @@ test('insurance caps and both draw windows come from the same decoded market ban
   const payload = projectMarketSnapshot({ ...sample.snapshot, preview: null, basis: 'rpc-account', previewUnavailable: true,
     marketAccount: { ...sample.snapshot.marketAccount, data: encodeFixtureAccount('Market',sample.market).toString('base64') } },sample.references) as any;
   assert.equal(payload.state.baseInsuranceAvailable,'9007199254740993');
-  assert.deepEqual(payload.insurance, { perEventDrawBps: 700, perDayDrawBps: 1500,
+  assert.deepEqual(payload.insurance, { principalCoverageBps: 7500, perDayDrawBps: 1500,
     baseWindow: { startSlot: '12', openingAvailable: '9007199254740993', credited: '55', drawn: '23' },
     quoteWindow: { startSlot: '13', openingAvailable: '21', credited: '8', drawn: '5' } });
   assert.equal(payload.state.sourceSlot,sample.snapshot.slot);

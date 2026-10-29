@@ -54,18 +54,19 @@ function publishedIndex(index: unknown, amount: unknown, supply: unknown, carry:
  * carried forward and, for hLP, the vault's yLP entitlement is checkpointed
  * into hLP growth first, exactly as the program's lazy update does. The
  * market must already be the preview's updated post-state. */
-export function projectLiveYield(market: LiveYieldMarket, account: LiveYieldAccount, balance: bigint) {
+export function projectLiveYield(market: LiveYieldMarket, account: LiveYieldAccount, balance: bigint, retiredVault?: Record<string, unknown>) {
   const side = market.baseSide.assetMint.equals(account.assetMint) ? 'base'
     : market.quoteSide.assetMint.equals(account.assetMint) ? 'quote' : null;
   if (!side) throw new Error('Yield asset is outside its market');
   const state = side === 'base' ? market.baseSide : market.quoteSide;
-  let swap = publishedIndex(state.fees.swapFeeGrowthIndexQ64, state.fees.unallocatedSwapFeeLiability,
+  let swap = retiredVault ? unsigned(retiredVault[`${side}SwapFeeGrowthIndexQ64`]) : publishedIndex(state.fees.swapFeeGrowthIndexQ64, state.fees.unallocatedSwapFeeLiability,
     state.shares.ylpSupply, state.fees.swapFeeGrowthRemainderScaled);
-  let interest = publishedIndex(state.fees.interestGrowthIndexQ64, state.fees.unallocatedInterestLiability,
+  let interest = retiredVault ? unsigned(retiredVault[`${side}InterestGrowthIndexQ64`]) : publishedIndex(state.fees.interestGrowthIndexQ64, state.fees.unallocatedInterestLiability,
     state.shares.ylpSupply, state.fees.interestGrowthRemainderScaled);
   if (account.tokenKind === 0) {
+    if (retiredVault) throw new Error('Retired yield requires an hLP receipt');
     if (!market.ylpMint.equals(account.lpMint)) throw new Error('Invalid yLP mint');
-  } else if (account.tokenKind === 1) {
+  } else if (account.tokenKind === 1 && !retiredVault) {
     const vault = market.baseSide.hlpMint.equals(account.lpMint) ? market.baseHlpVault
       : market.quoteSide.hlpMint.equals(account.lpMint) ? market.quoteHlpVault : null;
     if (!vault) throw new Error('Invalid hLP mint');
@@ -77,7 +78,7 @@ export function projectLiveYield(market: LiveYieldMarket, account: LiveYieldAcco
       vault.hlpSupply, vault[`${side}SwapFeeGrowthRemainderScaled`]);
     interest = publishedIndex(vault[`${side}InterestGrowthIndexQ64`], unsigned(vault[`unallocated${prefix}InterestAmount`], U64_MAX) + interestCredit,
       vault.hlpSupply, vault[`${side}InterestGrowthRemainderScaled`]);
-  } else throw new Error('Invalid LP token kind');
+  } else if (account.tokenKind !== 1) throw new Error('Invalid LP token kind');
   const swapFeeAmount = BigInt(settleRecordedGrowth({ balance, index: swap, checkpoint: account.swapFeeCheckpointQ64,
     remainder: account.swapFeeRemainderQ64, accrued: account.accruedSwapFeeAmount }).amount);
   const interestAmount = BigInt(settleRecordedGrowth({ balance, index: interest, checkpoint: account.interestCheckpointQ64,

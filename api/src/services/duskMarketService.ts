@@ -455,6 +455,7 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
     label: `${addresses.baseMint.slice(0, 4)}/${addresses.quoteMint.slice(0, 4)}`,
     marketKind: marketKindFromConfig(config),
     marketAddress: market.toBase58(),
+    liquidityStatus: field(field(marketAccount, 'amm'), 'initialized') === true ? 'active' : 'empty',
     ...addresses,
     tokenMetadata: { schemaVersion: 'dusk-token-labels.v1',sourceSlot,
       base: snapshotTokenMetadata(snapshot,addresses.baseMint),quote: snapshotTokenMetadata(snapshot,addresses.quoteMint) },
@@ -473,7 +474,9 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
     swapFeeBps: config.swapFeeBps,
     config,
     insurance: {
-      perEventDrawBps: numberValue(field(insurance, 'perEventDrawBps', 'per_event_draw_bps')),
+      principalCoverageBps: numberValue(
+        field(insurance, 'principalCoverageBps', 'principal_coverage_bps'),
+      ),
       perDayDrawBps: numberValue(field(insurance, 'perDayDrawBps', 'per_day_draw_bps')),
       baseWindow: insuranceWindow('base'),
       quoteWindow: insuranceWindow('quote'),

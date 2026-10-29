@@ -116,6 +116,8 @@ export function hlpPortfolioPrincipal(market: Record<string,unknown>,preview: Re
 export function projectPortfolioComponent(input: {
   pin: DuskPinnedProtocol; kind: PortfolioKind; address: string; marketAddress: string; market: unknown; preview: unknown | null;
   state: unknown; slot: number; blockTime: string; references: unknown;
+  /** Set only after validating same-bank retired-cohort evidence. */
+  retiredHlp?: boolean;
 }) {
   const market = nativeFields(input.market),state = nativeFields(input.state);
   const bound = priceMarketBindings(input.pin.dusk.programId,input.marketAddress,market);
@@ -125,8 +127,10 @@ export function projectPortfolioComponent(input: {
   if (input.kind === 'borrow' || input.kind === 'leverage') {
     if (nativeKey(state.market) !== input.marketAddress) throw new Error('Portfolio position belongs to another market');
     const seed = input.kind === 'borrow' ? 'borrow_position_v2' : 'leverage_position_v2';
-    const [address,bump] = PublicKey.findProgramAddressSync([Buffer.from(seed),new PublicKey(input.marketAddress).toBuffer(),
-      new PublicKey(nativeKey(state.position_id)).toBuffer()],new PublicKey(input.pin.dusk.programId));
+    const seeds = [Buffer.from(seed),new PublicKey(input.marketAddress).toBuffer(),new PublicKey(owner).toBuffer()];
+    if (input.kind === 'leverage') seeds.push(new PublicKey(nativeKey(state.namespace_authority)).toBuffer());
+    seeds.push(new PublicKey(nativeKey(state.position_id)).toBuffer());
+    const [address,bump] = PublicKey.findProgramAddressSync(seeds,new PublicKey(input.pin.dusk.programId));
     if (address.toBase58() !== input.address || unsigned(state.bump,255n) !== BigInt(bump)) throw new Error('Portfolio position PDA mismatch');
   }
   const preview = input.preview === null ? null : nativeFields(input.preview);
@@ -146,8 +150,12 @@ export function projectPortfolioComponent(input: {
   } else {
     const holding = unsigned(state.amount,U64),mint = nativeKey(state.mint);
     const expected = input.kind === 'ylp' ? nativeKey(market.ylp_mint) : nativeKey(sideOf(market,input.kind === 'base_hlp' ? 'base' : 'quote').hlp_mint);
-    if (mint !== expected) throw new Error('Portfolio LP account has the wrong mint');
-    if (preview && input.kind === 'ylp') {
+    if (mint !== expected && !input.retiredHlp) throw new Error('Portfolio LP account has the wrong mint');
+    if (input.retiredHlp) {
+      if (!input.kind.includes('hlp') || mint === expected) throw new Error('Invalid retired portfolio receipt');
+      add(input.kind === 'base_hlp' ? 'base' : 'quote',0n,'asset');
+      issues.push('hlp-retired');
+    } else if (preview && input.kind === 'ylp') {
       const supply = shareSupply(market);
       if (holding>supply) throw new Error('LP holding exceeds market supply');
       for (const side of ['base','quote'] as const)
@@ -161,7 +169,7 @@ export function projectPortfolioComponent(input: {
   }
   const priced = preview ? projectMarketPrices({ pin: input.pin,marketAddress: input.marketAddress,market,preview,
     slot: input.slot,blockTime: input.blockTime,references: input.references }) : null;
-  const valuation: PortfolioValuation = priced ? valuePortfolioBalances(balances,priced.prices)
+  const valuation: PortfolioValuation = input.retiredHlp ? valuePortfolioBalances(balances,[]) : priced ? valuePortfolioBalances(balances,priced.prices)
     : { assetsUsd: null,debtUsd: null,netUsd: null,missingMints: [],priceQualities: [],rounding: 'down-36-decimals' };
   if (valuation.missingMints.length) issues.push('missing-price-reference');
   return { address: input.address,owner,market: input.marketAddress,kind: input.kind,balances,valuation,issues,

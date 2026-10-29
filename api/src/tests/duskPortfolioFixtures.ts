@@ -20,7 +20,8 @@ export function portfolioFixture(options: { slot?: number; lpOwner?: string; lpA
     Object.assign(preview[side],{ live_reserve: reserve,cash_reserve: reserve,ylp_supply: new BN(1000),
       borrow_index_nad: debt[`${side}_borrow_index_nad`],spot_price_nad: new BN(side === 'base' ? '2500000000' : '400000000') });
   }
-  const positionId = fixtureKey(172),[position,bump] = PublicKey.findProgramAddressSync([Buffer.from('borrow_position_v2'),new PublicKey(marketAddress).toBuffer(),positionId.toBuffer()],new PublicKey(pin.dusk.programId));
+  const positionId = fixtureKey(172),[position,bump] = PublicKey.findProgramAddressSync([Buffer.from('borrow_position_v2'),new PublicKey(marketAddress).toBuffer(),
+    new PublicKey(owner).toBuffer(),positionId.toBuffer()],new PublicKey(pin.dusk.programId));
   const positionState = { market: new PublicKey(marketAddress),owner: new PublicKey(owner),position_id: positionId,bump,
     base_collateral: new BN(1_000_000_000),quote_collateral: new BN(0),fixed_base_shares: new BN(200_000_000),fixed_quote_shares: new BN(0) };
   // Deliberately not an ATA: all LP token accounts participate in ownership.

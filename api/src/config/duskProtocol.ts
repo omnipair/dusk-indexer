@@ -114,8 +114,12 @@ function loadProgram(entry: LockProgram, root: string): DuskPinnedProgram {
     `programs[${name}].idl.sha256`,
   );
 
-  // The lock records the path relative to the repository root.
-  const absoluteIdlPath = resolve(root, '..', idlPath);
+  // Current locks use protocol/idl; an archived byte-identical lock resolves
+  // that prefix inside its own release directory. Older archives use a
+  // revision-relative path under their parent archive directory.
+  const absoluteIdlPath = idlPath.startsWith('protocol/')
+    ? resolve(root, idlPath.slice('protocol/'.length))
+    : resolve(root, '..', idlPath);
   const raw = readFileSync(absoluteIdlPath, 'utf8');
   const observedRawSha256 = sha256(raw);
   if (observedRawSha256 !== idlRawSha256) {
@@ -167,13 +171,18 @@ export function loadCurrentProtocol(): DuskPinnedProtocol {
   const slot = compatible.deploySlot;
   const bytes = compatible.allocatedBinaryBytes;
   const hash = compatible.binarySha256;
+  const isPinnedDeployment =
+    slot === dusk.deployment.deploySlot &&
+    bytes === dusk.deployment.allocatedBinaryBytes &&
+    hash === dusk.binarySha256;
   if (
     compatible.eventRevision !== pinned.revision ||
     compatible.programId !== dusk.programId ||
     compatible.idlCanonicalSha256 !== dusk.idlCanonicalSha256 ||
     typeof slot !== 'number' ||
     !Number.isSafeInteger(slot) ||
-    slot <= dusk.deployment.deploySlot ||
+    (slot < dusk.deployment.deploySlot ||
+      (slot === dusk.deployment.deploySlot && !isPinnedDeployment)) ||
     typeof bytes !== 'number' ||
     !Number.isSafeInteger(bytes) ||
     bytes < 4 ||

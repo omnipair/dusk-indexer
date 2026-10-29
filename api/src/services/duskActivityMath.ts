@@ -5,6 +5,7 @@ import { multiplyPriceRatio } from './duskPriceMath';
 export const ACTIVITY_EVENTS = [
   'SwapExecuted', 'LeveragePositionOpened', 'LeveragePositionUpdated',
   'LeveragePositionClosed', 'LeveragePositionLiquidated', 'MarketDebtUpdated',
+  'FlashLiquidationSettled', 'EmergencyLiquidationSettled',
   'HlpClosed', 'HlpTerminalLiquidated',
 ] as const;
 export type ActivityEventName = typeof ACTIVITY_EVENTS[number];
@@ -51,8 +52,9 @@ function signed(value: unknown): bigint {
 export function parseActivityEvent(eventName: string,payload: unknown,slot: string,basis: SwapVolumeBasis = 'embedded-leverage-receipts') {
   if (!(ACTIVITY_EVENTS as readonly string[]).includes(eventName)) throw new Error('Unsupported native activity event');
   const event = fields(payload),market = address(event.market),sourceSlot = unsigned(slot);
-  const leverage = eventName.startsWith('LeveragePosition');
-  if (leverage || eventName === 'MarketDebtUpdated') {
+  const settlement = eventName === 'FlashLiquidationSettled' || eventName === 'EmergencyLiquidationSettled';
+  const leverage = eventName.startsWith('LeveragePosition') || settlement && event.leverage === true;
+  if ((leverage && !settlement) || eventName === 'MarketDebtUpdated') {
     const metadata = fields(event.metadata);
     if (address(metadata.market) !== market || unsigned(metadata.slot) !== sourceSlot)
       throw new Error('Native activity metadata differs from its containing event');
@@ -60,7 +62,7 @@ export function parseActivityEvent(eventName: string,payload: unknown,slot: stri
   }
   let swap: Record<string,unknown> | null = null;
   if (eventName === 'SwapExecuted') swap = event;
-  else if (leverage && basis === 'embedded-leverage-receipts') {
+  else if (leverage && !settlement && basis === 'embedded-leverage-receipts') {
     if (eventName === 'LeveragePositionUpdated' && event.swap === null) swap = null;
     else swap = fields(event.swap);
   }
@@ -95,12 +97,23 @@ export function parseActivityEvent(eventName: string,payload: unknown,slot: stri
   let exposure = 0n;
   if (eventName === 'LeveragePositionOpened') exposure = unsigned(event.collateral_amount);
   else if (eventName === 'LeveragePositionClosed' || eventName === 'LeveragePositionLiquidated') exposure = unsigned(event.collateral_sold);
+  else if (settlement && event.leverage === true)
+    exposure = eventName === 'FlashLiquidationSettled'
+      ? unsigned(event.collateral_debit) : unsigned(fields(event.quote).collateral_debit);
   else if (eventName === 'LeveragePositionUpdated') {
     const delta = signed(event.collateral_delta);
     if (event.swap !== null || unsigned(event.borrowed_amount)>0n) exposure = delta<0n ? -delta : delta;
   }
-  if (exposure>0n) amounts.push({ metric: 'marginVolume',amount: exposure.toString(),asset: { mint: address(event.collateral_asset_mint) } });
-  if (['MarketDebtUpdated','LeveragePositionClosed','LeveragePositionLiquidated'].includes(eventName)) {
+  if (exposure>0n) {
+    const asset = settlement
+      ? { side: (side(event.debt_asset) === 0 ? 1 : 0) as 0 | 1 }
+      : { mint: address(event.collateral_asset_mint) };
+    amounts.push({ metric: 'marginVolume',amount: exposure.toString(),asset });
+  }
+  if (settlement) {
+    const loss = eventName === 'FlashLiquidationSettled' ? fields(event.loss) : fields(fields(event.quote).loss);
+    amounts.push({ metric: 'reportedInterest',amount: unsigned(loss.interest_paid).toString(),asset: { side: side(event.debt_asset) } });
+  } else if (['MarketDebtUpdated','LeveragePositionClosed','LeveragePositionLiquidated'].includes(eventName)) {
     amounts.push({ metric: 'reportedInterest',amount: unsigned(event.interest_paid).toString(),asset: { mint: address(event.debt_asset_mint) } });
   } else if (eventName === 'HlpClosed' || eventName === 'HlpTerminalLiquidated') {
     const target = side(eventName === 'HlpClosed' ? event.asset_side : event.target_asset);

@@ -6,14 +6,17 @@ import { loadPinnedProtocol } from '../config/duskProtocol';
 import { timedClientQuery } from '../utils/dbQuery';
 import { perfMetrics } from '../utils/perfMetrics';
 import { QuoteCache } from './duskQuoteCache';
+import { validHistoryUntil } from './duskHistoryTime';
 
 export const HISTORY_EVENTS = [
   'SwapExecuted', 'LiquidityAdded', 'LiquidityRemoved',
   'MarketCollateralDeposited', 'MarketCollateralWithdrawn', 'MarketDebtUpdated',
   'BorrowPositionLiquidated', 'LeveragePositionOpened', 'LeveragePositionUpdated',
   'LeveragePositionClosed', 'LeveragePositionLiquidated',
+  'FlashLiquidationSettled', 'EmergencyLiquidationSettled',
 ] as const;
-export const LEVERAGE_CLOSE_EVENTS = ['LeveragePositionClosed', 'LeveragePositionLiquidated'] as const;
+export const LEVERAGE_CLOSE_EVENTS = ['LeveragePositionClosed', 'LeveragePositionLiquidated',
+  'FlashLiquidationSettled', 'EmergencyLiquidationSettled'] as const;
 /** Opt-in preserves v1 event coverage and cursor identity during a rolling release. */
 export const HISTORY_EVENTS_V2 = [...HISTORY_EVENTS, 'HlpOpened', 'HlpClosed', 'YieldClaimed'] as const;
 
@@ -49,7 +52,7 @@ export function eventHistorySelection(query: EventHistoryQuery) {
   const supportedEvents = query.version === 2 ? HISTORY_EVENTS_V2 : HISTORY_EVENTS;
   if (!Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 500
     || !/^[0-9a-f]{64}$/.test(query.deploymentIdentitySha256)
-    || !Number.isFinite(Date.parse(query.until)) || Date.parse(query.until) > Date.now()
+    || !validHistoryUntil(Date.parse(query.until))
     || query.since !== undefined && (!Number.isFinite(Date.parse(query.since)) || Date.parse(query.since) > Date.parse(query.until))) invalid();
   if ((query.owner !== undefined) !== (query.category !== undefined)
     || query.category !== undefined && !['leverage-close', 'activity'].includes(query.category)
@@ -107,6 +110,11 @@ export function buildEventHistoryQuery(query: EventHistoryQuery, watermark: stri
     `o.cluster=$1 AND o.program_id=$2 AND o.idl_hash=$3 AND o.protocol_revision=$4`,
     `o.commitment IN ('confirmed','finalized') AND o.observation_id<=$5::bigint AND o.event_name=ANY($6::text[])`,
   ];
+  if (query.category === 'leverage-close')
+    conditions.push(`(o.event_name IN ('LeveragePositionClosed','LeveragePositionLiquidated')
+      OR (o.event_name IN ('FlashLiquidationSettled','EmergencyLiquidationSettled')
+        AND (o.decoded_payload->>'leverage')::boolean
+        AND (o.decoded_payload->'position_state'->>'closed')::boolean))`);
   if (window.market) conditions.push(`o.decoded_payload->>'market'=${bind(window.market)}`);
   if (cursor) conditions.push(`(o.slot,o.event_key)<(${bind(cursor.slot)}::bigint,${bind(cursor.key)}::text)`);
   const actor = 'dusk_ingestion.event_history_actor(o.event_name,o.decoded_payload)';
@@ -116,8 +124,9 @@ export function buildEventHistoryQuery(query: EventHistoryQuery, watermark: stri
     const owner = bind(query.owner);
     branches[0] += ` AND ${actor}=${owner}`;
     if (query.category === 'activity') branches.push(
-      `${where} AND o.event_name IN ('BorrowPositionLiquidated','LeveragePositionLiquidated')
-        AND o.decoded_payload->>'liquidator'=${owner} AND ${actor} IS DISTINCT FROM o.decoded_payload->>'liquidator'`);
+      `${where} AND o.event_name IN ('BorrowPositionLiquidated','LeveragePositionLiquidated','FlashLiquidationSettled','EmergencyLiquidationSettled')
+        AND COALESCE(o.decoded_payload->>'liquidator',o.decoded_payload->>'buyer',o.decoded_payload->>'caller')=${owner}
+        AND ${actor} IS DISTINCT FROM COALESCE(o.decoded_payload->>'liquidator',o.decoded_payload->>'buyer',o.decoded_payload->>'caller')`);
   }
   const select = (filter: string) => `SELECT c.event_key,o.observation_id::text,o.event_name,
       o.transaction_signature AS signature,o.slot::text,o.slot AS sort_slot,o.blockhash,o.instruction_path,o.event_ordinal,

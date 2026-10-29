@@ -9,7 +9,9 @@ import type { DuskDeploymentEnvelope } from './duskDeploymentService';
 const NAD = 1_000_000_000n, U64 = (1n << 64n) - 1n, U128 = (1n << 128n) - 1n;
 const checked = (n: bigint) => unsigned(n, U128);
 
-/** Display unrealized PnL at the symmetric risk EMA. This is neither a close
+/** Equity at the symmetric risk EMA. The legacy `pnlRaw` is only the delta from
+ * entry margin; ongoing display PnL uses the wallet's indexed owner cash flows.
+ * This is neither a close
  * receipt nor proof of liquidation eligibility (which also depends on depth).
  * Match the program's normalization and aggregate debt-share burn rounding. */
 export function oraclePositionValue(input: {

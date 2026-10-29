@@ -30,7 +30,8 @@ import {
 } from '@solana/web3.js';
 import type { AccountInfo } from '@solana/web3.js';
 import type { Pool, PoolClient } from 'pg';
-import type { Dusk, Market, YieldAccount } from '@omnipair/dusk-sdk';
+import { MARKET_LAYOUT_VERSION } from '@omnipair/dusk-sdk';
+import type { Dusk, HlpCohort, Market, YieldAccount } from '@omnipair/dusk-sdk';
 
 import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
@@ -39,6 +40,7 @@ import { captureWithDeadline, currentDisplayState, displayRuntime } from './dusk
 import { readStreamCursor } from './duskHistoryCoverage';
 import { completeBatch } from './duskWalletSnapshot';
 import { projectLiveYield } from './duskYieldAccounting';
+import { assertRetiredHlpCohort, hlpCohortAddress } from './duskHlpCohort';
 import { boundedDuskRpcRead, decodePreviewMarketReturnData, deriveYieldAccountAddress } from './virtualBook/native';
 
 const CLOCK_OWNER = 'Sysvar1111111111111111111111111111111111111';
@@ -61,6 +63,7 @@ export interface YieldStream {
   lpMint: string;
   assetMint: string;
   kind: 'ylp' | 'hlp';
+  retired: boolean;
   recipient: string;
   initialized: boolean;
   needsGrowth: boolean;
@@ -111,14 +114,16 @@ export async function readOwnerYieldGroups(
     WHERE l.instruction_name<>'settle_hlp_order_yield' ORDER BY c.order_address`,
     [...delegate, owner],
   );
-  const markets = await client.query<{ market: string; base_mint: string; quote_mint: string; base_hlp_mint: string; quote_hlp_mint: string }>(
-    `SELECT market,base_mint,quote_mint,base_hlp_mint,quote_hlp_mint FROM dusk_ingestion.streamed_markets
-    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND market=ANY($5::text[])`,
+  const markets = await client.query<{ market: string; base_mint: string; quote_mint: string; lp_mint: string }>(
+    `SELECT m.market,m.base_mint,m.quote_mint,l.lp_mint FROM dusk_ingestion.streamed_markets m
+    JOIN dusk_ingestion.streamed_lp_mints l USING(cluster,program_id,idl_hash,protocol_revision,market)
+    WHERE m.cluster=$1 AND m.program_id=$2 AND m.idl_hash=$3 AND m.protocol_revision=$4 AND m.market=ANY($5::text[])
+      AND l.kind IN ('base_hlp','quote_hlp')`,
     [...dusk, [...new Set(escrows.rows.map((row) => row.market))]],
   );
   const stream = await readStreamCursor(client);
   if (!stream) throw Object.assign(new Error('The Dusk stream has not started'), { status: 503 });
-  const byMarket = new Map(markets.rows.map((row) => [row.market, row]));
+  const byMint = new Map(markets.rows.map((row) => [`${row.market}:${row.lp_mint}`, row]));
   const groups: YieldGroup[] = holdings.rows.map((row) => ({
     holder: owner,
     market: row.market,
@@ -128,8 +133,8 @@ export async function readOwnerYieldGroups(
     quoteMint: row.quote_mint,
   }));
   for (const row of escrows.rows) {
-    const market = byMarket.get(row.market);
-    if (!market || ![market.base_hlp_mint, market.quote_hlp_mint].includes(row.lp_mint))
+    const market = byMint.get(`${row.market}:${row.lp_mint}`);
+    if (!market)
       throw new Error('hLP order escrow names an unknown vault');
     groups.push({ holder: row.order_address, market: row.market, lpMint: row.lp_mint, kind: 'hlp',
       baseMint: market.base_mint, quoteMint: market.quote_mint });
@@ -162,6 +167,7 @@ export async function captureYieldGroup(
   const lpAccount = getAssociatedTokenAddressSync(lpMint, holder, true, TOKEN_2022_PROGRAM_ID);
   const yields = assets.map((asset) => deriveYieldAccountAddress(market, holder, lpMint, asset, group.kind, program)[0]);
   const addresses = [group.market, group.lpMint, lpAccount.toBase58(), ...yields.map(String), ...assets.map(String), SYSVAR_CLOCK_PUBKEY.toBase58()];
+  if (group.kind === 'hlp') addresses.push(hlpCohortAddress(market, lpMint, program)[0].toBase58());
   if (new Set(addresses).size !== addresses.length) throw new Error('Duplicate yield source accounts');
   const instruction = await dusk.program.methods
     .previewMarket()
@@ -218,12 +224,15 @@ export async function captureYieldGroup(
     clock.owner.toBase58() !== CLOCK_OWNER ||
     clock.data.length !== 40 ||
     clock.data.readBigUInt64LE(0) !== BigInt(slot) ||
-    state.version !== 1 ||
+    state.version !== MARKET_LAYOUT_VERSION ||
     !state.baseSide.assetMint.equals(assets[0]) ||
     !state.quoteSide.assetMint.equals(assets[1]) ||
-    (group.kind === 'ylp' ? !state.ylpMint.equals(lpMint) : !state.baseSide.hlpMint.equals(lpMint) && !state.quoteSide.hlpMint.equals(lpMint))
+    (group.kind === 'ylp' && !state.ylpMint.equals(lpMint))
   )
     throw new Error('Yield market, LP mint or bank changed');
+  const retired = group.kind === 'hlp' && !state.baseSide.hlpMint.equals(lpMint) && !state.quoteSide.hlpMint.equals(lpMint);
+  const cohort = retired ? dusk.program.coder.accounts.decode<HlpCohort>('hlpCohort', owned(infos[8], program).data) : null;
+  if (cohort) assertRetiredHlpCohort(cohort, market, lpMint, program);
   const lp = unpackMint(lpMint, owned(infos[1], TOKEN_2022_PROGRAM_ID), TOKEN_2022_PROGRAM_ID);
   if (!lp.isInitialized || !lp.mintAuthority?.equals(market)) throw new Error('Invalid yield LP mint');
   const token = infos[2] ? unpackAccount(lpAccount, owned(infos[2], TOKEN_2022_PROGRAM_ID), TOKEN_2022_PROGRAM_ID) : null;
@@ -248,7 +257,7 @@ export async function captureYieldGroup(
         account.recipient.equals(PublicKey.default))
     )
       throw new Error('Yield account identity changed');
-    const amounts = account ? projectLiveYield(state, account, balance) : { swapFeeAmount: 0n, interestAmount: 0n, totalAmount: 0n };
+    const amounts = account ? projectLiveYield(state, account, balance, cohort?.finalVault) : { swapFeeAmount: 0n, interestAmount: 0n, totalAmount: 0n };
     const fees = getTransferFeeConfig(mint);
     const fee = (amount: bigint) => (fees ? calculateEpochFee(fees, epoch, amount) : 0n);
     return {
@@ -258,6 +267,7 @@ export async function captureYieldGroup(
       lpMint: group.lpMint,
       assetMint: assetMint.toBase58(),
       kind: group.kind,
+      retired,
       recipient: account?.recipient.toBase58() ?? group.holder,
       initialized: account !== null,
       needsGrowth: info !== null && info.data.length < size,

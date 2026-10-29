@@ -107,22 +107,28 @@ test('open entry orders are created orders whose latest lifecycle instruction is
 test('governance supports fold a proposer\'s sponsorship, later supports and withdrawals per proposal', () => transaction(async (client) => {
   await streamedMarket(client);
   const proposal = key(240),
-    elsewhere = key(241);
+    elsewhere = key(241),
+    reusable = key(243);
   await streamedEvent(client, 'ParameterProposalCreated', { proposal, market, proposer: owner, initial_support: '25', status: '0' });
   await streamedEvent(client, 'ParameterProposalSupported', { proposal, supporter: other, amount: '60', supporter_locked: '60', total_locked: '85', status: '0' });
   await streamedEvent(client, 'ParameterProposalCreated', { proposal: elsewhere, market: key(242), proposer: other, initial_support: '5', status: '0' });
   await streamedEvent(client, 'ParameterProposalSupported', { proposal: elsewhere, supporter: owner, amount: '30', supporter_locked: '30', total_locked: '35', status: '0' });
   await streamedEvent(client, 'ParameterProposalSupported', { proposal, supporter: owner, amount: '10', supporter_locked: '35', total_locked: '95', status: '0' });
+  await streamedEvent(client, 'ParameterProposalCreated', { proposal: reusable, market, proposer: owner, initial_support: '25', status: '0' });
+  await streamedEvent(client, 'GovernanceSupportChanged', { proposal: reusable, owner, amount: '25', owner_support: '25', total_locked: '25', withdrawn: false, status: '0' });
+  await streamedEvent(client, 'GovernanceSupportChanged', { proposal: reusable, owner, amount: '10', owner_support: '35', total_locked: '35', withdrawn: false, status: '0' });
+  await streamedEvent(client, 'GovernanceSupportChanged', { proposal: reusable, owner, amount: '15', owner_support: '20', total_locked: '20', withdrawn: true, status: '0' });
   let result = await readOwnerGovernanceSupports(owner, null, client);
   assert.deepEqual(result.supports, [
-    { proposal, market, lockedAmount: '35' },
-    { proposal: elsewhere, market: key(242), lockedAmount: '30' },
+    { proposal, market, lockedAmount: '35', directAmount: '35', reusableAmount: '0' },
+    { proposal: reusable, market, lockedAmount: '45', directAmount: '25', reusableAmount: '20' },
+    { proposal: elsewhere, market: key(242), lockedAmount: '30', directAmount: '30', reusableAmount: '0' },
   ].sort((a, b) => a.market.localeCompare(b.market)));
   assert.equal(result.sourceSlot, 900_500_000);
   await streamedEvent(client, 'ParameterProposalSupportWithdrawn', { proposal, supporter: owner, amount: '35', total_locked: '60', status: '0' });
   result = await readOwnerGovernanceSupports(owner, market, client);
-  assert.deepEqual(result.supports, []);
-  assert.deepEqual((await readOwnerGovernanceSupports(other, market, client)).supports, [{ proposal, market, lockedAmount: '60' }]);
+  assert.deepEqual(result.supports, [{ proposal: reusable, market, lockedAmount: '45', directAmount: '25', reusableAmount: '20' }]);
+  assert.deepEqual((await readOwnerGovernanceSupports(other, market, client)).supports, [{ proposal, market, lockedAmount: '60', directAmount: '60', reusableAmount: '0' }]);
   assert.deepEqual(await readStreamedMarketMints(market, client), { ylpMint: ylp, baseMint, quoteMint });
   assert.equal(await readStreamedMarketMints(key(242), client), null);
 }));

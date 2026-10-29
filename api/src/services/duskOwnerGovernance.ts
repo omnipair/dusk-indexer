@@ -12,19 +12,21 @@
 
 import { PublicKey } from '@solana/web3.js';
 import type { Pool, PoolClient } from 'pg';
-import type { Dusk } from '@omnipair/dusk-sdk';
+import type { Dusk, GovernanceBalance, GovernanceSupport as NativeGovernanceSupport } from '@omnipair/dusk-sdk';
 
 import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
 import type { DuskDeploymentEnvelope } from './duskDeploymentService';
 import { captureWithDeadline, currentDisplayState, displayRuntime } from './duskDisplayState';
 import { readStreamCursor } from './duskHistoryCoverage';
-import { boundedDuskRpcRead, deriveYieldAccountAddress } from './virtualBook/native';
+import { boundedDuskRpcRead, deriveYieldAccountAddress, deriveGovernanceBalanceAddress, deriveGovernanceSupportAddress } from './virtualBook/native';
 
 export interface GovernanceSupport {
   proposal: string;
   market: string;
   lockedAmount: string;
+  directAmount: string;
+  reusableAmount: string;
 }
 
 export interface GovernanceYieldAccount {
@@ -51,38 +53,57 @@ export async function readOwnerGovernanceSupports(
   client: Pool | PoolClient = pool,
 ): Promise<{ supports: GovernanceSupport[]; sourceSlot: number }> {
   const pin = loadPinnedProtocol();
-  const result = await client.query<{ event_name: string; payload: Record<string, unknown>; market: string }>(
-    `SELECT e.event_name,e.payload,c.payload->>'market' AS market
+  const result = await client.query<{ event_name: string; payload: Record<string, unknown>; market: string; delegated_creation: boolean }>(
+    `SELECT e.event_name,e.payload,c.payload->>'market' AS market,
+      EXISTS (SELECT 1 FROM dusk_ingestion.streamed_events g
+        JOIN dusk_ingestion.event_observations support_observation
+          ON (support_observation.cluster,support_observation.program_id,support_observation.idl_hash,
+              support_observation.protocol_revision,support_observation.observation_id)
+            =(g.cluster,g.program_id,g.idl_hash,g.protocol_revision,g.observation_id)
+        WHERE (g.cluster,g.program_id,g.idl_hash,g.protocol_revision)=(c.cluster,c.program_id,c.idl_hash,c.protocol_revision)
+          AND g.signature=c.signature AND g.event_name='GovernanceSupportChanged'
+          AND support_observation.instruction_path[1]=creation_observation.instruction_path[1]
+          AND g.payload->>'proposal'=c.payload->>'proposal') AS delegated_creation
     FROM dusk_ingestion.streamed_events e
     JOIN dusk_ingestion.streamed_events c
       ON (c.cluster,c.program_id,c.idl_hash,c.protocol_revision)=(e.cluster,e.program_id,e.idl_hash,e.protocol_revision)
       AND c.event_name='ParameterProposalCreated' AND c.payload->>'proposal'=e.payload->>'proposal'
+    JOIN dusk_ingestion.event_observations creation_observation
+      ON (creation_observation.cluster,creation_observation.program_id,creation_observation.idl_hash,
+          creation_observation.protocol_revision,creation_observation.observation_id)
+        =(c.cluster,c.program_id,c.idl_hash,c.protocol_revision,c.observation_id)
     WHERE e.cluster=$1 AND e.program_id=$2 AND e.idl_hash=$3 AND e.protocol_revision=$4
       AND ((e.event_name='ParameterProposalCreated' AND e.payload->>'proposer'=$5)
-        OR (e.event_name IN ('ParameterProposalSupported','ParameterProposalSupportWithdrawn') AND e.payload->>'supporter'=$5))
+        OR (e.event_name IN ('ParameterProposalSupported','ParameterProposalSupportWithdrawn') AND e.payload->>'supporter'=$5)
+        OR (e.event_name='GovernanceSupportChanged' AND e.payload->>'owner'=$5))
       AND ($6::text IS NULL OR c.payload->>'market'=$6)
     ORDER BY e.slot,e.observation_id`,
     [pin.cluster, pin.dusk.programId, pin.dusk.idlCanonicalSha256, pin.revision, owner, market],
   );
-  const locked = new Map<string, { market: string; amount: bigint }>();
+  const locked = new Map<string, { market: string; direct: bigint; reusable: bigint }>();
   for (const row of result.rows) {
     const proposal = String(row.payload.proposal),
-      current = locked.get(proposal)?.amount ?? 0n;
-    const next =
-      row.event_name === 'ParameterProposalCreated'
-        ? amount(row.payload.initial_support)
-        : row.event_name === 'ParameterProposalSupported'
-          ? amount(row.payload.supporter_locked)
-          : current - amount(row.payload.amount);
-    if (next < 0n) throw new Error('Governance support withdrawn beyond its lock');
-    locked.set(proposal, { market: row.market, amount: next });
+      current = locked.get(proposal) ?? { market: row.market, direct: 0n, reusable: 0n };
+    if (row.event_name === 'ParameterProposalCreated')
+      // Delegated creation reports the proposal's aggregate reusable support;
+      // owner events from that same outer instruction give individual balances.
+      current.direct = row.delegated_creation ? 0n : amount(row.payload.initial_support);
+    else if (row.event_name === 'ParameterProposalSupported')
+      current.direct = amount(row.payload.supporter_locked);
+    else if (row.event_name === 'GovernanceSupportChanged')
+      current.reusable = amount(row.payload.owner_support);
+    else current.direct -= amount(row.payload.amount);
+    if (current.direct < 0n) throw new Error('Governance support withdrawn beyond its lock');
+    locked.set(proposal, current);
   }
   const stream = await readStreamCursor(client);
   if (!stream) throw Object.assign(new Error('The Dusk stream has not started'), { status: 503 });
   return {
     supports: [...locked.entries()]
-      .filter(([, value]) => value.amount > 0n)
-      .map(([proposal, value]) => ({ proposal, market: value.market, lockedAmount: value.amount.toString() }))
+      .filter(([, value]) => value.direct + value.reusable > 0n)
+      .map(([proposal, value]) => ({ proposal, market: value.market,
+        lockedAmount: (value.direct + value.reusable).toString(),
+        directAmount: value.direct.toString(), reusableAmount: value.reusable.toString() }))
       .sort((a, b) => a.market.localeCompare(b.market) || a.proposal.localeCompare(b.proposal)),
     sourceSlot: Number(stream.throughSlot),
   };
@@ -106,7 +127,88 @@ export async function readStreamedMarketMints(
 export const ownerGovernanceDependencies = {
   supports: readOwnerGovernanceSupports,
   marketMints: readStreamedMarketMints,
+  reusable: captureReusableGovernance,
 };
+
+/** Discovery is event-backed; current ownership, delegation and allocations
+ * come from one bank after the discovery cursor. A revoked delegate is never
+ * retained merely because an older event named it. */
+export async function captureReusableGovernance(
+  dusk: Dusk, owner: string, market: string | null, minimumSlot: number,
+  signal?: AbortSignal, client: Pool | PoolClient = pool,
+) {
+  const pin = loadPinnedProtocol();
+  const identity = [pin.cluster, pin.dusk.programId, pin.dusk.idlCanonicalSha256, pin.revision];
+  const discovered = await client.query<{ market: string; owner: string }>(
+    `WITH latest AS (SELECT DISTINCT ON (payload->>'governance_balance') payload
+      FROM dusk_ingestion.streamed_events WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3
+        AND protocol_revision=$4 AND event_name='GovernanceBalanceUpdated'
+      ORDER BY payload->>'governance_balance',slot DESC,observation_id DESC)
+    SELECT payload->>'market' AS market,payload->>'owner' AS owner FROM latest
+    WHERE (payload->>'owner'=$5 OR payload->>'delegate'=$5) AND ($6::text IS NULL OR payload->>'market'=$6)`,
+    [...identity, owner, market],
+  );
+  const owners = discovered.rows.slice();
+  if (market && !owners.some(row => row.market === market && row.owner === owner)) owners.push({ market, owner });
+  const balances = owners.map(row => ({ ...row, key: deriveGovernanceBalanceAddress(
+    new PublicKey(row.market), new PublicKey(row.owner), dusk.program.programId,
+  )[0] }));
+  const allocations = balances.length ? await client.query<{ proposal: string; balance: string }>(
+    `WITH latest AS (SELECT DISTINCT ON (payload->>'proposal',payload->>'governance_balance') payload
+      FROM dusk_ingestion.streamed_events WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
+        AND event_name='GovernanceSupportChanged' AND payload->>'governance_balance'=ANY($5::text[])
+      ORDER BY payload->>'proposal',payload->>'governance_balance',slot DESC,observation_id DESC)
+    SELECT payload->>'proposal' AS proposal,payload->>'governance_balance' AS balance
+      FROM latest WHERE (payload->>'owner_support')::numeric>0`,
+    [...identity, balances.map(row => row.key.toBase58())],
+  ) : { rows: [] };
+  const supportKeys = allocations.rows.map(row => deriveGovernanceSupportAddress(
+    new PublicKey(row.proposal), new PublicKey(row.balance), dusk.program.programId,
+  )[0]);
+  const addresses = [...balances.map(row => row.key), ...supportKeys];
+  if (addresses.length > 100 || new Set(addresses.map(String)).size !== addresses.length)
+    throw new Error('Governance balance capture exceeds one coherent bank');
+  const cursor = await readStreamCursor(client);
+  if (!cursor) throw new Error('The governance stream has not started');
+  const floor = Math.max(minimumSlot, Number(cursor.throughSlot));
+  const read = addresses.length ? await boundedDuskRpcRead(() => dusk.program.provider.connection
+    .getMultipleAccountsInfoAndContext(addresses, { commitment: 'confirmed', minContextSlot: floor }), signal)
+    : { context: { slot: floor }, value: [] };
+  if (read.context.slot < floor || read.value.length !== addresses.length) throw new Error('Governance bank is behind discovery');
+  const decode = <T>(index: number, name: string): T | null => {
+    const info = read.value[index];
+    if (!info) return null;
+    if (info.executable || !info.owner.equals(dusk.program.programId)) throw new Error('Invalid governance account owner');
+    return dusk.program.coder.accounts.decode<T>(name, info.data);
+  };
+  const current = balances.flatMap((row, index) => {
+    const value = decode<GovernanceBalance>(index, 'governanceBalance');
+    if (!value) return [];
+    if (!value.market.equals(new PublicKey(row.market)) || !value.owner.equals(new PublicKey(row.owner)) ||
+      !deriveGovernanceBalanceAddress(value.market, value.owner, dusk.program.programId)[0].equals(row.key) ||
+      value.committedAmount.gt(value.totalAmount)) throw new Error('Invalid reusable governance identity');
+    if (row.owner !== owner && !value.delegate.equals(new PublicKey(owner))) return [];
+    return [{ address: row.key.toBase58(), market: row.market, owner: row.owner,
+      delegate: value.delegate.equals(PublicKey.default) ? null : value.delegate.toBase58(),
+      totalAmount: value.totalAmount.toString(), committedAmount: value.committedAmount.toString(),
+      availableAmount: value.totalAmount.sub(value.committedAmount).toString() }];
+  });
+  const supports = allocations.rows.flatMap((row, index) => {
+    const value = decode<NativeGovernanceSupport>(balances.length + index, 'governanceSupport');
+    if (!value) return [];
+    if (!value.proposal.equals(new PublicKey(row.proposal)) || !value.governanceBalance.equals(new PublicKey(row.balance)))
+      throw new Error('Invalid reusable governance support identity');
+    const balance = current.find(value => value.address === row.balance);
+    return balance && !value.amount.isZero() ? [{ address: supportKeys[index].toBase58(), proposal: row.proposal,
+      balance: row.balance, owner: balance.owner, market: balance.market, amount: value.amount.toString(),
+      rentRefund: value.rentRefund.toBase58() }] : [];
+  });
+  for (const balance of current) {
+    const allocated = supports.filter(row => row.balance === balance.address).reduce((sum, row) => sum + BigInt(row.amount), 0n);
+    if (allocated !== BigInt(balance.committedAmount)) throw new Error('Governance allocations are not fully indexed');
+  }
+  return { balances: current, allocations: supports, sourceSlot: read.context.slot };
+}
 
 export async function captureOwnerGovernance(
   dusk: Dusk,
@@ -117,6 +219,8 @@ export async function captureOwnerGovernance(
 ) {
   const observedAt = Date.now();
   const { supports, sourceSlot } = await deps.supports(selection.owner, selection.market);
+  const reusable = await deps.reusable(dusk, selection.owner, selection.market,
+    Math.max(deployment.sourceSlot, sourceSlot), signal);
   let yieldAccounts: GovernanceYieldAccount[] | null = null,
     accountSlot = 0;
   if (selection.market) {
@@ -161,9 +265,11 @@ export async function captureOwnerGovernance(
     market: selection.market,
     observedAt,
     expiresAt: observedAt + 15_000,
-    sourceSlot: Math.max(sourceSlot, accountSlot),
+    sourceSlot: Math.max(sourceSlot, accountSlot, reusable.sourceSlot),
     supports,
     yieldAccounts,
+    balances: reusable.balances,
+    allocations: reusable.allocations,
   };
 }
 

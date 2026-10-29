@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { MARKET_LAYOUT_VERSION } from '@omnipair/dusk-sdk';
 import { loadPinnedProtocol } from '../config/duskProtocol';
 import { nativeFields } from '../services/duskPortfolioMath';
 import { marketGrowthPoint, MarketGrowthPoint, recordedYlpRates } from '../services/duskYieldRateMath';
@@ -7,7 +8,7 @@ import { checkpointFixture, Q64 } from './duskYieldCheckpointFixtures';
 
 function window() {
   const fixture = checkpointFixture(),market = fixture.market,marketAddress = fixture.source().market;
-  market.version = 1;
+  market.version = MARKET_LAYOUT_VERSION;
   for (const [name,reserve] of [['base','100000000000'],['quote','100000000']] as const) {
     const side = nativeFields(market[`${name}_side`]);
     nativeFields(side.reserves).live_reserve = reserve;
@@ -66,9 +67,11 @@ test('committed market decoding rejects inconsistent ledgers, wrong PDA, and uns
   nativeFields(nativeFields(fixture.market.base_side).shares).ylp_supply='1';
   assert.throws(() => point(900000001,'2026-09-01T00:00:00Z'),/ledgers disagree/);
   nativeFields(nativeFields(fixture.market.base_side).shares).ylp_supply='1000000';
-  fixture.market.version=2;
-  assert.throws(() => point(900000001,'2026-09-01T00:00:00Z'),/provenance/);
-  fixture.market.version=1;
+  for (const version of [0,1,MARKET_LAYOUT_VERSION+1]) {
+    fixture.market.version=version;
+    assert.throws(() => point(900000001,'2026-09-01T00:00:00Z'),/provenance/);
+  }
+  fixture.market.version=MARKET_LAYOUT_VERSION;
   fixture.market.bump=0;
   assert.throws(() => point(900000001,'2026-09-01T00:00:00Z'),/PDA/);
 });

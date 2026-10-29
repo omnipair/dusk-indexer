@@ -21,12 +21,12 @@ async function transaction(work: (client: PoolClient) => Promise<void>) {
   try { await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ'); await work(client); }
   finally { await client.query('ROLLBACK'); client.release(); }
 }
-async function source(client: PoolClient, offset: number, options: { commitment?: string; revision?: string; omitStream?: boolean; eventName?: string; owner?: string; liquidator?: string; borrower?: string; trader?: string; time?: string } = {}) {
+async function source(client: PoolClient, offset: number, options: { commitment?: string; revision?: string; omitStream?: boolean; eventName?: string; owner?: string; liquidator?: string; borrower?: string; trader?: string; time?: string; payload?: Record<string, unknown> } = {}) {
   const active = [...identity.slice(0,3),options.revision ?? identity[3]], commitment = options.commitment ?? 'finalized';
   const signature = '2'.repeat(88), path = [0, ++nextPath];
   const key = [...active, signature, path.join('.'), '0'].join('|');
   const eventName = options.eventName ?? 'SwapExecuted';
-  const payload = { market, owner: options.owner, liquidator: options.liquidator, borrower: options.borrower, trader: options.trader ?? fixtureKey(121).toBase58(),asset_in_side:'0',amount_in:'9007199254740993',amount_out:'4' };
+  const payload = { market, owner: options.owner, liquidator: options.liquidator, borrower: options.borrower, trader: options.trader ?? fixtureKey(121).toBase58(),asset_in_side:'0',amount_in:'9007199254740993',amount_out:'4',...options.payload };
   await client.query(`INSERT INTO dusk_ingestion.protocol_identities(cluster,program_id,idl_hash,protocol_revision)
     VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,active);
   const inserted = await client.query(`INSERT INTO dusk_ingestion.event_observations
@@ -266,4 +266,20 @@ test('matching native notifications invalidate a cached page immediately', () =>
   assert.equal(await readCachedEventHistory(client,query),first);
   invalidateDuskReadCaches(JSON.stringify(notice));
   assert.notEqual(await readCachedEventHistory(client,query),first);
+}));
+
+
+test('closed-position pagination excludes useful partial settlements and borrowing settlements',()=>transaction(async client=>{
+ const owner=fixtureKey(120).toBase58();
+ const base={leverage:true,position_state:{owner,closed:true}};
+ const terminal=await source(client,20,{eventName:'FlashLiquidationSettled',payload:base});
+ await source(client,23,{eventName:'FlashLiquidationSettled',payload:{...base,position_state:{owner,closed:false}}});
+ await source(client,22,{eventName:'EmergencyLiquidationSettled',owner,payload:{...base,leverage:false}});
+ const emergency=await source(client,21,{eventName:'EmergencyLiquidationSettled',owner,payload:base});
+ const first=await readEventHistory(client,{...query,owner,category:'leverage-close',limit:1});
+ assert.deepEqual(first.events.map(e=>e.eventKey),[emergency]);
+ assert.equal(first.pagination.hasMore,true);
+ const next=await readEventHistory(client,{...query,owner,category:'leverage-close',limit:1,cursor:first.pagination.nextCursor!});
+ assert.deepEqual(next.events.map(e=>e.eventKey),[terminal]);
+ assert.equal(next.pagination.hasMore,false);
 }));

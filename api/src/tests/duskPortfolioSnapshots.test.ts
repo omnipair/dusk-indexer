@@ -1,6 +1,13 @@
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { SystemProgram } from '@solana/web3.js';
+import { PublicKey, SystemProgram } from '@solana/web3.js';
+import { BorshCoder, Idl } from '@coral-xyz/anchor';
+import { IdlCoder } from '@coral-xyz/anchor/dist/cjs/coder/borsh/idl';
+import { AccountLayout } from '@solana/spl-token';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import * as simulation from '../services/duskMarketSimulation';
+import { hlpCohortAddress } from '../services/duskHlpCohort';
 import { portfolioSampleSeconds, projectPortfolioSource } from '../services/duskPortfolioSnapshots';
 import { portfolioFixture } from './duskPortfolioFixtures';
 import { fixtureKey } from './duskYieldCheckpointFixtures';
@@ -17,6 +24,36 @@ test('native portfolio replay combines indexed positions and non-ATA LP ownershi
   assert.equal(result.owners.length,1); assert.equal(result.owners[0].owner,fixture.owner);
   assert.equal(result.owners[0].valuations.netPositionValueUsd,'51.95');
   assert.equal(result.coverage.atomicAcrossMarkets,false); assert.equal(result.coverage.historyComplete,false);
+});
+
+test('retired hLP receipts replay with proven zero principal and require their captured cohort',async () => {
+  const { source } = portfolioFixture();
+  const rawIdl = JSON.parse(readFileSync(resolve(__dirname,'../../node_modules/@omnipair/dusk-sdk/dist/idl_v2.json'),'utf8')) as Idl;
+  const coder = new BorshCoder(rawIdl),program = new PublicKey(rawIdl.address),mint = fixtureKey(180);
+  const group = source.groups[0],market = new PublicKey(group.market);
+  source.catalog.items[1].kind = 'base_hlp';
+  source.catalog.items[1].lpMint = mint.toBase58();
+  const tokenData = Buffer.from(group.accounts[1].account!.data,'base64');
+  AccountLayout.encode({ ...AccountLayout.decode(tokenData),mint },tokenData);
+  group.accounts[1].account!.data = tokenData.toString('base64');
+  const [address,bump] = hlpCohortAddress(market,mint,program);
+  const layout = IdlCoder.typeDefLayout({ typeDef: rawIdl.types!.find((type) => type.name === 'HlpCohort')!,types: rawIdl.types! });
+  const cohort = layout.decode(Buffer.alloc(32768));
+  Object.assign(cohort,{ market,mint,target_asset: 0,retired: true,bump });
+  const proof = async () => ({ address: address.toBase58(),account: { owner: program.toBase58(),executable: false,
+    data: (await coder.accounts.encode('HlpCohort',cohort)).toString('base64') } });
+  group.hlpCohorts = [await proof()];
+  const mocked = mock.method(simulation,'duskRawIdl',() => rawIdl);
+  try {
+    const retired = projectPortfolioSource(source).owners[0].components.find((row) => row.kind === 'base_hlp')!;
+    assert.equal(retired.valuation.netUsd,'0');
+    assert.ok(retired.issues.includes('hlp-retired'));
+    cohort.target_asset = 1;
+    group.hlpCohorts = [await proof()];
+    assert.throws(() => projectPortfolioSource(source),/retired hLP cohort/);
+    group.hlpCohorts = [];
+    assert.throws(() => projectPortfolioSource(source),/no cohort evidence/);
+  } finally { mocked.mock.restore(); }
 });
 test('closed accounts preserve the known owner as an observed empty portfolio',() => {
   const result = projectPortfolioSource(portfolioFixture({ closed: true }).source);

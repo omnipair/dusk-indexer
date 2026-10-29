@@ -50,7 +50,7 @@ test('portfolio discovery comes from streamed positions and LP holders and keeps
   assert.equal(catalog.sourceFloor,900_200_000); assert.equal(catalog.streamTime,time.toISOString());
 }));
 
-test('archived events discover surviving accounts without treating old values as current',() => transaction(async (client) => {
+test('retired devnet releases never enter current portfolio discovery',() => transaction(async (client) => {
   const time = new Date(Math.floor(Date.now()/1000)*1000-5000);
   await streamedRelease(client,{ slot: 900_200_000,time });
   await streamedMarket(client);
@@ -67,18 +67,20 @@ test('archived events discover surviving accounts without treating old values as
   await streamedEvent(client,'MarketDebtUpdated',{ market: oldMarket.market,owner: ownerWithoutPosition },
     900_100_002,undefined,archived);
   const catalog = await readPortfolioCatalog(client);
-  assert.equal(catalog.basis,'streamed-event-candidates.v2');
-  assert.deepEqual(catalog.markets,[fixtureMarket.market,oldMarket.market].sort());
-  assert.deepEqual(catalog.items.map((item) => [item.address,item.market,item.owner]),[[position,oldMarket.market,owner]]);
-  assert.ok(catalog.knownOwners.includes(owner));
-  assert.ok(catalog.knownOwners.includes(ownerWithoutPosition));
-  assert.deepEqual(catalog.candidateIdentities?.map((item) => item.protocolRevision).sort(),[pin.revision,archived[3]].sort());
+  assert.equal(catalog.basis,'streamed-events.v1');
+  assert.deepEqual(catalog.markets,[fixtureMarket.market]);
+  assert.deepEqual(catalog.items,[]);
+  assert.ok(!catalog.knownOwners.includes(owner));
+  assert.ok(!catalog.knownOwners.includes(ownerWithoutPosition));
+  assert.equal(catalog.candidateIdentities,undefined);
 
   // Replay accepts archived addresses only after current-pin market and account
   // evidence is supplied by the capture. An old identity cannot be substituted.
   const fixture = portfolioFixture();
   fixture.source.catalog.basis = 'streamed-event-candidates.v2';
-  fixture.source.catalog.candidateIdentities = catalog.candidateIdentities;
+  fixture.source.catalog.candidateIdentities = [{cluster:pin.cluster,programId:pin.dusk.programId,
+    idlHash:pin.dusk.idlCanonicalSha256,protocolRevision:pin.revision},
+    {cluster:pin.cluster,programId:pin.dusk.programId,idlHash:archived[2],protocolRevision:archived[3]}];
   assert.equal(projectPortfolioSource(fixture.source).owners[0].valuations.quality,'reference-valued');
   fixture.source.catalog.candidateIdentities![1].programId = key(227);
   assert.throws(() => projectPortfolioSource(fixture.source),/candidate identity differs/);

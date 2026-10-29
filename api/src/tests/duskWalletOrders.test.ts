@@ -14,6 +14,7 @@ import {
   walletCaptureDependencies,
 } from '../services/duskWalletSnapshot';
 import type { AccountInfo } from '@solana/web3.js';
+import { hlpCohortAddress } from '../services/duskHlpCohort';
 
 async function fixture() {
   const f = await displayFixture(),
@@ -41,10 +42,6 @@ async function fixture() {
     debtAsset: 1,
     orderId: new BN(1),
   });
-  entry.position = f.dusk.get.pda.leveragePosition(
-    marketKey,
-    entry.positionId,
-  )[0];
   const id = Buffer.alloc(8);
   id.writeBigUInt64LE(1n);
   const [order, orderBump] = PublicKey.findProgramAddressSync(
@@ -57,6 +54,7 @@ async function fixture() {
     delegate.programId,
   );
   entry.bump = orderBump;
+  entry.position = f.dusk.get.pda.leveragePosition(marketKey, f.owner, entry.positionId, order)[0];
   const raw: AccountInfo<Buffer> = {
     data: await delegate.coder.accounts.encode('leverageEntryOrder', entry),
     owner: delegate.programId,
@@ -82,11 +80,11 @@ async function fixture() {
   ]);
   f.dusk.program.provider.connection.getProgramAccounts = (async (
     _program: PublicKey,
-    options: { filters: { memcmp: { bytes: string } }[] },
+    options: { filters: { memcmp: { bytes: string } }[]; dataSlice?: unknown },
   ) => ({
     context: { slot: 1010 },
     value:
-      options.filters[0].memcmp.bytes ===
+      options.dataSlice ? [{pubkey: marketKey, account: {...marketInfo, data: marketInfo.data.subarray(0,9)}}] : options.filters[0].memcmp.bytes ===
       delegate.coder.accounts.memcmp('leverageEntryOrder').bytes
         ? [{ pubkey: order, account: raw }]
         : [],
@@ -105,6 +103,7 @@ async function fixture() {
     leverageDelegateProgramId: delegate.programId.toBase58(),
   };
   const deps: typeof walletCaptureDependencies = {
+    cashFlows: async () => [],
     oracle: async () => [],
     accounts: async () => ({
       schemaVersion: 'dusk-owner-accounts.v1',
@@ -200,4 +199,32 @@ test('an inconsistent RPC Clock retries the complete order batch and never accep
   await assert.rejects(readDuskOrders({ dusk: f.dusk, boundary: f.boundary,
     deployment: f.deployment, owner: f.selection.owner, kinds: ['leverageEntryOrder'] }), /Invalid order Clock/);
   assert.equal(attempts, 3);
+});
+
+test('retired hLP orders remain visible and cancellable with a same-bank cohort proof', async () => {
+  const f = await fixture();
+  const delegate = createLeverageDelegateProgram({ provider: f.dusk.program.provider as Parameters<typeof createLeverageDelegateProgram>[0]['provider'] });
+  const market = delegate.coder.accounts.decode('leverageEntryOrder', f.raw.data).market as PublicKey;
+  const target = displayKey(84), id = Buffer.alloc(8); id.writeBigUInt64LE(1n);
+  const [address,bump] = PublicKey.findProgramAddressSync([Buffer.from('hlp_order'),market.toBuffer(),f.owner.toBuffer(),target.toBuffer(),id],delegate.programId);
+  const layout = (name: string, program = delegate) => IdlCoder.typeDefLayout({ typeDef: program.idl.types!.find((type) => type.name === name)!,types: program.idl.types! });
+  const order = layout('hlpOrder').decode(Buffer.alloc(32768));
+  Object.assign(order,{ market,owner: f.owner,targetHlpMint: target,orderId: new BN(1),kind: 1,status: 0,hlpAmount: new BN(7),bump });
+  const orderInfo = { owner: delegate.programId,executable: false,lamports: 1,data: await delegate.coder.accounts.encode('hlpOrder',order) };
+  const [cohortAddress,cohortBump] = hlpCohortAddress(market,target,f.dusk.program.programId);
+  const cohortLayout = IdlCoder.typeDefLayout({ typeDef: f.dusk.program.idl.types!.find((type) => type.name === 'hlpCohort')!,types: f.dusk.program.idl.types! });
+  const cohort = cohortLayout.decode(Buffer.alloc(32768));
+  Object.assign(cohort,{ market,mint: target,targetAsset: 0,retired: true,bump: cohortBump });
+  const proof = { owner: f.dusk.program.programId,executable: false,lamports: 1,data: await f.dusk.program.coder.accounts.encode('hlpCohort',cohort) };
+  f.infos.set(address.toBase58(),orderInfo); f.infos.set(cohortAddress.toBase58(),proof);
+  f.dusk.program.provider.connection.getProgramAccounts = (async (_program: PublicKey, options: {dataSlice?: unknown}) => ({ context: { slot: 1010 },value: options.dataSlice
+    ? [{pubkey: market,account: {...f.marketInfo,data: f.marketInfo.data.subarray(0,9)}}]
+    : [{ pubkey: address,account: orderInfo }] })) as unknown as typeof f.dusk.program.provider.connection.getProgramAccounts;
+  const capture = () => readDuskOrders({ dusk: f.dusk,boundary: f.boundary,deployment: f.deployment,owner: f.selection.owner,kinds: ['hlpOrder'],previewPayer: f.owner.toBase58() });
+  const result = await capture();
+  assert.equal(result.hlp.length,1);
+  assert.deepEqual(result.hlp[0].retiredHlp,{ targetAsset: 0 });
+  assert.equal(result.hlp[0].trigger,null);
+  cohort.retired = false; proof.data = await f.dusk.program.coder.accounts.encode('hlpCohort',cohort);
+  await assert.rejects(capture(),/retired hLP cohort/);
 });

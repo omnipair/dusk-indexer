@@ -10,11 +10,12 @@ test('history accepts program upgrades while keeping the protocol identity',() =
   assert.notEqual(original.deploymentIdentitySha256,release.deploymentIdentitySha256);
   assertPinnedHistoryDeployment(original); assertPinnedHistoryDeployment(release);
   const current = loadCurrentProtocol();
-  const lateOriginal = { ...original, sourceSlot: current.dusk.deployment.deploySlot + 1 };
+  const sourceFloor = Math.max(current.dusk.deployment.deploySlot,current.leverageDelegate.deployment.deploySlot)+1;
+  const lateOriginal = { ...original, sourceSlot: sourceFloor };
   assertPinnedHistoryDeployment(lateOriginal);
   const upgraded = {
     ...release,
-    sourceSlot: current.dusk.deployment.deploySlot + 1,
+    sourceSlot: sourceFloor,
     programDataSlot: String(current.dusk.deployment.deploySlot),
     programBinarySha256: current.dusk.binarySha256,
   };
@@ -26,8 +27,8 @@ test('history accepts program upgrades while keeping the protocol identity',() =
   const anotherBinary = { ...upgradedEnvelope, programBinarySha256: '0'.repeat(64) };
   assertPinnedHistoryDeployment({ ...anotherBinary, deploymentIdentitySha256: deploymentIdentityFingerprint(anotherBinary) });
   for (const changed of [
-    { ...upgradedEnvelope, sourceSlot: current.dusk.deployment.deploySlot },
-    { ...upgradedEnvelope, programDataSlot: String(current.dusk.deployment.deploySlot + 1) },
+    { ...upgradedEnvelope, sourceSlot: sourceFloor-1 },
+    { ...upgradedEnvelope, programDataSlot: String(sourceFloor) },
   ]) {
     const candidate = { ...changed, deploymentIdentitySha256: deploymentIdentityFingerprint(changed) };
     assert.throws(() => assertPinnedHistoryDeployment(candidate), /historical deployment/);
