@@ -30,6 +30,7 @@ test('wallet discovery captures complete pinned account bytes for all supported 
         ? { referralPartner: f.owner }
         : { owner: f.owner },
     );
+    value.market = f.marketAddress;
     const raw = f.encodeAccount(name, value);
     f.state.discovered = [{ pubkey: f.positionAddress, account: raw }];
     const result = await captureOwnerAccounts(
@@ -79,6 +80,23 @@ test('wallet discovery rejects wrong owner, program, incomplete bounds and regre
   assert.throws(() =>
     leverageValuationSelection('bad-wallet', displayKey(2).toBase58()),
   );
+});
+
+test('retired-market account bytes never enter the current decoder or hide current positions', async () => {
+  const f = await displayFixture();
+  const old = Buffer.alloc(220);
+  f.state.discovered[0].account.data.subarray(0,40).copy(old);
+  displayKey(98).toBuffer().copy(old,40);
+  f.state.discovered.push({pubkey: displayKey(97), account: {
+    ...f.state.discovered[0].account, data: old,
+  }});
+  const selection = {owner: f.selection.owner, kind: 'leverage' as const};
+  const result = await captureOwnerAccounts(f.dusk, selection, f.deployment);
+  assert.deepEqual(result.accounts.map(row => row.address),[f.selection.address]);
+  // Corruption in an active market remains a failure, rather than silently
+  // omitting a current position from a supposedly complete wallet frame.
+  f.marketAddress.toBuffer().copy(old,40);
+  await assert.rejects(captureOwnerAccounts(f.dusk, selection, f.deployment));
 });
 
 for (const [program, native] of [

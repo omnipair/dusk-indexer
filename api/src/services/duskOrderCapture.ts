@@ -12,6 +12,7 @@ import { minimumDuskReadSlot } from './virtualBook/native';
 import { previewDuskHlpOrderTrigger } from './duskOrderTrigger';
 import { boundedDuskRpcRead } from './virtualBook/native';
 import { assertRetiredHlpCohort, hlpCohortAddress } from './duskHlpCohort';
+import { currentAccountMarkets, currentAccountMarket } from './duskAccountScope';
 
 import type { DuskDeploymentEnvelope } from './duskDeploymentService';
 import type { DuskReadBoundary } from './virtualBook/native';
@@ -132,6 +133,8 @@ export async function readDuskOrders(options: {
   const connection = dusk.program.provider.connection;
   const before = await boundary.assertCompatibleForRead(deployment, signal);
   let floor = Math.max(before.observedSlot, minimumDuskReadSlot(deployment));
+  const scope = await currentAccountMarkets(dusk, floor, signal);
+  floor = scope.sourceSlot;
   const readKind = async <N extends Name>(
     name: N,
   ): Promise<DuskOrderRow<N>[]> => {
@@ -158,20 +161,23 @@ export async function readDuskOrders(options: {
     floor = discovery.context.slot;
     const rows: DuskOrderRow<N>[] = [];
     const seen = new Set<string>();
-    const discovered = discovery.value.map(({ pubkey, account }) => {
+    const discovered = discovery.value.flatMap(({ pubkey, account }) => {
       if (
         seen.has(pubkey.toBase58()) ||
         account.executable ||
-        !account.owner.equals(delegate.programId)
+        !account.owner.equals(delegate.programId) || account.data.length < 72
       )
         throw new Error('Invalid discovered order account');
       seen.add(pubkey.toBase58());
+      if (!new PublicKey(account.data.subarray(8,40)).equals(new PublicKey(owner)))
+        throw new Error('Order belongs to another wallet');
+      if (!currentAccountMarket(account.data, scope.markets)) return [];
       const raw = delegate.coder.accounts.decode<Account<N>>(
         name,
         account.data,
       );
       assertDuskOrderIdentity(name, pubkey, raw, owner, delegate.programId);
-      return { pubkey, raw };
+      return [{ pubkey, raw }];
     });
     // Twenty orders keep each request below Solana's 100-account limit.
     for (let start = 0; start < discovered.length; start += 20) {

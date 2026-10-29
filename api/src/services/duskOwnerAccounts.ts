@@ -1,7 +1,9 @@
 import { PublicKey } from '@solana/web3.js';
+import { utils } from '@coral-xyz/anchor';
 import type { Dusk } from '@omnipair/dusk-sdk';
 import type { DuskDeploymentEnvelope } from './duskDeploymentService';
 import { boundedDuskRpcRead } from './virtualBook/native';
+import { currentAccountMarkets, currentAccountMarket } from './duskAccountScope';
 
 export const ownerAccountNames = {
   borrow: 'borrowPosition',
@@ -54,6 +56,7 @@ export async function captureOwnerAccounts(
     throw new Error('Owner account SDK deployment mismatch');
   const name = ownerAccountNames[selection.kind];
   const discriminator = dusk.program.coder.accounts.memcmp(name);
+  const scope = await currentAccountMarkets(dusk, deployment.sourceSlot, signal);
   const result = await boundedDuskRpcRead(
     () =>
       dusk.program.provider.connection.getProgramAccounts(
@@ -61,7 +64,7 @@ export async function captureOwnerAccounts(
         {
           commitment: 'confirmed',
           withContext: true,
-          minContextSlot: deployment.sourceSlot,
+          minContextSlot: scope.sourceSlot,
           filters: [
             { memcmp: discriminator },
             { memcmp: { offset: 8, bytes: selection.owner } },
@@ -72,7 +75,7 @@ export async function captureOwnerAccounts(
   );
   if (
     !Number.isSafeInteger(result.context.slot) ||
-    result.context.slot < deployment.sourceSlot ||
+    result.context.slot < scope.sourceSlot ||
     result.value.length > 500
   )
     throw new Error(
@@ -80,17 +83,21 @@ export async function captureOwnerAccounts(
     );
   const seen = new Set<string>();
   const accounts = result.value
-    .map(({ pubkey, account }) => {
+    .flatMap(({ pubkey, account }) => {
       const address = pubkey.toBase58();
       if (
         seen.has(address) ||
         account.executable ||
         !account.owner.equals(dusk.program.programId) ||
-        account.data.length < 40 ||
-        account.data.length > 8192
+        account.data.length < 72 ||
+        account.data.length > 8192 ||
+        !account.data.subarray(0,8).equals(Buffer.from(utils.bytes.bs58.decode(discriminator.bytes)))
       )
         throw new Error('Invalid owner account snapshot');
       seen.add(address);
+      if (!new PublicKey(account.data.subarray(8,40)).equals(new PublicKey(selection.owner)))
+        throw new Error('Owner account snapshot crossed wallet scope');
+      if (!currentAccountMarket(account.data, scope.markets)) return [];
       const decoded = dusk.program.coder.accounts.decode(name, account.data);
       const owner =
         selection.kind === 'referral-accrual'
@@ -98,7 +105,7 @@ export async function captureOwnerAccounts(
           : decoded.owner;
       if (owner?.toBase58() !== selection.owner)
         throw new Error('Owner account snapshot crossed wallet scope');
-      return { address, data: account.data.toString('base64') };
+      return [{ address, data: account.data.toString('base64') }];
     })
     .sort((a, b) => a.address.localeCompare(b.address));
   return {

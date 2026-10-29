@@ -54,9 +54,12 @@ export async function displayFixture(
             : value,
       };
     },
-    getProgramAccounts: async () => ({
+    getProgramAccounts: async (_program: PublicKey, config: {dataSlice?: {offset: number; length: number}}) => ({
       context: { slot: state.slot },
-      value: state.discovered,
+      value: config.dataSlice ? [{pubkey: marketAddress, account: {
+        ...accounts.get(marketAddress.toBase58())!,
+        data: accounts.get(marketAddress.toBase58())!.data.subarray(0,9),
+      }}] : state.discovered,
     }),
     getMinimumBalanceForRentExemption: async () => 2_039_280,
     simulateTransaction: async (

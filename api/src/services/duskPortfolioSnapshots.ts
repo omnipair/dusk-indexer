@@ -46,18 +46,15 @@ function coordinates(source: PortfolioCaptureSource) {
   return { minSlot: Math.min(...slots),maxSlot: Math.max(...slots),captureTime: new Date(Math.max(...times)).toISOString() };
 }
 
-/** Discovery only: every returned address is read again at its valuation bank.
- * A program upgrade does not re-emit MarketCreated or position-open events for
- * existing accounts. Archived events are candidate addresses, never current
- * state; the capture verifies each market and position under the current pin.
- * LP holders are valued through their canonical Token-2022 accounts. */
+/** Current-release discovery only; retired devnet events are not candidates for
+ * the current account decoder. LP holders use canonical Token-2022 accounts. */
 export async function readPortfolioCatalog(client: PoolClient): Promise<PortfolioCatalog> {
   const active = identity(),stream = await readStreamCursor(client);
   if (!stream) throw new Error('Portfolio capture needs a started Dusk stream');
-  const programFilter = 'cluster=$1 AND program_id=$2';
+  const programFilter = 'cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4';
   const markets = await client.query<{ market: string; idl_hash: string; protocol_revision: string }>(`
     SELECT market,idl_hash,protocol_revision FROM dusk_ingestion.streamed_markets
-    WHERE ${programFilter} ORDER BY market,protocol_revision`,active.slice(0,2));
+    WHERE ${programFilter} ORDER BY market,protocol_revision`,active);
   const found = await client.query<{ address: string; market: string; owner: string; kind: PortfolioKind; last_slot: string;
     lp_mint: string | null; idl_hash: string; protocol_revision: string }>(`
     SELECT position AS address,market,owner,'borrow' AS kind,last_slot::text,NULL AS lp_mint,idl_hash,protocol_revision
@@ -68,7 +65,7 @@ export async function readPortfolioCatalog(client: PoolClient): Promise<Portfoli
         AND position IS NOT NULL AND owner IS NOT NULL AND market IS NOT NULL
     UNION ALL SELECT NULL,market,owner,kind,last_slot::text,lp_mint,idl_hash,protocol_revision
       FROM dusk_ingestion.streamed_lp_balances WHERE ${programFilter} AND amount>0
-        AND lp_mint IS NOT NULL AND owner IS NOT NULL AND market IS NOT NULL`,active.slice(0,2));
+        AND lp_mint IS NOT NULL AND owner IS NOT NULL AND market IS NOT NULL`,active);
   const selectedMarkets = new Set([
     ...markets.rows.filter((row) => row.idl_hash === active[2] && row.protocol_revision === active[3]).map((row) => row.market),
     ...found.rows.map((row) => row.market),

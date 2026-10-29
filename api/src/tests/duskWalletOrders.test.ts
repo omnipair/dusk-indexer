@@ -80,11 +80,11 @@ async function fixture() {
   ]);
   f.dusk.program.provider.connection.getProgramAccounts = (async (
     _program: PublicKey,
-    options: { filters: { memcmp: { bytes: string } }[] },
+    options: { filters: { memcmp: { bytes: string } }[]; dataSlice?: unknown },
   ) => ({
     context: { slot: 1010 },
     value:
-      options.filters[0].memcmp.bytes ===
+      options.dataSlice ? [{pubkey: marketKey, account: {...marketInfo, data: marketInfo.data.subarray(0,9)}}] : options.filters[0].memcmp.bytes ===
       delegate.coder.accounts.memcmp('leverageEntryOrder').bytes
         ? [{ pubkey: order, account: raw }]
         : [],
@@ -217,7 +217,9 @@ test('retired hLP orders remain visible and cancellable with a same-bank cohort 
   Object.assign(cohort,{ market,mint: target,targetAsset: 0,retired: true,bump: cohortBump });
   const proof = { owner: f.dusk.program.programId,executable: false,lamports: 1,data: await f.dusk.program.coder.accounts.encode('hlpCohort',cohort) };
   f.infos.set(address.toBase58(),orderInfo); f.infos.set(cohortAddress.toBase58(),proof);
-  f.dusk.program.provider.connection.getProgramAccounts = (async () => ({ context: { slot: 1010 },value: [{ pubkey: address,account: orderInfo }] })) as unknown as typeof f.dusk.program.provider.connection.getProgramAccounts;
+  f.dusk.program.provider.connection.getProgramAccounts = (async (_program: PublicKey, options: {dataSlice?: unknown}) => ({ context: { slot: 1010 },value: options.dataSlice
+    ? [{pubkey: market,account: {...f.marketInfo,data: f.marketInfo.data.subarray(0,9)}}]
+    : [{ pubkey: address,account: orderInfo }] })) as unknown as typeof f.dusk.program.provider.connection.getProgramAccounts;
   const capture = () => readDuskOrders({ dusk: f.dusk,boundary: f.boundary,deployment: f.deployment,owner: f.selection.owner,kinds: ['hlpOrder'],previewPayer: f.owner.toBase58() });
   const result = await capture();
   assert.equal(result.hlp.length,1);
