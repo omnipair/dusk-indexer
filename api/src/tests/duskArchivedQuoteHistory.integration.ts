@@ -35,6 +35,8 @@ test(`${revision}: archived candles retain their original evidence and remain ex
     const archived=await readArchivedQuoteHistory(client,query,revision);
     assert.equal(archived.history.coverage.protocolRevision,pin.revision);
     assert.ok(archived.history.candles.length > 0);
+    // Saved preview captures carry no swap start price.
+    assert.ok(archived.history.candles.every(c=>c.openStart===null));
     if (!suffix) {
       assert.equal(archived.history.candles.length,2);
       assert.deepEqual(archived.history.candles.map(c=>c.close.price),['1.072868436','1.256692288']);

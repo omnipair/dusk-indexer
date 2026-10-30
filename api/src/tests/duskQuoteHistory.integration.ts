@@ -47,6 +47,29 @@ test('the other side uses its own quote and bindings come from MarketCreated',()
   assert.equal(history.binding?.baseMint,observedMarket.baseMint);
 }));
 
+test('openStart is the opening swap\'s pre-trade price on the open\'s own capture',() => transaction(async client => {
+  // Devnet market ogZU's first two swaps, inserted out of order: 1.0 -> 1.019 -> 0.740.
+  await observe(client,900_600_032,'2026-09-02T00:00:40Z',740_348_120n,{ quoteSpotNad: 1_350_715_930n,startPriceNad: 1_019_035_720n });
+  await observe(client,900_600_031,'2026-09-02T00:00:20Z',1_019_035_720n,{ quoteSpotNad: 981_319_869n,startPriceNad: 999_999_999n });
+  // A later event in the opening slot is not that slot's sample.
+  await observe(client,900_600_031,'2026-09-02T00:00:20Z',2_000_000_000n,{ quoteSpotNad: 500_000_000n,startPriceNad: 1_900_000_000n });
+  // This bucket opens on a swap without a start price; a later swap's start price does not stand in.
+  await observe(client,900_600_033,'2026-09-02T00:02:05Z',1_500_000_000n,{ quoteSpotNad: 666_666_666n });
+  await observe(client,900_600_034,'2026-09-02T00:02:30Z',1_400_000_000n,{ quoteSpotNad: 714_285_714n,startPriceNad: 1_500_000_000n });
+  const base = await readQuoteHistory(client,query);
+  assert.deepEqual(base.candles.map(c => [c.time,c.open.price,c.close.price]),
+    [[1788307200,'1.01903572','0.74034812'],[1788307320,'1.5','1.4']]);
+  assert.equal(base.candles[0].open.sourceSlot,'900600031');
+  assert.deepEqual(base.candles[0].openStart,{ ...base.candles[0].open,price: '0.999999999' });
+  assert.equal(base.candles[1].openStart,null);
+  const quote = await readQuoteHistory(client,{ ...query,side: 'quote' });
+  assert.deepEqual(quote.candles.map(c => [c.open.price,c.close.price]),[['0.981319869','1.35071593'],['0.666666666','0.714285714']]);
+  // floor(1e18 / 999999999)
+  assert.deepEqual(quote.candles[0].openStart,{ ...quote.candles[0].open,price: '1.000000001' });
+  assert.equal(quote.candles[1].openStart,null);
+  assert.equal(base.schemaVersion,'dusk-quote-history.v1'); assert.equal(base.coverage.basis,'sampled-program-spot-quotes.v1');
+}));
+
 test('incremental refresh widens to a late observation\'s bucket and rejects a regressed revision',() => transaction(async client => {
   await observe(client,900_600_020,'2026-09-02T00:02:10Z',2_000_000_000n);
   const first = await readQuoteHistory(client,query);
