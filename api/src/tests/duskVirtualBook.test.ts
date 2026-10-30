@@ -1,5 +1,5 @@
 import { createSdkTestRuntime } from './duskSdkTestRuntime';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { BorshAccountsCoder, BN } from '@coral-xyz/anchor';
 import {
@@ -7,11 +7,12 @@ import {
   RpcResponseAndContext,
   SimulatedTransactionResponse,
 } from '@solana/web3.js';
+import * as native from '../services/virtualBook/native';
 import {
   createVirtualBookBoundary,
   decodePreviewSwapReturnData,
 } from '../services/virtualBook/native';
-import { decodeDuskVirtualBookBatch, recoverExecutableVirtualBookQuotes, readDuskVirtualBookQuotes, unquotableAmount } from '../services/virtualBook/virtual-book-quotes';
+import { computeExhausted, decodeDuskVirtualBookBatch, recoverExecutableVirtualBookQuotes, readDuskVirtualBookQuotes, unquotableAmount, type VirtualBookQuoteRequest } from '../services/virtualBook/virtual-book-quotes';
 import { projectDuskVirtualBook } from '../services/virtualBook/virtual-book-view-model';
 import { DuskVirtualBookSnapshot, readDuskVirtualBook } from '../services/virtualBook/virtual-book-read';
 import {
@@ -286,6 +287,144 @@ test('depth keeps only natively executable levels when a small cumulative quote 
     recoverExecutableVirtualBookQuotes(unrelated, h.snapshot, 10, curve, h.snapshot.slot),
     /Dusk simulation failed/,
   );
+});
+const failedSimulation = (InstructionError: unknown[], logs: string[] = []) =>
+  Object.assign(new Error('Dusk simulation failed'), {
+    name: 'DuskSimulationError',
+    simulation: { value: { err: { InstructionError }, logs } },
+  });
+// The tail of a four-quote batch on devnet market ogZU: each preview costs
+// about 480k units, so the third runs out of the 1.4M transaction limit.
+const outOfCompute = (instruction = 4) =>
+  failedSimulation([instruction, 'ProgramFailedToComplete'], [
+    `Program ${fixture.programId} invoke [1]`,
+    'Program log: Instruction: PreviewSwap',
+    `Program ${fixture.programId} consumed 438201 of 438257 compute units`,
+    `Program ${fixture.programId} failed: exceeded CUs meter at BPF instruction`,
+  ]);
+const panicked = [`Program ${fixture.programId} failed: SBF program panicked`];
+const wholeTokenCurve = {
+  mid: 1,
+  bids: Array.from({ length: 12 }, (_, index) => ({ total: index + 1, quoteTotal: index + 1 })),
+  asks: Array.from({ length: 12 }, (_, index) => ({ total: index + 1, quoteTotal: index + 1 })),
+} as Parameters<typeof recoverExecutableVirtualBookQuotes>[3];
+const echoQuotes = (
+  decoded: ReturnType<typeof decodeDuskVirtualBookBatch>,
+  batch: VirtualBookQuoteRequest[],
+) => ({
+  ...decoded,
+  quotes: batch.map(request => ({
+    ...decoded.quotes[0],
+    side: request.side,
+    preview: {
+      ...decoded.quotes[0].preview,
+      exactAssetIn: new BN(request.amount.toString()),
+    },
+  })),
+});
+test('depth halves batches that run out of compute before giving up', async () => {
+  const h = await setup();
+  const decoded = decodeDuskVirtualBookBatch(
+    h.dusk,
+    h.snapshot,
+    h.requests,
+    fixture.result as unknown as RpcResponseAndContext<SimulatedTransactionResponse>,
+    h.snapshot.slot,
+  );
+  assert.equal(computeExhausted(outOfCompute()), true);
+  assert.equal(computeExhausted(failedSimulation([3, 'ComputationalBudgetExceeded'])), true);
+  assert.equal(computeExhausted(failedSimulation([3, 'ProgramFailedToComplete'], panicked)), false);
+  assert.equal(computeExhausted(failedSimulation([1, 'ComputationalBudgetExceeded'])), false);
+  assert.equal(computeExhausted(failedSimulation([2, { Custom: 6047 }])), false);
+  assert.equal(computeExhausted(new Error('exceeded CUs meter at BPF instruction')), false);
+  assert.equal(unquotableAmount(outOfCompute()), false);
+
+  const unit = 10n ** BigInt(h.snapshot.account.baseSide.assetDecimals);
+  const sizes: number[] = [];
+  const fake = {
+    get: {
+      previewVirtualBookBatch: async (_snapshot: unknown, batch: VirtualBookQuoteRequest[]) => {
+        sizes.push(batch.length);
+        if (batch.length > 2) throw outOfCompute();
+        const rejected = batch.findIndex(request =>
+          request.side === 'bids' && request.amount === 3n * unit);
+        if (rejected >= 0) throw failedSimulation([2 + rejected, { Custom: 6047 }]);
+        return echoQuotes(decoded, batch);
+      },
+    },
+  } as unknown as Dusk;
+  const quotes = await recoverExecutableVirtualBookQuotes(fake, h.snapshot, 10, wholeTokenCurve, h.snapshot.slot);
+  assert.deepEqual(
+    quotes.quotes.bids.map(quote => BigInt(quote.preview.exactAssetIn.toString())),
+    [1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(level => BigInt(level) * unit),
+  );
+  assert.equal(quotes.quotes.asks.length, 12);
+  // Six four-quote batches run out, their twelve halves fit, and the half
+  // holding the unquotable level is retried one request at a time.
+  const count = (size: number) => sizes.filter(length => length === size).length;
+  assert.deepEqual([count(4), count(2), count(1)], [6, 12, 2]);
+
+  sizes.length = 0;
+  const heavy = {
+    get: {
+      previewVirtualBookBatch: async (_snapshot: unknown, batch: VirtualBookQuoteRequest[]) => {
+        sizes.push(batch.length);
+        throw outOfCompute(2);
+      },
+    },
+  } as unknown as Dusk;
+  await assert.rejects(
+    recoverExecutableVirtualBookQuotes(heavy, h.snapshot, 10, wholeTokenCurve, h.snapshot.slot),
+    /Dusk simulation failed/,
+  );
+  assert.ok(sizes.includes(1));
+});
+test('native depth recovers when the SDK quote batch runs out of compute', async () => {
+  const h = await setup();
+  const decoded = decodeDuskVirtualBookBatch(
+    h.dusk,
+    h.snapshot,
+    h.requests,
+    fixture.result as unknown as RpcResponseAndContext<SimulatedTransactionResponse>,
+    h.snapshot.slot,
+  );
+  const deployment = {
+    programId: fixture.programId,
+    deploymentIdentitySha256: 'a'.repeat(64),
+    sourceSlot: 100,
+    programDataSlot: '1',
+    leverageDelegateProgramDataSlot: '1',
+  } as DuskDeploymentEnvelope;
+  const boundary = createVirtualBookBoundary(async floor => ({ ...deployment, sourceSlot: floor }));
+  const snapshot = { ...h.snapshot, deployment };
+  let failure = outOfCompute();
+  const sizes: number[] = [];
+  const dusk = {
+    program: { programId: { toBase58: () => fixture.programId } },
+    get: {
+      previewVirtualBookQuotes: async () => { throw failure; },
+      previewVirtualBookBatch: async (_snapshot: unknown, batch: VirtualBookQuoteRequest[]) => {
+        sizes.push(batch.length);
+        if (batch.length > 2) throw outOfCompute();
+        return echoQuotes(decoded, batch);
+      },
+    },
+  } as unknown as Dusk;
+  const projected = mock.method(native, 'projectDuskVirtualBookCurve', () => wholeTokenCurve);
+  try {
+    const quotes = await readDuskVirtualBookQuotes({ dusk, snapshot, boundary });
+    assert.equal(quotes.quotes.bids.length, 12);
+    assert.equal(quotes.quotes.asks.length, 12);
+    assert.equal(sizes.length, 18); // six four-quote batches, then twelve halves
+
+    // Any other failed preview still invalidates the book.
+    failure = failedSimulation([4, 'ProgramFailedToComplete'], panicked);
+    sizes.length = 0;
+    await assert.rejects(readDuskVirtualBookQuotes({ dusk, snapshot, boundary }), /Dusk simulation failed/);
+    assert.equal(sizes.length, 0);
+  } finally {
+    projected.mock.restore();
+  }
 });
 test('backend rejects old banks, wrong programs, truncated logs and changed input sizes', async () => {
   const h = await setup();
