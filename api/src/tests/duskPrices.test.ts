@@ -4,7 +4,7 @@ import { BorshCoder, Idl } from '@coral-xyz/anchor';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { loadPinnedProtocol } from '../config/duskProtocol';
-import { multiplyPriceRatio, parsePriceReferences, positiveDecimal, projectMarketPrices } from '../services/duskPriceMath';
+import { multiplyPriceRatio, parsePriceReferences, positiveDecimal, projectMarketPrices, projectReferencePrices } from '../services/duskPriceMath';
 import { priceFixture } from './duskPriceFixtures';
 
 const pin = loadPinnedProtocol(),decoder = new BorshCoder(JSON.parse(readFileSync(resolve(__dirname,'../../../protocol/idl/dusk.json'),'utf8')) as Idl);
@@ -36,6 +36,30 @@ test('reference policies reject other networks, revisions and duplicate mints',(
   assert.throws(() => parsePriceReferences({ ...refs,cluster: 'mainnet-beta' },pin),/identity/);
   assert.throws(() => parsePriceReferences({ ...refs,protocolRevision: 'old' },pin),/identity/);
   assert.throws(() => parsePriceReferences({ ...refs,references: [...refs.references,...refs.references] },pin),/Duplicate/);
+});
+test('a USD stablecoin is an explicit one-dollar peg, and unmarked references normalize as before',() => {
+  const refs = priceFixture().references,[reference] = refs.references;
+  const marked = parsePriceReferences({ ...refs,references: [{ ...reference,priceUsd: '1.0',usdStablecoin: true }] },pin);
+  assert.deepEqual(marked.references[0],{ ...reference,usdStablecoin: true });
+  assert.deepEqual(Object.keys(parsePriceReferences(refs,pin).references[0]),['mint','priceUsd','note']);
+  for (const change of [{ usdStablecoin: false },{ usdStablecoin: 'true' },{ usdStablecoin: true,priceUsd: '0.99' }])
+    assert.throws(() => parsePriceReferences({ ...refs,references: [{ ...reference,...change }] },pin),/stablecoin/);
+  const devnet = parsePriceReferences(JSON.parse(readFileSync(resolve(__dirname,'../../../protocol/devnet-price-references.json'),'utf8')),pin);
+  assert.deepEqual(devnet.references.filter((entry) => entry.usdStablecoin).map((entry) => entry.mint),['G8XEiNtP7TZ2cZRbUdtcPoc3C19T2GgYxTJqBpWz5ZDV']);
+});
+test('before a first swap only each mint\'s own dated reference prices a market',() => {
+  const fixture = priceFixture(),at = '2026-09-02T00:00:00Z';
+  const created = { market: fixture.source().market,base_mint: fixture.baseMint,quote_mint: fixture.quoteMint,base_decimals: '9',quote_decimals: '6' };
+  const plain = projectReferencePrices({ pin,market: created,blockTime: at,references: fixture.references });
+  assert.deepEqual(plain.prices.map(({ mint,decimals,priceUsd,quality }) => [mint,decimals,priceUsd,quality]),
+    [[fixture.quoteMint,6,'1','configured-reference']]);
+  assert.deepEqual(plain.stablecoins,[]);
+  const stable = { ...fixture.references,references: [{ ...fixture.references.references[0],usdStablecoin: true }] };
+  assert.deepEqual(projectReferencePrices({ pin,market: created,blockTime: at,references: stable }).stablecoins,[fixture.quoteMint]);
+  const early = projectReferencePrices({ pin,market: created,blockTime: '2026-08-31T00:00:00Z',references: stable });
+  assert.deepEqual([early.prices,early.stablecoins],[[],[]]);
+  assert.throws(() => projectReferencePrices({ pin,market: { ...created,quote_mint: fixture.baseMint },blockTime: at,references: stable }),/bindings/);
+  assert.throws(() => projectReferencePrices({ pin,market: { ...created,base_decimals: '256' },blockTime: at,references: stable }),/overflow/);
 });
 test('a preview from a different bank cannot price this snapshot',() => {
   const source = priceFixture().source();

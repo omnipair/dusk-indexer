@@ -7,7 +7,7 @@ import { fixtureKey } from './duskYieldCheckpointFixtures';
 
 function price(): ActivityPriceBasis {
   const fixture = priceFixture();
-  return { captureId: '7',slot: activitySlot-1,blockTime: '2026-09-02T00:00:09Z',
+  return { capture: { id: '7',slot: activitySlot-1,blockTime: '2026-09-02T00:00:09Z' },
     bound: { baseMint: fixture.baseMint,quoteMint: fixture.quoteMint,baseDecimals: 9,quoteDecimals: 6 },
     prices: [ { mint: fixture.baseMint,decimals: 9,priceUsd: '2.5',quality: 'derived-reference' },
       { mint: fixture.quoteMint,decimals: 6,priceUsd: '1',quality: 'configured-reference' } ] };
@@ -65,10 +65,11 @@ test('missing prices stay unknown; zero fee amounts remain known zero without a 
 });
 
 test('same-slot and future quotes cannot value an earlier trade; old prior-slot quotes can',() => {
+  const captured = (changed: object) => ({ ...price(),capture: { ...price().capture!,...changed } });
   for (const changed of [{ slot: activitySlot },{ slot: activitySlot+1 },{ slot: -1 },
     { blockTime: '2026-09-02T00:00:11Z' },{ blockTime: 'invalid' }])
-    assert.throws(() => value(undefined,{ ...price(),...changed }),/event-time boundary/);
-  assert.equal(value(undefined,{ ...price(),blockTime: '2026-09-01T23:59:09Z' })[0].usd,'5');
+    assert.throws(() => value(undefined,captured(changed)),/event-time boundary/);
+  assert.equal(value(undefined,captured({ blockTime: '2026-09-01T23:59:09Z' }))[0].usd,'5');
   assert.throws(() => valueActivityAmounts([],null,Number.MAX_SAFE_INTEGER+1,activityTime),/boundary/);
 });
 
@@ -91,6 +92,62 @@ test('malformed amounts, inconsistent fee partitions and mismatched metadata are
   assert.throws(() => parse('MarketDebtUpdated',{ ...activityPayload('MarketDebtUpdated'),metadata: {
     market: fixtureKey(1).toBase58(),slot: String(activitySlot),signer: fixtureKey(2).toBase58() } }),/metadata/);
   assert.throws(() => parseActivityEvent('LeveragePositionOpened',activityPayload('LeveragePositionOpened'),String(activitySlot+1)),/metadata/);
+});
+
+/** Devnet META/USDC (ogZU): both mints have six decimals and a configured $1
+ * reference, and only USDC is a USD stablecoin. */
+function stableMarket(capture: ActivityPriceBasis['capture'] = price().capture): ActivityPriceBasis {
+  const fixture = priceFixture();
+  return { capture,bound: { baseMint: fixture.baseMint,quoteMint: fixture.quoteMint,baseDecimals: 6,quoteDecimals: 6 },
+    prices: [ { mint: fixture.baseMint,decimals: 6,priceUsd: '1',quality: 'configured-reference' },
+      { mint: fixture.quoteMint,decimals: 6,priceUsd: '1',quality: 'configured-reference' } ],stablecoins: [fixture.quoteMint] };
+}
+/** ogZU's spot sale of 5,000 META for 4,552.392015 USDC. */
+const spotSale = () => ({ ...activityPayload(),asset_in_side: '0',fee_asset_side: '0',amount_in: '5000000000',amount_out: '4552392015',
+  gross_amount_out: '4552392015',amount_in_after_fee: '4986747516',base_fee: '12500000',divergence_fee: '565812',volatility_fee: '186672',
+  retained_fee: '0',compounded_fee: '6626242' });
+/** ogZU's leverage open: 912 USDC buys 902.29459 META. */
+const leverageBuy = () => ({ ...activityPayload(),asset_in_side: '1',fee_asset_side: '1',amount_in: '912000000',amount_out: '902294590',
+  gross_amount_out: '902294590',amount_in_after_fee: '909712799',base_fee: '2280000',divergence_fee: '7201',volatility_fee: '0',
+  retained_fee: '0',compounded_fee: '1143600' });
+
+test('a swap against a USD stablecoin is valued from that leg, not the other asset\'s configured price',() => {
+  const sale = value(spotSale(),stableMarket());
+  assert.deepEqual(sale.map(({ metric,amount,asset,usd }) => [metric,amount,asset,usd]),[
+    ['volume','4552392015',{ side: 1 },'4552.392015'],['swapFees','13252484',{ side: 0 },'13.252484'],
+    ['retainedFees','0',{ side: 0 },'0'],['compoundedFees','6626242',{ side: 0 },'6.626242']]);
+  assert.equal(sale[0].priceCaptureId,'7');
+  assert.equal(value(spotSale(),{ ...stableMarket(),stablecoins: [] })[0].usd,'5000');
+  // Paying with the stablecoin is valued from the input, which is that leg.
+  assert.equal(value(leverageBuy(),stableMarket())[0].usd,'912');
+  // The curve output includes a fee charged in the stablecoin.
+  const quoteFee = value({ ...spotSale(),fee_asset_side: '1',amount_in_after_fee: '5000000000',gross_amount_out: '4563773000',
+    amount_out: '4552392020',base_fee: '11380980',divergence_fee: '0',volatility_fee: '0',compounded_fee: '5690490' },stableMarket());
+  assert.deepEqual(quoteFee.slice(0,2).map(({ usd }) => usd),['4563.773','11.38098']);
+});
+
+test('an unpriced stablecoin leg leaves the trade to its input price; a stablecoin pair keeps the input',() => {
+  const unpriced = stableMarket(); unpriced.prices = unpriced.prices.slice(0,1);
+  assert.equal(value(spotSale(),unpriced)[0].usd,'5000');
+  assert.equal(value(spotSale(),{ ...stableMarket(),stablecoins: [priceFixture().baseMint,priceFixture().quoteMint] })[0].usd,'5000');
+  unpriced.prices = []; assert.equal(value(spotSale(),unpriced)[0].usd,null);
+});
+
+test('a leverage open that is the market\'s first swap is priced from its mints\' own references without a snapshot',() => {
+  const first = stableMarket(null);
+  const swap = valueActivityAmounts(parseActivityEvent('SwapExecuted',leverageBuy(),String(activitySlot),'canonical-swap-events').amounts,
+    first,activitySlot,activityTime);
+  assert.deepEqual(swap.map(({ metric,usd }) => [metric,usd]),
+    [['volume','912'],['swapFees','2.287201'],['retainedFees','0'],['compoundedFees','1.1436']]);
+  assert.ok(swap.every((entry) => entry.priceCaptureId === null));
+  const opened = parseActivityEvent('LeveragePositionOpened',{ ...activityPayload('LeveragePositionOpened'),collateral_amount: '902294590' },
+    String(activitySlot),'canonical-swap-events');
+  assert.deepEqual(valueActivityAmounts(opened.amounts,first,activitySlot,activityTime).map(({ metric,usd,priceQuality }) => [metric,usd,priceQuality]),
+    [['marginVolume','902.29459','configured-reference']]);
+  // Without a snapshot there is no spot quote to derive a price from.
+  assert.throws(() => valueActivityAmounts(opened.amounts,{ ...first,spotPrices: { base: '1',quote: '1' } },activitySlot,activityTime),/missing snapshot/);
+  const derived = stableMarket(null); derived.prices[0].quality = 'derived-reference';
+  assert.throws(() => valueActivityAmounts(opened.amounts,derived,activitySlot,activityTime),/missing snapshot/);
 });
 
 test('a quote cannot substitute mint decimals or price a foreign debt asset',() => {

@@ -10,7 +10,7 @@ of a protocol-wide total.
 
 | Product | Definition |
 | --- | --- |
-| Spot | AMM input valued once per executed swap, including leverage swaps. |
+| Spot | Each executed swap valued once, including leverage swaps: from its USD stablecoin leg when it has one, otherwise from its AMM input. |
 | Credit | Positive public-credit `MarketDebtUpdated.debt_delta`: new principal borrowed. Repayment, interest, margin debt, and hLP funding do not add credit volume. |
 | Margin | Collateral exposure opened, increased, decreased, closed, or liquidated, valued in the collateral asset. Includes collateral supplied without a swap. Collateral-only deposits/withdrawals and debt-only repayment do not add trading volume. |
 
@@ -49,8 +49,21 @@ deliberate reference pricing, not a claim that a devnet token has mainnet value;
 the app marks it as estimated. Additional devnet mints remain on their configured
 or on-chain fallback unless explicitly mapped.
 
+A reference marked `usdStablecoin` is a one-dollar peg rather than a demo
+value. A swap with that leg is valued from it: the stablecoin it paid or
+received, at the stablecoin's own provider quote or its peg, never at a
+counterasset's quote times the curve. On the output side the leg is the curve
+output (`gross_amount_out`), so either leg includes the trading fee charged in
+its own asset. The devnet policy marks only its USDC mint, so a sale of 5,000
+META for 4,552.39 USDC counts $4,552.39, not 5,000 META at META's configured $1.
+An unpriced stablecoin leg falls back to the input; a swap between two
+stablecoins keeps its input.
+
 Every event uses the latest prior-slot native swap snapshot, even when a quiet
-market has not swapped recently. Provider observations must have been recorded
+market has not swapped recently. Before a market's first swap there is no
+snapshot, so the mints and decimals come from its `MarketCreated` event and
+only each mint's own reference or provider quote applies; nothing is derived
+from the curve. Provider observations must have been recorded
 no later than the event; the latest eligible observation remains available until
 a newer one arrives. A worker quote fetched after an event can price later
 events, but is never applied retroactively to the triggering event. Provider

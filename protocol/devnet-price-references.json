@@ -20,7 +20,8 @@
     {
       "mint": "G8XEiNtP7TZ2cZRbUdtcPoc3C19T2GgYxTJqBpWz5ZDV",
       "priceUsd": "1",
-      "note": "Existing webapp devnet display reference for this specific mint; not a blanket assumption about quote assets."
+      "usdStablecoin": true,
+      "note": "Devnet USDC test mint, labelled USD Coin by the webapp. A USD stablecoin, so a swap against it is valued from its USDC leg; not a blanket assumption about quote assets."
     }
   ]
 }

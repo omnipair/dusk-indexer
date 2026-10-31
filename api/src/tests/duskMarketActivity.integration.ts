@@ -6,7 +6,7 @@ import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
 import { projectMarketActivityBatch, readMarketActivity } from '../services/duskMarketActivity';
-import { streamedSwapSnapshot, useFixtureReferences } from './duskStreamedFixtures';
+import { fixtureMarket, key, streamedMarket, streamedSwapSnapshot, useFixtureReferences } from './duskStreamedFixtures';
 import { activityMarket, activityPayload, activitySlot, activityTime } from './duskActivityFixtures';
 import { priceFixture } from './duskPriceFixtures';
 import { fixtureKey } from './duskYieldCheckpointFixtures';
@@ -17,7 +17,11 @@ import { historyDeploymentFixture } from './duskHistoryDeploymentFixtures';
 if (process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS !== 'true' || !process.env.DATABASE_URL)
   throw new Error('Set DUSK_ALLOW_DISPOSABLE_DB_TESTS=true and a disposable DATABASE_URL');
 after(() => pool.end());
-useFixtureReferences();
+// The second market mirrors devnet META/USDC: a configured demo price for the
+// base and a USD stablecoin quote.
+useFixtureReferences([{ mint: key(113),priceUsd: '1',note: 'Explicit fixture reference' },
+  { mint: fixtureMarket.baseMint,priceUsd: '1',note: 'Configured demo value' },
+  { mint: fixtureMarket.quoteMint,priceUsd: '1',usdStablecoin: true,note: 'USD stablecoin' }]);
 const pin = loadPinnedProtocol(),active = [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
 const query = { market: activityMarket,since: '2026-09-02T00:00:00Z',until: '2026-09-02T00:01:00Z',
   deploymentIdentitySha256: 'b'.repeat(64) };
@@ -234,6 +238,38 @@ test('an unpriced trade makes the observed total unknown while retaining the sep
   assert.equal(view.metrics.volume.unpricedObservations,1);
   assert.equal(view.metrics.volume.observations,2);
   assert.equal(view.markets[0].metrics.volume.observedUsd,null);
+}));
+
+/** Devnet META/USDC (ogZU): a leverage open is the market's first swap, and
+ * its post-swap state prices a later spot sale of the base for the stablecoin. */
+test('a market\'s first trade needs no earlier snapshot, and a stablecoin leg values each swap',() => transaction(async (client) => {
+  const market = fixtureMarket.market,opened = activitySlot-2,openedAt = '2026-09-02T00:00:05Z',trader = fixtureKey(121).toBase58();
+  const side = (spot: string) => ({ spot_price_nad: spot,price_ema_nad: '1000000000',swap_fee_growth_index_q64: '0',interest_growth_index_q64: '0' });
+  await streamedMarket(client,fixtureMarket,activitySlot-3); // Base has 9 decimals, quote 6.
+  await source(client,{ slot: opened,time: openedAt,fields: { market,trader,slot: String(opened),
+    asset_in_side: '1',fee_asset_side: '1',amount_in: '912000000',amount_out: '902294590000',gross_amount_out: '902294590000',
+    amount_in_after_fee: '909712799',base_fee: '2280000',divergence_fee: '7201',volatility_fee: '0',retained_fee: '0',compounded_fee: '1143600',
+    ylp_supply: '20000000000',base_live_reserve: '19097705410000',quote_live_reserve: '20910856399',base: side('1019035720'),quote: side('981319869') } });
+  await source(client,{ slot: opened,time: openedAt,name: 'LeveragePositionOpened',fields: { ...activityPayload('LeveragePositionOpened',opened),
+    market,metadata: { market,slot: String(opened),signer: trader },collateral_asset_mint: fixtureMarket.baseMint,
+    debt_asset_mint: fixtureMarket.quoteMint,collateral_amount: '902294590000' } });
+  await source(client,{ fields: { market,trader,asset_in_side: '0',fee_asset_side: '0',amount_in: '5000000000000',amount_out: '4552392015',
+    gross_amount_out: '4552392015',amount_in_after_fee: '4986747516000',base_fee: '12500000000',divergence_fee: '565812000',
+    volatility_fee: '186672000',retained_fee: '0',compounded_fee: '6626242000' } });
+  assert.equal(await projectMarketActivityBatch(client),3);
+  const view = await readMarketActivity(client,{ ...query,market });
+  assert.equal(view.events,3); assert.equal(view.swaps,2);
+  assert.deepEqual(view.metrics.volume,{ observedUsd: '5464.392015',valuedUsd: '5464.392015',unpricedObservations: 0,observations: 2,estimatedObservations: 2 });
+  assert.equal(view.metrics.swapFees.observedUsd,'15.539685');
+  assert.equal(view.volumes.margin.observedUsd,'902.29459');
+  // A base quote recorded before the open also prices it without a snapshot,
+  // while the stablecoin keeps its peg instead of that quote times the curve.
+  await storeExternalPrices(client,[{ mint: fixtureMarket.baseMint,externalMint: fixtureMarket.baseMint,decimals: 9,priceUsd: '2',
+    provider: 'jupiter' as const,sourceTime: '2026-09-02T00:00:01Z',observedAt: '2026-09-02T00:00:01Z' }],query.deploymentIdentitySha256);
+  const quoted = await readMarketActivity(client,{ ...query,market });
+  assert.equal(quoted.volumes.margin.observedUsd,'1804.58918');
+  assert.equal(quoted.metrics.swapFees.observedUsd,'28.792169');
+  assert.equal(quoted.metrics.volume.observedUsd,'5464.392015');
 }));
 
 test('old prior-slot snapshots value quiet markets, while same-slot and future-time snapshots cannot',() => transaction(async (client) => {

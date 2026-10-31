@@ -58,7 +58,7 @@ test('new liquidation settlements count leverage turnover and paid interest by m
 });
 
 const fixture = priceFixture();
-const basis = (): ActivityPriceBasis => ({ captureId: '1',slot: activitySlot-1,blockTime: '2026-09-02T00:00:05Z',
+const basis = (): ActivityPriceBasis => ({ capture: { id: '1',slot: activitySlot-1,blockTime: '2026-09-02T00:00:05Z' },
   bound: { baseMint: fixture.baseMint,quoteMint: fixture.quoteMint,baseDecimals: 9,quoteDecimals: 6 },
   spotPrices: { base: '2500000000',quote: '400000000' },prices: [
     { mint: fixture.baseMint,decimals: 9,priceUsd: '2.5',quality: 'derived-reference' },
@@ -73,6 +73,12 @@ test('provider quotes precede on-chain fallback; price provenance stays in the v
   const value = valueActivityAmounts(parse('LeveragePositionOpened').amounts,prices,activitySlot,activityTime);
   assert.equal(value[0].usd,'10');
   assert.equal(value[0].priceObservationId,'9');
+});
+test('a USD stablecoin keeps its peg rather than a counterasset quote times the curve',() => {
+  const base = { ...provider(),mint: fixture.baseMint,decimals: 9,priceUsd: '3' };
+  const prices = (value: ActivityPriceBasis) => activityPriceBasis(value,[base],activityTime).prices.map(({ priceUsd,quality }) => [priceUsd,quality]);
+  assert.deepEqual(prices(basis()),[['3','external-observation'],['1.2','derived-reference']]);
+  assert.deepEqual(prices({ ...basis(),stablecoins: [fixture.quoteMint] }),[['3','external-observation'],['1','configured-reference']]);
 });
 test('future and wrong-decimal provider quotes cannot override captured prices',() => {
   for (const change of [{ sourceTime: '2026-09-02T00:00:11Z' },{ observedAt: '2026-09-02T00:00:11Z' },

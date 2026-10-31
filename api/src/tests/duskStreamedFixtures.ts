@@ -86,7 +86,8 @@ export async function streamedSwapSnapshot(client: PoolClient,options: {
 
 /** Point the process's dated reference policy at a fixture file: the quote
  * fixture mint at $1 from 2026-09-01. Call before the first price read. */
-export function useFixtureReferences(references = [{ mint: key(113),priceUsd: '1',note: 'Explicit fixture reference' }]) {
+export function useFixtureReferences(references: { mint: string; priceUsd: string; note: string; usdStablecoin?: true }[] =
+  [{ mint: key(113),priceUsd: '1',note: 'Explicit fixture reference' }]) {
   const pin = loadPinnedProtocol(),file = join(mkdtempSync(join(tmpdir(),'dusk-references-')),'references.json');
   writeFileSync(file,JSON.stringify({ schemaVersion: 'dusk-price-references.v1',cluster: pin.cluster,programId: pin.dusk.programId,
     idlSha256: pin.dusk.idlCanonicalSha256,protocolRevision: pin.revision,effectiveFrom: '2026-09-01T00:00:00Z',references }));
