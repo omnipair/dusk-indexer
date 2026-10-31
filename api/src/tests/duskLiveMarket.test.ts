@@ -176,3 +176,34 @@ test('capacity is quoted once per market bank and not at all without a preview p
   assert.deepEqual(calls,[sample.snapshot.slot,sample.snapshot.slot+5]);
   cache.clear();
 });
+
+test('market payload exposes configured Oracle terms even when its valuation preview is unavailable', async () => {
+  const { mock } = await import('node:test');
+  const { readFileSync } = await import('node:fs');
+  const { resolve } = await import('node:path');
+  const { IdlCoder } = await import('@coral-xyz/anchor/dist/cjs/coder/borsh/idl');
+  const schema = await import('../services/duskProtocolSchema');
+  const sample = liveFixture();
+  assert.equal(projectMarketSnapshot(sample.snapshot,sample.references).oraclePolicy,null);
+  const root = resolve(__dirname,'../../../protocol/candidates/next-2026-10-31-8fadcc31');
+  const idl = JSON.parse(readFileSync(resolve(root,'idl/dusk.json'),'utf8'));
+  const golden = JSON.parse(readFileSync(resolve(root,'fixtures/oracle-wire.json'),'utf8'));
+  const candidate = new BorshCoder(idl).accounts.decode('Market',Buffer.from(golden.marketHex,'hex')) as any;
+  sample.market.oracle = candidate.oracle;
+  sample.market.version = 7;
+  sample.market.parameter_revisions = Array.from({ length: 8 },() => new BN(0));
+  const layout = IdlCoder.typeDefLayout({ typeDef: idl.types.find((row: { name: string }) => row.name === 'Market'),types: idl.types });
+  const bytes = Buffer.alloc(32768),length = layout.encode(sample.market,bytes);
+  const encoded = Buffer.concat([Buffer.from(idl.accounts.find((row: { name: string }) => row.name === 'Market').discriminator),bytes.subarray(0,length)]);
+  const pinned = mock.method(schema,'pinnedDuskIdl',() => idl);
+  try {
+    const payload = projectMarketSnapshot({ ...sample.snapshot,preview: null,basis: 'rpc-account',previewUnavailable: true,
+      marketAccount: { ...sample.snapshot.marketAccount,data: encoded.toString('base64') } },sample.references) as any;
+    assert.equal(payload.oraclePolicy.lambdaBps,3500);
+    assert.equal(payload.oraclePolicy.baseFeedId,'01'.repeat(32));
+    assert.equal(payload.oraclePolicy.maxAgeSlots,'18446744073709551615');
+    assert.equal(payload.parameterRevisions.length,8);
+    assert.equal(payload.state.previewStatus,'unavailable');
+    assert.equal(payload.state.baseSpotPriceNad,null);
+  } finally { pinned.mock.restore(); }
+});

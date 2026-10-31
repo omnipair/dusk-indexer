@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "dusk-protocol-candidate.v1",
+  "status": "undeployed",
+  "revision": "next-2026-10-31-8fadcc31",
+  "source": {
+    "repository": "https://github.com/omnipair/dusk",
+    "gitCommit": "8fadcc31fbe542f4f822060724639a5057fad2cc"
+  },
+  "programs": [
+    {
+      "name": "dusk",
+      "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
+      "idl": {
+        "path": "idl/dusk.json",
+        "sha256": "f655c03652871b4880d945571c28a726da62345f324809b4d442cffe866d3609",
+        "canonicalSha256": "cfc543b6c60e0ea9e66c9c93c4aecf52bd52618d002590b3c84928d22d363b66"
+      }
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv",
+      "idl": {
+        "path": "idl/leverage_delegate.json",
+        "sha256": "170d29e1617104a4718214fd5e0c475aff14793bcf721e0caedb5a92550c5d76",
+        "canonicalSha256": "debb68410b8cc6add5c3603506e5a7ef26f0e0edd76a5ea9b614e6f5e91e7f35"
+      }
+    }
+  ],
+  "sdk": {
+    "version": "2.15.0-next.20261030",
+    "path": "api/vendor/dusk-sdk-2.15.0-next.20261030-8fadcc31.tgz",
+    "sha256": "15b466b732ce4d4823cb1c8b469fe27ae68a0465efb86c393db7ee9160b94573"
+  },
+  "activation": "Requires verified deployment metadata, pin promotion, and replay review. No deployment slots or executable hashes are asserted here."
+}

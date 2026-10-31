@@ -125,3 +125,52 @@ test('a lagging RPC replica is retried with the unchanged minimum slot and bound
   await assert.rejects(captureMarketSimulation(unavailable.source.market,unavailable.source.slot,[],unavailable.dependencies),/Minimum context slot/);
   assert.equal(unavailable.simulationCalls(),4);
 });
+
+test('oracle capture adds configured reports at the policy bank and never values a failed preview', async () => {
+  const { mock } = await import('node:test');
+  const { readFileSync } = await import('node:fs');
+  const { resolve } = await import('node:path');
+  const schema = await import('../services/duskProtocolSchema');
+  const { BorshCoder, BN } = await import('@coral-xyz/anchor');
+  const root = resolve(__dirname,'../../../protocol/candidates/next-2026-10-31-8fadcc31');
+  const idl = JSON.parse(readFileSync(resolve(root,'idl/dusk.json'),'utf8'));
+  const fixture = JSON.parse(readFileSync(resolve(root,'fixtures/oracle-wire.json'),'utf8'));
+  const raw = Buffer.from(fixture.marketHex,'hex'), pin = loadPinnedProtocol(),sourceSlot = 105;
+  const pinned = mock.method(schema,'pinnedDuskIdl',() => idl);
+  try {
+    for (const failed of [false,true]) {
+      let requested: string[] = [];
+      const rpc = {
+        getAccountInfoAndContext: async (_key: PublicKey,config: { minContextSlot: number }) => {
+          assert.equal(config.minContextSlot,100);
+          return { context: { slot: sourceSlot },value: { owner: new PublicKey(pin.dusk.programId),executable: false,data: raw } };
+        },
+        simulateTransaction: async (tx: VersionedTransaction,config: SimulateTransactionConfig) => {
+          assert.equal(config.minContextSlot,sourceSlot);
+          requested = config.accounts!.addresses;
+          assert.deepEqual(requested,[fixture.marketAddress,fixture.policy.baseAccount]);
+          assert.ok(tx.message.staticAccountKeys.some(key => key.toBase58() === fixture.policy.baseAccount));
+          // The zero-valued fixture has no usable economics. This is a wire/bank
+          // coherence test; successful return bytes need only the matching slot.
+          const coder = new BorshCoder(idl);
+          const preview = coder.types.decode('MarketPreview',Buffer.alloc(4096)) as { slot: InstanceType<typeof BN> };
+          preview.slot = new BN(sourceSlot);
+          return { context: { slot: sourceSlot },value: { err: failed ? 'StaleOracle' : null,
+            returnData: { programId: pin.dusk.programId,data: [coder.types.encode('MarketPreview',preview).toString('base64'),'base64'] },
+            accounts: [{ owner: pin.dusk.programId,executable: false,data: [raw.toString('base64'),'base64'] },null] } };
+        },
+        getMultipleAccountsInfoAndContext: async (keys: PublicKey[],config: { minContextSlot: number }) => {
+          assert.equal(config.minContextSlot,sourceSlot); assert.equal(keys.length,2);
+          return { context: { slot: sourceSlot+1 },value: [{ owner: new PublicKey(pin.dusk.programId),executable: false,data: raw },null] };
+        },
+      } as unknown as Connection;
+      const snapshot = await captureMarketSimulation(fixture.marketAddress,100,[],{ rpc,
+        envelope: async () => ({ programUpgradeAuthority: fixtureKey(1).toBase58(),deploymentIdentitySha256: 'c'.repeat(64) } as DuskDeploymentEnvelope),
+        readBlock: async (_rpc,slot) => ({ blockhash: fixtureKey(2).toBase58(),parentSlot: slot-1,blockTime: 1788307200 }) });
+      assert.equal(snapshot.previewUnavailable,failed);
+      assert.equal(snapshot.preview === null,failed);
+      assert.equal(snapshot.slot,failed ? sourceSlot+1 : sourceSlot);
+      assert.deepEqual(snapshot.accounts,[{ address: fixture.policy.baseAccount,account: null }]);
+    }
+  } finally { pinned.mock.restore(); }
+});

@@ -1,3 +1,4 @@
+import { governanceFamilyCount } from './duskProtocolSchema';
 import { PublicKey } from '@solana/web3.js';
 import { PoolClient } from 'pg';
 import pool from '../config/database';
@@ -49,6 +50,7 @@ interface ProposalRow {
  * LP deltas and proposal totals. The stream's slot is read last, so it covers
  * every event included. */
 export async function readGovernanceProposals(client: PoolClient,market: string | null) {
+  const count = governanceFamilyCount();
   const pin = loadPinnedProtocol(),identity = [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
   const proposals = await client.query<ProposalRow>(`SELECT proposal,market,created,total_locked,status,eligible_supply_at_queue,queued_support,
       queued_at::text,execute_after::text,execution_deadline::text,executed_at::text,created_slot::text,last_slot::text
@@ -81,7 +83,7 @@ export async function readGovernanceProposals(client: PoolClient,market: string 
       const familyRevisions = list(created.family_revisions,'family revisions')
         .map((revision,index) => integer(revision,`family revision ${index}`));
       const updates = list(created.updates,'updates');
-      if (familyRevisions.length !== 7 || updates.length < 1 || updates.length > 7)
+      if (familyRevisions.length !== count || updates.length < 1 || updates.length > count)
         throw new Error('Invalid governance proposal terms');
       if (!Number.isInteger(row.status) || row.status<0 || row.status>5) throw new Error('Invalid governance status');
       return {

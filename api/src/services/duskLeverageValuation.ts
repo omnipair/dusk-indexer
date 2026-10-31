@@ -1,3 +1,4 @@
+import { marketLayoutVersion } from './duskProtocolSchema';
 import {
   createInitializeAccount3Instruction,
   getAccountLenForMint,
@@ -16,7 +17,6 @@ import {
 } from '@solana/web3.js';
 import type { AccountInfo } from '@solana/web3.js';
 import {
-  MARKET_LAYOUT_VERSION,
   type Dusk,
   type LeveragePosition,
   type Market,
@@ -116,7 +116,7 @@ export async function captureLeverageValuation(
     'market',
     assertProgramAccount(marketRead.value).data,
   );
-  if (market.version !== MARKET_LAYOUT_VERSION)
+  if (market.version !== marketLayoutVersion())
     throw new Error('Unsupported valuation market');
   const debtSide = position.debtAsset === 0 ? 'baseSide' : 'quoteSide';
   const collateralSide = position.debtAsset === 0 ? 'quoteSide' : 'baseSide';
@@ -263,7 +263,7 @@ export async function captureLeverageValuation(
     assertProgramAccount(accountAt(2)).data,
   );
   if (
-    afterMarket.version !== MARKET_LAYOUT_VERSION ||
+    afterMarket.version !== marketLayoutVersion() ||
     !afterMarket.ylpMint.equals(market.ylpMint) ||
     !afterMarket.baseSide.assetMint.equals(market.baseSide.assetMint) ||
     !afterMarket.quoteSide.assetMint.equals(market.quoteSide.assetMint) ||

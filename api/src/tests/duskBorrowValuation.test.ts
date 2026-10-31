@@ -1,4 +1,7 @@
-import test from 'node:test';
+import test, { mock } from 'node:test';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import * as schema from '../services/duskProtocolSchema';
 import { createSdkTestRuntime } from './duskSdkTestRuntime';
 import assert from 'node:assert/strict';
 import { BN } from '@coral-xyz/anchor';
@@ -15,7 +18,7 @@ import type { DuskDeploymentEnvelope } from '../services/duskDeploymentService';
 
 const CLOCK_OWNER = new PublicKey('Sysvar1111111111111111111111111111111111111');
 
-async function fixture() {
+async function fixture(oracle = false) {
   const marketAddress = displayKey(72),
     positionId = displayKey(73);
   const state = {
@@ -63,7 +66,7 @@ async function fixture() {
       };
     },
   };
-  ({ dusk } = await createSdkTestRuntime(connection as unknown as Connection));
+  ({ dusk } = await createSdkTestRuntime(connection as unknown as Connection, oracle));
   const layout = (name: string) =>
     IdlCoder.typeDefLayout({ typeDef: dusk.program.idl.types!.find((t) => t.name === name)!, types: dusk.program.idl.types! });
   const encode = (name: string, value: unknown, kind: 'account' | 'type'): AccountInfo<Buffer> => {
@@ -74,7 +77,7 @@ async function fixture() {
   };
   const [address, bump] = deriveBorrowPositionAddress(marketAddress, state.owner, positionId);
   market = layout('market').decode(Buffer.alloc(16384));
-  Object.assign(market, { version: 6 });
+  Object.assign(market, { version: oracle ? 7 : 6 });
   const position = layout('borrowPosition').decode(Buffer.alloc(16384));
   Object.assign(position, {
     owner: state.owner,
@@ -215,4 +218,21 @@ test('liquidations publish only liquidatable positions and keep rejected preview
     captureLiquidations(f.dusk, { ...deployment, programUpgradeAuthority: null }, undefined, deps),
     /preview payer/,
   );
+});
+
+// #59 removed persisted distress clocks. The matching SDK decodes the shorter
+// layout; absence must survive the API rather than being filled with zeros.
+test('oracle candidate borrow valuation publishes health without inventing removed distress state', async () => {
+  const idl = JSON.parse(readFileSync(resolve(__dirname,'../../../protocol/candidates/next-2026-10-31-8fadcc31/idl/dusk.json'),'utf8'));
+  const pinned = mock.method(schema,'pinnedDuskIdl',() => idl);
+  const version = mock.method(schema,'marketLayoutVersion',() => 7);
+  try {
+    const f = await fixture(true);
+    const result = await captureBorrowValuation(f.dusk,f.ref,1990,displayKey(80).toBase58()) as BorrowValuation;
+    assert.equal(result.status,'available');
+    assert.equal(result.quote.fixedDebt,'91');
+    assert.equal(result.quote.isLiquidatable,true);
+    assert.equal(Object.prototype.hasOwnProperty.call(result.quote,'liquidationDistress'),false);
+    assert.equal(Object.prototype.hasOwnProperty.call(result.base,'liquidationDistress'),false);
+  } finally { pinned.mock.restore(); version.mock.restore(); }
 });
