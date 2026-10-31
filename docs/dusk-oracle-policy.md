@@ -209,3 +209,22 @@ published META/USDC pair report is the only live catalog entry; no two mock
 asset reports or direct Pyth pair feeds are invented to populate the other
 layout. The shared editor supports manual sources when the provider actually
 publishes the required records. Chainlink still needs its actual adapter.
+
+
+## Activated layout-8 devnet rollout — 1 November 2026
+
+Both programs from `45549d87` are now byte-verified on devnet. Dusk upgraded at
+slot 517183744 and the delegate at 517184936; the new event identity begins at
+517184937. The previous layout-7 lock, generated IDLs, references and exact quote
+runtime are archived under `protocol/archive/next-2026-10-31-8fadcc31/`; existing
+accounts are not relabelled. The new active filter selects layout 8, whose
+version byte is at 413 and complete account allocation is 3,541 bytes.
+
+Fresh native META/USDC test market `FGdALX7jwNaj87zKfEt79wQk3bVSM6kyZNGNxBs7G4jA`
+was created and seeded with 1,000 synthetic tokens per side through the current
+SDK. A lookup-table confirmation notification timed out although the ledger
+transaction had finalized; setup resumed using the existing table and LP mints,
+with HTTP signature-status confirmation and no duplicate account creation.
+The 0.4 existing wrapped SOL was recovered for upload rent; no faucet SOL was
+requested. Public transactions and finalized binary hashes are recorded in
+`docs/evidence/devnet-layout8-2026-11-01/deployment.json`.

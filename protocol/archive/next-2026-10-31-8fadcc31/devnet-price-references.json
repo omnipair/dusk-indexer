@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "dusk-price-references.v1",
+  "cluster": "devnet",
+  "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
+  "idlSha256": "cfc543b6c60e0ea9e66c9c93c4aecf52bd52618d002590b3c84928d22d363b66",
+  "protocolRevision": "next-2026-10-31-8fadcc31",
+  "effectiveFrom": "2026-10-31T08:29:45.000Z",
+  "references": [
+    {
+      "mint": "So11111111111111111111111111111111111111112",
+      "priceUsd": "180",
+      "externalMint": "So11111111111111111111111111111111111111112",
+      "note": "Existing webapp devnet display reference; a configured demo value, not an external SOL market quote."
+    },
+    {
+      "mint": "2G78R5YwVopkAxnDMmvNany3RdL98eAM2jcr3UafvL7W",
+      "priceUsd": "1",
+      "note": "Existing webapp devnet display reference for this specific mint; not a blanket assumption about quote assets."
+    },
+    {
+      "mint": "G8XEiNtP7TZ2cZRbUdtcPoc3C19T2GgYxTJqBpWz5ZDV",
+      "priceUsd": "1",
+      "usdStablecoin": true,
+      "note": "Devnet USDC test mint, labelled USD Coin by the webapp. A USD stablecoin, so a swap against it is valued from its USDC leg; not a blanket assumption about quote assets."
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "revision": "next-2026-10-31-layouts",
+  "verifiedFinalizedSlot": 517186623,
+  "firstSlot": 517184937,
+  "programs": [
+    {
+      "name": "dusk",
+      "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
+      "binary": {
+        "path": "on-chain (devnet)",
+        "sha256": "a34f90baeafc8f7bf476ea0f52081db3a6c1cdfbc15a911ab7f954a0c30037c1"
+      },
+      "idl": {
+        "path": "protocol/idl/dusk.json",
+        "sha256": "b12aefdf9cdc26187aa667bc2c01c424b60dd82bef4b222b3670faa50598a374",
+        "canonicalSha256": "10656eac966e26db84314240b36f514ea3c3bf229275aa0f478a41b022b1d448"
+      },
+      "deployment": {
+        "programData": "FH3oEMmx2n7YMeEsrLM8dzr7FxuZLQgMacwQF6ZHdWk",
+        "deploySlot": 517183744,
+        "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+        "allocatedBinaryBytes": 4595368
+      }
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv",
+      "binary": {
+        "path": "on-chain (devnet)",
+        "sha256": "1e669a7ea491cffce78799fb3ef31f6ec8879d9ef4846cc423d5e04db7dc7bdc"
+      },
+      "idl": {
+        "path": "protocol/idl/leverage_delegate.json",
+        "sha256": "b07ddd72c38ac8e634476ecf553a8f1cf23371dd22eafc55029c00264e715b7f",
+        "canonicalSha256": "59bbc38e7b3df2509f1f89c80b60b483ed5816809d8f9cc357d9522fd81169b6"
+      },
+      "deployment": {
+        "programData": "8y1gTuEN5t417sBWNbeerGFQ5v49MpRmxVBgVDatnJjv",
+        "deploySlot": 517184936,
+        "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+        "allocatedBinaryBytes": 1327840
+      }
+    }
+  ],
+  "sourceCommit": "45549d878ce68e938898437c8946b21320fbc080",
+  "cluster": "devnet",
+  "programTransactions": {
+    "dusk": "5Xkibfy36nEzK8sjH6S9oWEDw44KQmicP2tHXpGwGUDaTTb8cqwAxgjHfUDPH5YKrJiAhxz4nM3DRWMihw23TYiC",
+    "leverage_delegate": "4zrcWgpSHNNfKtvi1gmBAwurWrjyfZdxueGAjCYFHK87xvHp4tjCCZwJCy2XaHZttuVe8rDDvikLCBKhg1TCQoj6"
+  },
+  "nativeMarket": {
+    "lookupTable": "2p7JmCeWAuSK3x7Sv9NFDsiF4wCGnz6GUSsACSGWqvAE",
+    "market": "FGdALX7jwNaj87zKfEt79wQk3bVSM6kyZNGNxBs7G4jA",
+    "ylpMint": "Gu7VfSUezfD49if7i46ssKRXmDechwf3rAqWqa67A7YH",
+    "baseHlpMint": "Er3dLKQhRk2Xrut9jE4azRoHWkY7yrZyUqzocu8F7BFf",
+    "quoteHlpMint": "H9iqCBXDdTNNWSokqeNuCT8xp3s4fPtRWkuG9CnP2s2F",
+    "initializeSignature": "4nXWTV2ejnLqzHpCZ8WDh5h7HT9obWDfiWw6GuZps96hcjeDSUoJGJkZMKPiz9xuxew1ZbQhHCJJoQehEc8J3Vzq",
+    "seedSignature": "5Q567mJWHGEj2G2XeoAdqN6xh6GYRxwf4G7M76qH2TvyWQH1GdejJkwXSTghtv2pgMUdVsqacCuKCzNkPnjWX7KY",
+    "layout": 8,
+    "ylpSupply": "1000000000"
+  },
+  "funding": {
+    "additionalSolRequested": false,
+    "existingWrappedSolRecoveredLamports": 401483440
+  },
+  "tests": {
+    "coreRust": 581,
+    "coreProductionRust": 581,
+    "coreSdk": 83,
+    "coreLiteSvm": 156,
+    "coreInstructions": 77,
+    "pending": 0,
+    "api": 309,
+    "grpc": 11,
+    "indexerFoundation": 34,
+    "indexerDaemon": 20,
+    "databaseIntegration": 106,
+    "migrationsAppliedTwice": true,
+    "clippyWarningsDenied": true
+  },
+  "note": "Program payloads and zero allocation padding verified at finalized commitment. New identity begins only after both upgrades. Previous layout-7 lock, IDLs, references and runtime remain archived."
+}

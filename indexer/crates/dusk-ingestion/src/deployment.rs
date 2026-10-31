@@ -183,7 +183,21 @@ mod tests {
     #[test]
     fn interval_starts_after_both_programs_are_active() {
         let pin = pinned_deployment().unwrap();
-        assert_eq!(pin.first_slot(), 517_074_908);
+        assert_eq!(pin.first_slot(), 517_184_937);
+        let archived: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../protocol/archive/next-2026-10-31-8fadcc31/protocol.lock.json"
+        ))
+        .unwrap();
+        let archived_first = archived["programs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|program| program["deployment"]["deploySlot"].as_u64().unwrap())
+            .max()
+            .unwrap()
+            + 1;
+        assert_eq!(archived_first, 517_074_908);
+        assert!(DeploymentPin::from_value(archived).is_err());
         let mut reordered = vendored_protocol_lock();
         reordered["programs"].as_array_mut().unwrap().reverse();
         assert_eq!(
@@ -200,11 +214,11 @@ mod tests {
             historical.programs[0].idl.canonical_sha256,
             current.programs[0].idl.canonical_sha256
         );
-        assert_eq!(historical.first_slot(), 517_074_908);
-        assert_eq!(current.programs[0].deployment.deploy_slot, 517_074_591);
+        assert_eq!(historical.first_slot(), 517_184_937);
+        assert_eq!(current.programs[0].deployment.deploy_slot, 517_183_744);
         assert_eq!(
             current.programs[0].binary.sha256,
-            "1c7a472981d59b2e1a36d9662478f34b33dff9d851782f88d15172d2e66e3a30"
+            "a34f90baeafc8f7bf476ea0f52081db3a6c1cdfbc15a911ab7f954a0c30037c1"
         );
     }
     #[test]

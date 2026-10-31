@@ -15,21 +15,24 @@ export const RECENT_QUOTE_REVISION = 'devnet-2026-09-18-932018a';
 export const PRIOR_ACTIVE_QUOTE_REVISION = 'devnet-2026-09-27-5644e5d';
 export const PREVIOUS_ACTIVE_QUOTE_REVISION = 'devnet-2026-10-25-296263d';
 export const LAST_ACTIVE_QUOTE_REVISION = 'devnet-2026-10-26-cd6f1ec';
-const ACTIVE_REVISION = 'next-2026-10-31-8fadcc31';
+const ORACLE_V7_REVISION = 'next-2026-10-31-8fadcc31';
+const ACTIVE_REVISION = 'next-2026-10-31-layouts';
 const successors: Record<string, string> = {
   [ARCHIVED_QUOTE_REVISION]: PREVIOUS_QUOTE_REVISION,
   [PREVIOUS_QUOTE_REVISION]: RECENT_QUOTE_REVISION,
   [RECENT_QUOTE_REVISION]: PRIOR_ACTIVE_QUOTE_REVISION,
   [PRIOR_ACTIVE_QUOTE_REVISION]: PREVIOUS_ACTIVE_QUOTE_REVISION,
   [PREVIOUS_ACTIVE_QUOTE_REVISION]: LAST_ACTIVE_QUOTE_REVISION,
-  [LAST_ACTIVE_QUOTE_REVISION]: ACTIVE_REVISION,
+  [LAST_ACTIVE_QUOTE_REVISION]: ORACLE_V7_REVISION,
+  [ORACLE_V7_REVISION]: ACTIVE_REVISION,
 };
 
 /** Historical display only. Each release keeps its original tuple, envelope,
  * IDL decoder and immutable source bytes; no rows are copied or relabelled. */
 export async function readArchivedQuoteHistory(client: PoolClient,query: QuoteHistoryQuery, revision: string) {
   const active = loadPinnedProtocol();
-  if (!Object.prototype.hasOwnProperty.call(successors, revision) || active.revision !== ACTIVE_REVISION)
+  if (!Object.prototype.hasOwnProperty.call(successors, revision) || revision === active.revision
+      || ![ORACLE_V7_REVISION,ACTIVE_REVISION].includes(active.revision))
     throw Object.assign(new Error('Unsupported quote archive'),{status:400});
   const root = resolve(process.env.DUSK_PROTOCOL_DIR?.trim() || resolve(__dirname,'../../../protocol'),'archive',revision);
   const pin = loadProtocolAt(root);

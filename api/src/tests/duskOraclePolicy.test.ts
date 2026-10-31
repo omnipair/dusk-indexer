@@ -19,7 +19,7 @@ const native = () => ({ format: 0, provider: key(0), baseAccount: key(0), quoteA
   quoteFeedId: Array(32).fill(0), lambdaBps: 0, adjustmentCapNad: '0', maxAgeSeconds: 0, maxAgeSlots: '0', maxConfidenceBps: 0, maxPublishSkewSeconds: 0 });
 const project = (policy: unknown) => projectOraclePolicy({ oracle: { policy } })!;
 
-test('undeployed candidate artifacts match their manifest without changing the active deployment', async () => {
+test('reviewed candidate artifacts remain immutable beside the active deployment', async () => {
   assert.equal(candidate.status,'undeployed');
   assert.equal(candidate.source.gitCommit,'8fadcc31fbe542f4f822060724639a5057fad2cc');
   for (const program of candidate.programs) {
@@ -31,10 +31,9 @@ test('undeployed candidate artifacts match their manifest without changing the a
   assert.equal(sha256(readFileSync(resolve(root,'../../..',candidate.sdk.path))),candidate.sdk.sha256);
   const legacy = loadProtocolAt(resolve(root,'../../archive/devnet-2026-10-26-cd6f1ec'));
   assert.equal(legacy.revision,'devnet-2026-10-26-cd6f1ec');
-  const activeIsCandidate = loadPinnedProtocol().dusk.idlCanonicalSha256 === candidate.programs[0].idl.canonicalSha256;
   assert.throws(() => loadProtocolAt(root),/protocol.lock/);
-  assert.equal(marketLayoutVersion(),activeIsCandidate ? 7 : 6);
-  assert.equal(governanceFamilyCount(),activeIsCandidate ? 8 : 7);
+  assert.equal(marketLayoutVersion(),8);
+  assert.equal(governanceFamilyCount(),8);
   assert.equal(governanceFamilyCount(idl),8);
   const pin = loadPinnedProtocol();
   const historic = await sdkForProtocol(legacy);
@@ -108,7 +107,7 @@ test('feed layout is independent of provider for policy projection and report ac
   }
 });
 
-test('layout-8 candidate preserves independent source replay state without promoting the active pin', async () => {
+test('layout-8 wire and SDK match the explicitly activated deployment', async () => {
   const futureRoot = resolve(root,'../next-2026-10-31-layouts');
   const manifest = JSON.parse(readFileSync(resolve(futureRoot,'candidate.json'),'utf8'));
   assert.equal(manifest.status,'undeployed');
@@ -129,7 +128,7 @@ test('layout-8 candidate preserves independent source replay state without promo
   const observation=decoded.oracle.last_observation as {source_sequences:unknown[];source_hashes:unknown[]};
   assert.equal(observation.source_sequences.length,2);assert.equal(observation.source_hashes.length,2);
   const active=loadPinnedProtocol();
-  assert.notEqual(active.dusk.idlCanonicalSha256,manifest.programs[0].idl.canonicalSha256);
+  assert.equal(active.dusk.idlCanonicalSha256,manifest.programs[0].idl.canonicalSha256);
   const sdk=await sdkForProtocol({...active,dusk:{...active.dusk,idlCanonicalSha256:manifest.programs[0].idl.canonicalSha256}});
   assert.equal(sha256(canonicalJson(sdk.IDL)),manifest.programs[0].idl.canonicalSha256);
   assert.throws(() => loadProtocolAt(futureRoot),/protocol.lock/);
