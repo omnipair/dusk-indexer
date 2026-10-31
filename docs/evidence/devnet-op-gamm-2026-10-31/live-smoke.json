@@ -1,0 +1,113 @@
+{
+  "network": "devnet",
+  "market": "76YZDJG3rP7AUje7o3fQCVNjkzJvhtqdPLfZzZyv1bJQ",
+  "sourceCommit": "8fadcc31fbe542f4f822060724639a5057fad2cc",
+  "backendBuildRevision": "1f433a4ade36c5b8a154ac9036c149f40a5047d1",
+  "flows": [
+    {
+      "attempts": 1,
+      "detail": "4W2UEBedMgZP9Y9Nm4jWcsPMpVhHKReuAL2o5U4YUd46a8iT4iUk7sF9yUKtvrNe9dd6VPfxfDgMVr7w3pDCvvsE",
+      "flow": "swap",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "5q3CweLMB319nvCxsXKGcgNq85yudchqEXin3rfZFY2AU5Lqhd5Bg8zHaweZCUsh1B8jJu76TjoANd28rvsef4dn",
+      "flow": "add liquidity",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "4WB2SFkPvmmRy1KYZiiRbgpAmfFjyrqJ77JGiyfpjvobYq7Qrjg8kHy3VJXRxzWpftJEYKAGcn4yxrH9PtCkBGY5",
+      "flow": "remove liquidity",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "46LErZtWYpMFcpm17YvibxmLaiQ3r4ghbHzgZNVjRe2HnuCi7nXy22NTQ3uophFvy4xe8XnPyP8cLHGdzHpSXfjH",
+      "flow": "deposit collateral",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "2cuQaWuRvRUj7KjHcTona7EMKksCX4rprMmUAT7HTriVLnsmchvMyqfFxCn66vohwPZGE5DTSg3CNpvLHcGFXouR",
+      "flow": "borrow",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "4ia2JnQswC35JR7f6H6KDZETeHjapmNhfVeT8n1UEPoXi88wTL7iGjR62jGPjt3HZvpigivk5kuPvDNwhZFsmfgR",
+      "flow": "repay",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "VMskYYsccfpGQSUYGevr2YjebXKfSWGRGdEzqbDo2QeyLFzu6Ajt6awivLCVE6mGEQ5we75miGubEhjMKjoc9pb",
+      "flow": "withdraw collateral",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "4KQGaU2RyHHjs4YhLSvs1dTXfqTDkaDgBASk4VFzd8Nzjtk5Wcks4cZJkWurdQyDk7yvVLbhjUZSTjYPdxHJf5fS",
+      "flow": "open leverage",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "3uZLgSDz9P2ZuBjzmsmzw1r7ZcPpF952JhRYTJ2Gn5ibLbuqhu8Ngih3LCzMXqdS9seVCYhJ4Pz7TR9G1bHfSCpC",
+      "flow": "add leverage margin",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "52nZk77e9TxKU8r29kxnmutMsmEXkiRCrEhS78o95XL5QmsEm6nog2m7VjjKPDAJy57iScC1txekRD9aC2s7u2LP",
+      "flow": "delegate leverage position",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "2Wju42kx44raaSz7V91jRGzeDGv9oBqqYR2Nx6u9n1SKQCqVB8TZKo7M3BEG2E5LhmnFfdtjYnpWHHCvbU7E7JQu",
+      "flow": "place conditional order",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "3HkFbnJxKPwweLweiTv3XiTobn8nqLz6aupiJ8ti2oX8b5wtyxzV555T6rrCoDuFwXmD34Q2kWuuAQSzeJVDJU7w",
+      "flow": "cancel conditional order",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "4tDayQT2bfCwUWBwvvziwge62sfED7HNhjm9vQ4piJSA1ELKcEtUgqAUJGAtnVpjDr4NtsR396RSCDjazqEiCpGU",
+      "flow": "close leverage",
+      "ok": true
+    }
+  ],
+  "browser": {
+    "url": "https://dusk-webapp-git-feat-oracle-market-configuration-omnipair.vercel.app",
+    "deploymentMismatchVisible": false,
+    "verifiedViews": [
+      "markets",
+      "native market parameters",
+      "oracle governance form",
+      "market creation page"
+    ]
+  },
+  "services": {
+    "healthy": 7,
+    "names": [
+      "dusk-api",
+      "dusk-indexer",
+      "dusk-grpc",
+      "dusk-prices",
+      "dusk-market-activity",
+      "dusk-portfolio-snapshots",
+      "dusk-yield-claims"
+    ]
+  },
+  "limitations": [
+    "Fresh Pyth live flow not completed: public Hermes latest-report request returned HTTP 401; sampled cached devnet feeds stale. Freshness policy was not relaxed.",
+    "beta.omnipair.fi remains on its older frontend deployment and will update through the normal frontend merge/deployment flow; no separate production-target deployment was performed.",
+    "Protocol PR #58 awaits repository review; no bypass merge performed."
+  ]
+}
