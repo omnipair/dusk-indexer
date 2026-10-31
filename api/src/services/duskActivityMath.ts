@@ -142,15 +142,18 @@ export interface ActivityExternalPrice {
   observationId: string; mint: string; decimals: number; priceUsd: string; sourceTime: string; observedAt: string; estimated?: boolean;
 }
 
-/** Direct provider quote, then on-chain ratio to a provider quote, then the
- * captured devnet reference. A USD stablecoin keeps its peg rather than a
- * counterasset's quote times the curve. No current quote is applied to a
+/** Direct provider quote, then the on-chain ratio to the counterasset's
+ * provider quote or, when the counterasset is a USD stablecoin, its peg; then
+ * the captured devnet reference. A configured demo price therefore yields to
+ * a stablecoin-quoted curve, while a USD stablecoin keeps its peg rather than
+ * a counterasset's quote times the curve. No current quote is applied to a
  * past event. */
 export function activityPriceBasis(basis: ActivityPriceBasis,external: ActivityExternalPrice[],eventTime: string): ActivityPriceBasis {
   const valid = external.filter((price) => {
     const time = Date.parse(price.sourceTime),observed = Date.parse(price.observedAt),event = Date.parse(eventTime);
     return Number.isFinite(time) && Number.isFinite(observed) && time<=observed && observed<=event;
   });
+  const stablecoins = new Set(basis.stablecoins);
   const prices = (['base','quote'] as const).flatMap((side) => {
     const mint = side === 'base' ? basis.bound.baseMint : basis.bound.quoteMint;
     const otherMint = side === 'base' ? basis.bound.quoteMint : basis.bound.baseMint;
@@ -158,7 +161,9 @@ export function activityPriceBasis(basis: ActivityPriceBasis,external: ActivityE
     const otherDecimals = side === 'base' ? basis.bound.quoteDecimals : basis.bound.baseDecimals;
     const own = valid.find((price) => price.mint === mint && price.decimals === decimals);
     if (own) return [{ mint,decimals,priceUsd: own.priceUsd,quality: own.estimated ? 'external-reference' : 'external-observation',observationId: own.observationId }];
-    const other = basis.stablecoins?.includes(mint) ? undefined : valid.find((price) => price.mint === otherMint && price.decimals === otherDecimals);
+    const quoted = (price: { mint: string; decimals: number }) => price.mint === otherMint && price.decimals === otherDecimals;
+    const other = stablecoins.has(mint) ? undefined
+      : valid.find(quoted) ?? (stablecoins.has(otherMint) ? basis.prices.find(quoted) : undefined);
     const spot = BigInt(basis.spotPrices?.[side] ?? '0');
     if (other && spot>0n) return [{ mint,decimals,priceUsd: multiplyPriceRatio(other.priceUsd,spot,1_000_000_000n),
       quality: 'derived-reference',observationId: other.observationId }];
