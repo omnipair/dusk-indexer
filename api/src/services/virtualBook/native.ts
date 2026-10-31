@@ -17,6 +17,16 @@ type Sdk = typeof import('@omnipair/dusk-sdk');
 const importSdk = new Function(
   "return import('@omnipair/dusk-sdk')",
 ) as () => Promise<Sdk>;
+/** Presence of the reviewed future SDK does not activate a protocol revision. */
+export async function sdkForProtocol(pin = loadPinnedProtocol()): Promise<Sdk> {
+  const current = await importSdk();
+  if (sha256(canonicalJson(current.IDL)) === pin.dusk.idlCanonicalSha256) return current;
+  const oracle = await (new Function("return import('@omnipair/dusk-sdk-oracle')")() as Promise<typeof import('@omnipair/dusk-sdk-oracle')>);
+  if (sha256(canonicalJson(oracle.IDL)) !== pin.dusk.idlCanonicalSha256) throw new Error('VOB SDK IDL differs from the pinned deployment');
+  // Only shared API signatures are adapted here. Return-data decoding still
+  // comes from the matching SDK; removed distress data is optional downstream.
+  return oracle as unknown as Sdk;
+}
 let sdkExports: Sdk | undefined;
 // Native ESM imports are initialized once by createVirtualBookRuntime.
 export const decodePreviewSwapReturnData: Sdk['decodePreviewSwapReturnData'] = (
@@ -94,8 +104,8 @@ export function createVirtualBookBoundary(
 export async function createVirtualBookRuntime(
   connection = new Connection(duskApiConfig().rpcUrl, 'confirmed'),
 ) {
-  const sdkModule = await importSdk();
   const pin = loadPinnedProtocol();
+  const sdkModule = await sdkForProtocol(pin);
   if (sha256(canonicalJson(sdkModule.IDL)) !== pin.dusk.idlCanonicalSha256)
     throw new Error('VOB SDK IDL differs from the pinned deployment');
   sdkExports = sdkModule;

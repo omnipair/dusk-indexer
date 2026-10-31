@@ -63,7 +63,8 @@
     "helmet": "^7.0.0",
     "litesvm": "1.6.1",
     "pg": "^8.11.3",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "@omnipair/dusk-sdk-oracle": "file:vendor/dusk-sdk-2.15.0-next.20261030-8fadcc31.tgz"
   },
   "devDependencies": {
     "@types/compression": "^1.8.1",

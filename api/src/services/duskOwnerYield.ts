@@ -1,3 +1,4 @@
+import { marketLayoutVersion } from './duskProtocolSchema';
 /**
  * An owner's claimable LP yield: every (holder, market, LP mint) it has held,
  * and every hLP stop order escrow it still owns, valued at the amount Harvest
@@ -30,7 +31,6 @@ import {
 } from '@solana/web3.js';
 import type { AccountInfo } from '@solana/web3.js';
 import type { Pool, PoolClient } from 'pg';
-import { MARKET_LAYOUT_VERSION } from '@omnipair/dusk-sdk';
 import type { Dusk, HlpCohort, Market, YieldAccount } from '@omnipair/dusk-sdk';
 
 import pool from '../config/database';
@@ -224,7 +224,7 @@ export async function captureYieldGroup(
     clock.owner.toBase58() !== CLOCK_OWNER ||
     clock.data.length !== 40 ||
     clock.data.readBigUInt64LE(0) !== BigInt(slot) ||
-    state.version !== MARKET_LAYOUT_VERSION ||
+    state.version !== marketLayoutVersion() ||
     !state.baseSide.assetMint.equals(assets[0]) ||
     !state.quoteSide.assetMint.equals(assets[1]) ||
     (group.kind === 'ylp' && !state.ylpMint.equals(lpMint))

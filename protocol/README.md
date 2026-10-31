@@ -63,3 +63,10 @@ are unchanged; no consumer interface migration or new market is required.
 ### Empty-market preview follow-up, 2026-10-27
 
 Commit `77877d576018fd2bd8191d13f05534b0484e2282` fixes previews after all external liquidity exits. It was upgraded at finalized slot `515502278`. The payload is 3,519,968 bytes plus 8,824 zero padding bytes; the full allocated executable hashes to `d7eb11e277e4b215e0215fb926b353e145aac8452adc61adcbbbb432cffd71b9`. Program IDs, authority, IDL, SDK package and event revision are unchanged. Historical deployment boundaries remain intact.
+
+## Undeployed OP-GAMM candidate
+
+`candidates/next-2026-10-31-8fadcc31/` contains the generated interface and
+synthetic wire fixtures for protocol PR #58. It is not an active deployment pin.
+See [the oracle projection contract and rollout](../docs/dusk-oracle-policy.md)
+for hashes, API behavior, and the required separate deployment/replay promotion.

@@ -1,7 +1,7 @@
+import { pinnedDuskIdl } from './duskProtocolSchema';
+import { projectOraclePolicy, oracleReportAccounts } from './duskOraclePolicy';
 import { AnchorProvider, BorshCoder, Idl, Program, Wallet } from '@coral-xyz/anchor';
 import { ComputeBudgetProgram, Connection, PublicKey, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { duskApiConfig, loadPinnedProtocol } from '../config/duskProtocol';
 import { deploymentEnvelope } from './duskDeploymentService';
 import { readConfirmedBlock, readFinalizedBlock } from './duskFinalizedBlock';
@@ -21,8 +21,7 @@ interface SimulationDependencies {
   rpc: Connection; envelope: typeof deploymentEnvelope; readBlock: typeof readFinalizedBlock; pause?: (milliseconds: number) => Promise<void>;
 }
 export function duskRawIdl(): Idl {
-  loadPinnedProtocol();
-  return JSON.parse(readFileSync(resolve(process.env.DUSK_PROTOCOL_DIR?.trim() || resolve(__dirname,'../../../protocol'),'idl/dusk.json'),'utf8')) as Idl;
+  return pinnedDuskIdl();
 }
 function serializedAccount(value: { owner: string; executable: boolean; data: string[] } | null): SnapshotAccount | null {
   if (!value) return null;
@@ -57,22 +56,33 @@ async function captureAtCommitment<C extends 'finalized' | 'confirmed'>(market: 
   const before = await envelope(minSlot);
   const payer = process.env.DUSK_PREVIEW_PAYER?.trim() || before.programUpgradeAuthority;
   if (!payer) throw new Error('A read-only preview payer must be configured');
+  const sourceAccounts: string[] = [];
+  let captureFloor = minSlot;
+  if (rawIdl.types?.some(type => type.name === 'OracleState')) {
+    const initial = await atMinimumSlot(() => rpc.getAccountInfoAndContext(new PublicKey(market), { commitment, minContextSlot: minSlot }));
+    if (!Number.isSafeInteger(initial.context.slot) || initial.context.slot < minSlot || !initial.value || initial.value.executable || initial.value.owner.toBase58() !== pin.dusk.programId)
+      throw new Error('Oracle policy source is unavailable');
+    captureFloor = initial.context.slot;
+    const state = new BorshCoder(rawIdl).accounts.decode('Market', initial.value.data);
+    sourceAccounts.push(...oracleReportAccounts(projectOraclePolicy(state)));
+  }
+  const remaining = [...new Set([...extraAddresses, ...sourceAccounts])];
   const instruction = await program.methods.previewMarket().accounts({ market: new PublicKey(market) })
-    .remainingAccounts(extraAddresses.map((address) => ({ pubkey: new PublicKey(address),isSigner: false,isWritable: false }))).instruction();
-  const requested = [market,...extraAddresses];
+    .remainingAccounts(remaining.map((address) => ({ pubkey: new PublicKey(address),isSigner: false,isWritable: false }))).instruction();
+  const requested = [market,...remaining];
   const tx = new VersionedTransaction(new TransactionMessage({ payerKey: new PublicKey(payer),recentBlockhash: PublicKey.default.toBase58(),
     instructions: [ComputeBudgetProgram.requestHeapFrame({ bytes: 256*1024 }),ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),instruction],
   }).compileToV0Message());
   if (tx.serialize().length>1232) throw new Error('Market snapshot exceeds the transaction packet limit');
-  const simulation = await atMinimumSlot(() => rpc.simulateTransaction(tx,{ commitment,minContextSlot: minSlot,replaceRecentBlockhash: true,sigVerify: false,
+  const simulation = await atMinimumSlot(() => rpc.simulateTransaction(tx,{ commitment,minContextSlot: captureFloor,replaceRecentBlockhash: true,sigVerify: false,
     accounts: { encoding: 'base64',addresses: requested } }));
   let slot = simulation.context.slot,preview: string | null = null,basis: MarketSimulationSnapshot['basis'] = 'simulation-post-state';
-  if (!Number.isSafeInteger(slot) || slot<minSlot) throw new Error('Regressed market simulation slot');
+  if (!Number.isSafeInteger(slot) || slot<captureFloor) throw new Error('Regressed market simulation slot');
   let accounts: (SnapshotAccount | null)[];
   if (simulation.value.err) {
     // Preserve ownership/position visibility when this market cannot preview.
     // Its valuation stays unavailable; no failed simulation state is accepted.
-    const fallbackFloor = Math.max(minSlot,slot);
+    const fallbackFloor = Math.max(captureFloor,slot);
     const read = await atMinimumSlot(() => rpc.getMultipleAccountsInfoAndContext(requested.map((address) => new PublicKey(address)),{ commitment,minContextSlot: fallbackFloor }));
     slot = read.context.slot; basis = 'rpc-account';
     accounts = read.value.map((account) => account ? { owner: account.owner.toBase58(),executable: account.executable,data: account.data.toString('base64') } : null);
@@ -84,7 +94,7 @@ async function captureAtCommitment<C extends 'finalized' | 'confirmed'>(market: 
     preview = returned.data[0];
     accounts = simulation.value.accounts.map(serializedAccount);
   }
-  if (!Number.isSafeInteger(slot) || slot<minSlot || accounts.length !== requested.length) throw new Error('Incomplete or regressed market snapshot');
+  if (!Number.isSafeInteger(slot) || slot<captureFloor || accounts.length !== requested.length) throw new Error('Incomplete or regressed market snapshot');
   const marketAccount = accounts[0];
   if (!marketAccount || marketAccount.owner !== pin.dusk.programId || marketAccount.executable) throw new Error('Market snapshot has an invalid owner');
   const decoder = new BorshCoder(rawIdl);
@@ -97,5 +107,5 @@ async function captureAtCommitment<C extends 'finalized' | 'confirmed'>(market: 
   if (before.deploymentIdentitySha256 !== after.deploymentIdentitySha256) throw new Error('Deployment changed during market snapshot');
   return { commitment,market,slot,blockhash: block.blockhash,blockTime: new Date(block.blockTime*1000).toISOString(),observedAt: new Date().toISOString(),
     deploymentIdentitySha256: after.deploymentIdentitySha256,marketAccount,preview,basis,previewUnavailable: preview === null,
-    accounts: extraAddresses.map((address,index) => ({ address,account: accounts[index+1] })) };
+    accounts: remaining.map((address,index) => ({ address,account: accounts[index+1] })) };
 }

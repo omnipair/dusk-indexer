@@ -1,3 +1,4 @@
+import { projectOraclePolicy } from './duskOraclePolicy';
 /**
  * Market state, read from chain through the pinned IDL.
  *
@@ -473,6 +474,7 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
     targetHlpLeverageBps: config.targetHlpLeverageBps,
     swapFeeBps: config.swapFeeBps,
     config,
+    oraclePolicy: projectOraclePolicy(marketAccount),
     insurance: {
       principalCoverageBps: numberValue(
         field(insurance, 'principalCoverageBps', 'principal_coverage_bps'),

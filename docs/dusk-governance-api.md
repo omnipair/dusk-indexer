@@ -30,9 +30,9 @@ conservative for the API display.
   proposals: Array<{              // sorted by market, then address
     address: string, market: string, proposer: string,
     nonce: string,
-    familyRevisions: string[],    // seven entries; zero for untouched families
+    familyRevisions: string[],    // IDL family count: 7 active / 8 candidate; zero for untouched families
     digest: string,               // 64-character lowercase hex
-    updates: unknown[],           // one to seven decoded MarketParameterUpdate values in canonical family order
+    updates: unknown[],           // one to family-count decoded MarketParameterUpdate values in canonical family order
     metadata: { version: number, title: string, descriptionUri: string, descriptionSha256: string, descriptionLen: number },
     sponsorshipFloor: string, initialSupport: string, totalLocked: string,
     status: number,               // ParameterProposalStatus: Collecting, Queued, Executed, Cancelled, Expired, Stale
@@ -47,3 +47,7 @@ conservative for the API display.
 Time-based expiry is not an event; clients derive it from `executionDeadline`.
 Integers are decimal strings; pubkeys are base58. Per-supporter locked yLP is
 in the `streamed_governance_supports` view.
+
+Fixed `[u8; N]` fields inside update variants are `0x`-prefixed hex strings,
+including Oracle feed IDs. [Oracle policy projections](dusk-oracle-policy.md)
+describes the eight-family candidate and its activation boundary.

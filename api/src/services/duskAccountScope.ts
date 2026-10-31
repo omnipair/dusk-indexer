@@ -1,5 +1,6 @@
+import { marketLayoutVersion } from './duskProtocolSchema';
 import { utils } from '@coral-xyz/anchor';
-import { MARKET_LAYOUT_VERSION, type Dusk } from '@omnipair/dusk-sdk';
+import type { Dusk } from '@omnipair/dusk-sdk';
 import { PublicKey } from '@solana/web3.js';
 import { boundedDuskRpcRead } from './virtualBook/native';
 
@@ -13,7 +14,7 @@ export async function currentAccountMarkets(dusk: Dusk, minContextSlot: number, 
       commitment: 'confirmed', withContext: true, minContextSlot,
       dataSlice: { offset: 0, length: 9 },
       filters: [{ memcmp: discriminator }, { memcmp: {
-        offset: 8, bytes: utils.bytes.bs58.encode(Buffer.from([MARKET_LAYOUT_VERSION])),
+        offset: 8, bytes: utils.bytes.bs58.encode(Buffer.from([marketLayoutVersion()])),
       } }],
     },
   ), signal);
@@ -23,7 +24,7 @@ export async function currentAccountMarkets(dusk: Dusk, minContextSlot: number, 
   for (const {pubkey, account} of result.value) {
     const address = pubkey.toBase58();
     if (markets.has(address) || account.executable || !account.owner.equals(dusk.program.programId) ||
-      account.data.length !== 9 || !account.data.subarray(0,8).equals(prefix) || account.data[8] !== MARKET_LAYOUT_VERSION)
+      account.data.length !== 9 || !account.data.subarray(0,8).equals(prefix) || account.data[8] !== marketLayoutVersion())
       throw new Error('Invalid current market scope');
     markets.add(address);
   }

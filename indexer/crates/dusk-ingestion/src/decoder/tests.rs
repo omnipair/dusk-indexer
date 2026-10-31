@@ -899,3 +899,58 @@ fn account_context_rejects_identity_and_freshness_ambiguity() {
         Err(DecoderError::UnpinnedProgram(_))
     ));
 }
+
+/// Candidate bytes are decoded in an isolated registry. They are never tagged
+/// with the active deployment identity or written to its projection namespace.
+#[test]
+fn oracle_candidate_matches_sdk_wire_bytes_without_promoting_the_pin() {
+    let idl: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../protocol/candidates/next-2026-10-31-8fadcc31/idl/dusk.json"
+    )))
+    .unwrap();
+    let golden: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../protocol/candidates/next-2026-10-31-8fadcc31/fixtures/oracle-wire.json"
+    )))
+    .unwrap();
+    ProgramRegistry::from_bytes(&serde_json::to_vec(&idl).unwrap(), DUSK_PROGRAM_ID).unwrap();
+    let registry = TypeRegistry::from_idl(&idl).unwrap();
+    let decode_hex = |text: &str| -> Vec<u8> {
+        text.as_bytes()
+            .chunks_exact(2)
+            .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+            .collect()
+    };
+    let update = decode_hex(golden["updateHex"].as_str().unwrap());
+    let decoded = registry
+        .decode_named_type("MarketParameterUpdate", &update, DecodeLimits::default())
+        .unwrap();
+    assert_eq!(decoded["variant"], "Oracle");
+    let policy = &decoded["fields"][0];
+    assert_eq!(policy["lambda_bps"], "3500");
+    assert_eq!(policy["max_age_slots"], "18446744073709551615");
+    assert_eq!(policy["base_feed_id"], format!("0x{}", "01".repeat(32)));
+    let market_bytes = decode_hex(golden["marketHex"].as_str().unwrap());
+    assert_eq!(
+        &market_bytes[..8],
+        &anchor_discriminator("account", "Market")
+    );
+    let (market, padding) = registry
+        .decode_named_account_type("Market", &market_bytes[8..], DecodeLimits::default())
+        .unwrap();
+    assert_eq!(padding, 0);
+    assert_eq!(market["version"], "7");
+    assert_eq!(&market["oracle"]["policy"], policy);
+    assert_eq!(market["parameter_revisions"].as_array().unwrap().len(), 8);
+    assert!(
+        registry
+            .decode_named_type(
+                "MarketParameterUpdate",
+                &update[..update.len() - 1],
+                DecodeLimits::default()
+            )
+            .is_err()
+    );
+    assert_eq!(crate::PROTOCOL_REVISION, "devnet-2026-10-26-cd6f1ec");
+}

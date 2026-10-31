@@ -1,3 +1,5 @@
+import { pinnedDuskIdl } from './duskProtocolSchema';
+import { marketLayoutVersion } from './duskProtocolSchema';
 /**
  * Live borrow-position values from the program's `preview_borrow_position`,
  * which accrues market interest before it reports debt, health and each debt
@@ -16,7 +18,6 @@ import {
   VersionedTransaction,
 } from '@solana/web3.js';
 import type { Pool, PoolClient } from 'pg';
-import { MARKET_LAYOUT_VERSION } from '@omnipair/dusk-sdk';
 import type { BorrowPosition, BorrowPositionPreview, Dusk, Market } from '@omnipair/dusk-sdk';
 
 import pool from '../config/database';
@@ -54,7 +55,7 @@ export interface BorrowDebtSide {
     buyerDiscountBps: number;
     emergencyRewardBps: number;
   } | null;
-  liquidationDistress: {
+  liquidationDistress?: {
     active: boolean;
     startedAt: string;
     observedSlot: string;
@@ -138,11 +139,11 @@ function side(preview: BorrowPositionPreview['baseDebt']): BorrowDebtSide {
           emergencyRewardBps: preview.liquidationRates.emergencyRewardBps,
         }
       : null,
-    liquidationDistress: {
+    ...(preview.liquidationDistress ? { liquidationDistress: {
       active: preview.liquidationDistress.active,
       startedAt: preview.liquidationDistress.startedAt.toString(),
       observedSlot: preview.liquidationDistress.observedSlot.toString(),
-    },
+    } } : {}),
   };
 }
 
@@ -160,15 +161,10 @@ export async function captureBorrowValuation(
     throw new Error('Borrow valuation SDK deployment mismatch');
   const addresses = [position.market, position.address, SYSVAR_CLOCK_PUBKEY.toBase58()];
   const instructionMarket = await dusk.get.market(position.market);
-  const instruction = await dusk.program.methods
-    .previewBorrowPosition()
-    .accountsStrict({
-      market: new PublicKey(position.market),
-      borrowPosition: new PublicKey(position.address),
-      baseMint: instructionMarket.baseSide.assetMint,
-      quoteMint: instructionMarket.quoteSide.assetMint,
-    })
-    .instruction();
+  const instruction = await dusk.write.instruction('previewBorrowPosition', undefined, {
+    accounts: { market: new PublicKey(position.market), borrowPosition: new PublicKey(position.address),
+      baseMint: instructionMarket.baseSide.assetMint, quoteMint: instructionMarket.quoteSide.assetMint },
+  });
   const transaction = new VersionedTransaction(
     new TransactionMessage({
       payerKey: new PublicKey(payer),
@@ -231,20 +227,23 @@ export async function captureBorrowValuation(
     )
       throw new Error('Borrow valuation identity changed');
   if (
-    market.version !== MARKET_LAYOUT_VERSION ||
+    market.version !== marketLayoutVersion() ||
     expected.toBase58() !== position.address ||
     account.bump !== bump ||
     unixTimestamp <= 0n ||
     preview.baseCollateral.toString() !== account.baseCollateral.toString() ||
-    preview.quoteCollateral.toString() !== account.quoteCollateral.toString() ||
-    preview.baseDebt.liquidationDistress.active !== account.baseDistress.active ||
-    preview.baseDebt.liquidationDistress.startedAt.toString() !== account.baseDistress.startedAt.toString() ||
-    preview.baseDebt.liquidationDistress.observedSlot.toString() !== account.baseDistress.observedSlot.toString() ||
-    preview.quoteDebt.liquidationDistress.active !== account.quoteDistress.active ||
-    preview.quoteDebt.liquidationDistress.startedAt.toString() !== account.quoteDistress.startedAt.toString() ||
-    preview.quoteDebt.liquidationDistress.observedSlot.toString() !== account.quoteDistress.observedSlot.toString()
+    preview.quoteCollateral.toString() !== account.quoteCollateral.toString()
   )
     throw new Error('Borrow valuation account state changed');
+  const borrowType = pinnedDuskIdl().types?.find(type => type.name === 'BorrowPosition');
+  const legacy = borrowType?.type.kind === 'struct' && (borrowType.type.fields ?? []).some(field => typeof field === 'object' && 'name' in field && field.name === 'base_distress');
+  for (const [debt, committed] of [[preview.baseDebt, account.baseDistress], [preview.quoteDebt, account.quoteDistress]] as const) {
+    const report = debt.liquidationDistress;
+    if (legacy ? !report || !committed || report.active !== committed.active
+      || report.startedAt.toString() !== committed.startedAt.toString()
+      || report.observedSlot.toString() !== committed.observedSlot.toString() : report !== undefined || committed !== undefined)
+      throw new Error('Borrow valuation distress layout or account state changed');
+  }
   return {
     status: 'available',
     ...position,

@@ -1,3 +1,4 @@
+import { marketLayoutVersion } from './duskProtocolSchema';
 // Backend display capture; ported from the reviewed webapp adapter.
 import {
   createLeverageDelegateProgram,
@@ -23,7 +24,6 @@ import type {
   LeveragePosition,
   Market,
 } from '@omnipair/dusk-sdk';
-import { MARKET_LAYOUT_VERSION } from '@omnipair/dusk-sdk';
 
 type Name = 'leverageOrder' | 'leverageEntryOrder' | 'hlpOrder';
 type Account<N extends Name> = Awaited<
@@ -266,7 +266,7 @@ export async function readDuskOrders(options: {
           market.paramsHash,
         );
         if (
-          market.version !== MARKET_LAYOUT_VERSION ||
+          market.version !== marketLayoutVersion() ||
           !marketKey.equals(account.market) ||
           market.bump !== marketBump
         )
