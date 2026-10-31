@@ -1,4 +1,4 @@
-import { marketLayoutVersion } from './duskProtocolSchema';
+import { marketLayoutVersion, marketAccountLayout } from './duskProtocolSchema';
 import { utils } from '@coral-xyz/anchor';
 import type { Dusk } from '@omnipair/dusk-sdk';
 import { PublicKey } from '@solana/web3.js';
@@ -7,14 +7,15 @@ import { boundedDuskRpcRead } from './virtualBook/native';
 /** Discover only markets supported by this release. Positions belonging to
  * removed devnet markets must never enter the current account decoder. */
 export async function currentAccountMarkets(dusk: Dusk, minContextSlot: number, signal?: AbortSignal) {
+  const layout = marketAccountLayout();
   const discriminator = dusk.program.coder.accounts.memcmp('market');
   const prefix = Buffer.from(utils.bytes.bs58.decode(discriminator.bytes));
   const result = await boundedDuskRpcRead(() => dusk.program.provider.connection.getProgramAccounts(
     dusk.program.programId, {
       commitment: 'confirmed', withContext: true, minContextSlot,
-      dataSlice: { offset: 0, length: 9 },
-      filters: [{ memcmp: discriminator }, { memcmp: {
-        offset: 8, bytes: utils.bytes.bs58.encode(Buffer.from([marketLayoutVersion()])),
+      dataSlice: { offset: 0, length: layout.prefixBytes },
+      filters: [{ dataSize: layout.accountBytes }, { memcmp: discriminator }, { memcmp: {
+        offset: layout.versionOffset, bytes: utils.bytes.bs58.encode(Buffer.from([marketLayoutVersion()])),
       } }],
     },
   ), signal);
@@ -24,7 +25,7 @@ export async function currentAccountMarkets(dusk: Dusk, minContextSlot: number, 
   for (const {pubkey, account} of result.value) {
     const address = pubkey.toBase58();
     if (markets.has(address) || account.executable || !account.owner.equals(dusk.program.programId) ||
-      account.data.length !== 9 || !account.data.subarray(0,8).equals(prefix) || account.data[8] !== marketLayoutVersion())
+      account.data.length !== layout.prefixBytes || !account.data.subarray(0,8).equals(prefix) || account.data[layout.versionOffset] !== marketLayoutVersion())
       throw new Error('Invalid current market scope');
     markets.add(address);
   }

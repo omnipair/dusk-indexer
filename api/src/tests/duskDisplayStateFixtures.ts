@@ -1,3 +1,4 @@
+import { marketLayoutVersion } from '../services/duskProtocolSchema';
 import { BN, utils } from '@coral-xyz/anchor';
 import { IdlCoder } from '@coral-xyz/anchor/dist/cjs/coder/borsh/idl';
 import {
@@ -58,7 +59,7 @@ export async function displayFixture(
       context: { slot: state.slot },
       value: config.dataSlice ? [{pubkey: marketAddress, account: {
         ...accounts.get(marketAddress.toBase58())!,
-        data: accounts.get(marketAddress.toBase58())!.data.subarray(0,9),
+        data: accounts.get(marketAddress.toBase58())!.data.subarray(config.dataSlice.offset,config.dataSlice.offset+config.dataSlice.length),
       }}] : state.discovered,
     }),
     getMinimumBalanceForRentExemption: async () => 2_039_280,
@@ -111,7 +112,7 @@ export async function displayFixture(
       types: dusk.program.idl.types!,
     });
   const market = layout('market').decode(Buffer.alloc(16384)) as Market;
-  Object.assign(market, { version: 6, ylpMint: ylp });
+  Object.assign(market, { version: marketLayoutVersion(), ylpMint: ylp });
   Object.assign(market.baseSide, { assetMint: base, assetDecimals: 9 });
   Object.assign(market.quoteSide, { assetMint: quote, assetDecimals: 9 });
   const position = layout('leveragePosition').decode(

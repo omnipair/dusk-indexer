@@ -6,7 +6,7 @@ import { PublicKey } from '@solana/web3.js';
 import { BorshCoder, Idl } from '@coral-xyz/anchor';
 import { loadPinnedProtocol, loadProtocolAt, canonicalJson, sha256 } from '../config/duskProtocol';
 import { projectOraclePolicy, oracleReportAccounts } from '../services/duskOraclePolicy';
-import { governanceFamilyCount, marketLayoutVersion } from '../services/duskProtocolSchema';
+import { governanceFamilyCount, marketLayoutVersion, marketAccountLayout } from '../services/duskProtocolSchema';
 import { sdkForProtocol } from '../services/virtualBook/native';
 
 const root = resolve(__dirname, '../../../protocol/candidates/next-2026-10-31-8fadcc31');
@@ -29,12 +29,16 @@ test('undeployed candidate artifacts match their manifest without changing the a
     assert.equal(program.deployment,undefined); assert.equal(program.binary,undefined);
   }
   assert.equal(sha256(readFileSync(resolve(root,'../../..',candidate.sdk.path))),candidate.sdk.sha256);
-  assert.equal(loadPinnedProtocol().revision,'devnet-2026-10-26-cd6f1ec');
+  const legacy = loadProtocolAt(resolve(root,'../../archive/devnet-2026-10-26-cd6f1ec'));
+  assert.equal(legacy.revision,'devnet-2026-10-26-cd6f1ec');
+  const activeIsCandidate = loadPinnedProtocol().dusk.idlCanonicalSha256 === candidate.programs[0].idl.canonicalSha256;
   assert.throws(() => loadProtocolAt(root),/protocol.lock/);
-  assert.equal(marketLayoutVersion(),6);
-  assert.equal(governanceFamilyCount(),7);
+  assert.equal(marketLayoutVersion(),activeIsCandidate ? 7 : 6);
+  assert.equal(governanceFamilyCount(),activeIsCandidate ? 8 : 7);
   assert.equal(governanceFamilyCount(idl),8);
   const pin = loadPinnedProtocol();
+  const historic = await sdkForProtocol(legacy);
+  assert.equal(sha256(canonicalJson(historic.IDL)),legacy.dusk.idlCanonicalSha256);
   const current = await sdkForProtocol(pin);
   assert.equal(sha256(canonicalJson(current.IDL)),pin.dusk.idlCanonicalSha256);
   const future = await sdkForProtocol({ ...pin,dusk: { ...pin.dusk,idlCanonicalSha256: candidate.programs[0].idl.canonicalSha256 } });
@@ -75,4 +79,18 @@ test('Pyth reports remain distinct and complete; malformed and inexact policies 
   assert.throws(() => project({ ...pyth,quoteFeedId: pyth.baseFeedId }));
   assert.throws(() => project({ ...pyth,provider: key(2) }));
   assert.throws(() => project({ ...normalized(),quoteAccount: key(4) }));
+});
+
+
+test('market identity filters follow fixed serialized fields, including the boxed OracleState', () => {
+  const layout = marketAccountLayout(idl);
+  assert.deepEqual(layout,{ versionOffset: 333,prefixBytes: 334,accountBytes: 3461 });
+  assert.equal(Buffer.from(golden.marketHex,'hex')[layout.versionOffset],7);
+  const legacy = JSON.parse(readFileSync(resolve(root,'../../archive/devnet-2026-10-26-cd6f1ec/idl/dusk.json'),'utf8'));
+  assert.equal(marketAccountLayout(legacy).versionOffset,8);
+  const malformed = structuredClone(idl);
+  const market = malformed.types!.find(row => row.name === 'Market')!;
+  if (market.type.kind !== 'struct') throw Error('fixture');
+  (market.type.fields as import('@coral-xyz/anchor/dist/cjs/idl').IdlField[]).unshift({ name: 'dynamic_prefix',type: 'string' });
+  assert.throws(() => marketAccountLayout(malformed),/Dynamic/);
 });

@@ -15,7 +15,8 @@ import {
 } from '@solana/spl-token';
 import { Connection, PublicKey } from '@solana/web3.js';
 import type { AccountInfo, SimulateTransactionConfig } from '@solana/web3.js';
-import { MARKET_LAYOUT_VERSION } from '@omnipair/dusk-sdk';
+import { marketLayoutVersion } from '../services/duskProtocolSchema';
+const MARKET_LAYOUT_VERSION = marketLayoutVersion();
 import type { Dusk, HlpCohort, Market, YieldAccount } from '@omnipair/dusk-sdk';
 import { deriveYieldAccountAddress } from '../services/virtualBook/native';
 import { createSdkTestRuntime } from './duskSdkTestRuntime';
@@ -48,9 +49,11 @@ async function fixture(hlp = false, taxed = false) {
     },
   };
   const simulations: SimulateTransactionConfig[] = [];
+  const transactions: import("@solana/web3.js").VersionedTransaction[] = [];
   const connection = {
+    getAccountInfoAndContext: async (key: PublicKey) => ({ context: { slot: 1010 },value: key.equals(marketAddress) ? encodeAccount('market',market) : null }),
     simulateTransaction: async (_tx: unknown, config: SimulateTransactionConfig) => {
-      simulations.push(config);
+      simulations.push(config); transactions.push(_tx as import("@solana/web3.js").VersionedTransaction);
       return response;
     },
   };
@@ -143,7 +146,7 @@ async function fixture(hlp = false, taxed = false) {
   encode();
   const group: YieldGroup = { holder: owner.toBase58(), market: marketAddress.toBase58(), lpMint: lpMint.toBase58(), kind,
     baseMint: base.toBase58(), quoteMint: quote.toBase58() };
-  return { dusk: dusk as Dusk, market, cohort, yields, response, encode, group, simulations, payer: owner.toBase58() };
+  return { dusk: dusk as Dusk, market, cohort, yields, response, encode, group, simulations, transactions, payer: owner.toBase58() };
 }
 
 test('live yield carries undistributed growth forward and checkpoints both hLP layers', async () => {
@@ -246,4 +249,16 @@ test('the SDK market layout version is required by yield capture', async () => {
   f.market.version = MARKET_LAYOUT_VERSION - 1;
   f.encode();
   await assert.rejects(captureYieldGroup(f.dusk, f.group, f.payer, 1005), /market, LP mint or bank changed/);
+});
+
+
+test('oracle-guided yield previews carry the configured report account through the SDK builder', async () => {
+  const f = await fixture();
+  const state = f.market as unknown as { oracle: { policy: Record<string,unknown> } };
+  Object.assign(state.oracle.policy, { format: 1,provider: key(75),baseAccount: key(76),baseFeedId: Array(32).fill(1),
+    lambdaBps: 3500,adjustmentCapNad: new BN(1_250_000_000),maxAgeSeconds: 30,maxAgeSlots: new BN(75),maxConfidenceBps: 50 });
+  f.encode();
+  const streams = await captureYieldGroup(f.dusk,f.group,f.payer,1005);
+  assert.ok(streams);
+  assert.ok(f.transactions[0].message.staticAccountKeys.some(address => address.equals(key(76))));
 });

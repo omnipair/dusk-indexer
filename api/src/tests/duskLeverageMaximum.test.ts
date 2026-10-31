@@ -6,12 +6,15 @@ import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { BorshInstructionCoder, BN } from '@coral-xyz/anchor';
 import { convertIdlToCamelCase } from '@coral-xyz/anchor/dist/cjs/idl';
-import { Connection, PublicKey, SYSVAR_CLOCK_PUBKEY, VersionedTransaction } from '@solana/web3.js';
-import { duskRawIdl } from '../services/duskMarketSimulation';
+import { ComputeBudgetProgram, Connection, PublicKey, SYSVAR_CLOCK_PUBKEY, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import { captureLeverageQuoteBank, quoteRpcFetch, runLeverageMaximumProcess } from '../services/duskLeverageMaximum';
 import { FrozenLeverageBank, LeverageMaximumInput, parseLeverageMaximumInput, quoteRuntimeBytes, searchFrozenLeverageMaximum, searchFrozenLeverageSize, quoteFrozenLeverageEntry } from '../services/duskLeverageMaximumEngine';
-const idl = duskRawIdl();
-const pin = JSON.parse(readFileSync(resolve(__dirname,'../../../protocol/compatible-deployment.json'),'utf8'));
+// These historical capacity receipts retain the SBF/IDL they were produced
+// under. Current-revision live parity belongs to its own fixture suite.
+const legacyProtocol = resolve(__dirname,'../../../protocol/archive/devnet-2026-10-26-cd6f1ec');
+process.env.DUSK_PROTOCOL_DIR = legacyProtocol;
+const idl = JSON.parse(readFileSync(resolve(legacyProtocol,'idl/dusk.json'),'utf8'));
+const pin = JSON.parse(readFileSync(resolve(legacyProtocol,'compatible-deployment.json'),'utf8'));
 const fixture = () => JSON.parse(gunzipSync(readFileSync(resolve(__dirname,'../../src/tests/fixtures/leverage-maximum-devnet.json.gz'))).toString()) as {
   input: LeverageMaximumInput; bank: FrozenLeverageBank; expected: { multiplierBps: string; candidates: number };
 };
@@ -140,4 +143,21 @@ test('size inversion preserves both debt directions, Token-2022 fees, concentrat
 test('unreachable size remains a capacity rejection and never silently reduces leverage',() => {
   const f = fixture(),input = sizeInput(f.input,'100000000000','collateral','50000');
   assert.throws(() => searchFrozenLeverageSize(input,f.bank,idl,binary()),(error: Error) => error.constructor.name === 'NativeLeverageRejection');
+});
+
+
+test('OP-GAMM capacity requests accept one bounded SDK heap frame alongside the CU limit', () => {
+  const { input } = fixture();
+  const tx = VersionedTransaction.deserialize(Buffer.from(input.transaction,'base64'));
+  const original = TransactionMessage.decompile(tx.message);
+  const request = (heap: number, duplicate = false) => {
+    const instruction = ComputeBudgetProgram.requestHeapFrame({ bytes: heap });
+    const message = new TransactionMessage({ payerKey: original.payerKey,recentBlockhash: original.recentBlockhash,
+      instructions: [instruction,...(duplicate ? [instruction] : []),...original.instructions] }).compileToV0Message();
+    return { ...input,transaction: Buffer.from(new VersionedTransaction(message).serialize()).toString('base64') };
+  };
+  const candidate = JSON.parse(readFileSync(resolve(__dirname,'../../../protocol/candidates/next-2026-10-31-8fadcc31/idl/dusk.json'),'utf8'));
+  assert.equal(parseLeverageMaximumInput(request(256*1024),candidate).parsed.entryIndex,3);
+  assert.throws(() => parseLeverageMaximumInput(request(256*1024,true),candidate),/heap budget/);
+  assert.throws(() => parseLeverageMaximumInput(request(512*1024),candidate),/heap budget/);
 });

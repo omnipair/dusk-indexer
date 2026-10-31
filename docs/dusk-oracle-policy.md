@@ -89,7 +89,38 @@ Regenerate only the synthetic wire fixture from the repository root with:
 node api/scripts/generate-oracle-fixtures.mjs
 ```
 
-## Rollout after the protocol is merged and deployed
+## Activated devnet revision — 31 October 2026
+
+The tested #58 head is deployed on devnet under the existing program IDs.
+`protocol.lock.json` records finalized deployment slots and executable hashes;
+the prior identity is archived. [Deployment evidence](evidence/devnet-op-gamm-2026-10-31/deployment.json)
+records the byte verification and seeded layout-7 market. Repository review and
+merge status remain separate from the authorized devnet deployment.
+
+
+[Live smoke receipts](evidence/devnet-op-gamm-2026-10-31/live-smoke.json) record
+13 signed and confirmed native-market flows on both upgraded programs: swaps,
+liquidity add/remove, collateral deposit/withdrawal, borrow/repay, leverage
+open/add-margin/close, delegation, and conditional-order create/cancel. All
+passed on the first attempt. The seven hosted backend services run revision
+`1f433a4`; the oracle frontend preview loads the matching envelope, market
+parameters and oracle proposal form without a deployment-mismatch dialog.
+
+Fresh Pyth-backed market operation is **not** claimed by this smoke run. The
+public Hermes latest-report request returned HTTP 401, and the sampled cached
+devnet USDC/USD and USDT/USD reports were stale. The checks were not weakened to
+accept them. The strict local protocol suite covers oracle authentication,
+freshness and recovery, but does not replace live fresh-feed verification.
+Beta's older frontend updates through its normal frontend merge/deployment
+flow; no separate production-target frontend deployment was performed.
+
+Market discovery derives the fixed Borsh version offset and account size from
+the pinned IDL: OracleState is serialized before version, so v7 uses offset333
+and 3,461-byte accounts. Old-layout accounts are excluded before decoding.
+Capacity, yield and hLP trigger previews carry their configured source reports.
+The archived quote lineage includes the prior active revision.
+
+## Rollout procedure
 
 1. Verify the final protocol commit against this candidate. If its generated IDLs
    or SDK differ, vendor a new candidate and update the FE pin together.

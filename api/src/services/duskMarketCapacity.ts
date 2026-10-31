@@ -69,6 +69,8 @@ export interface MarketCapacities {
 }
 
 export interface MarketCapacityInput {
+  /** Reports selected from the authenticated captured Market policy. */
+  oracleAccounts?: string[];
   market: string;
   baseMint: string;
   quoteMint: string;
@@ -258,6 +260,7 @@ export async function captureMarketCapacities(
           quoteMint: new PublicKey(input.quoteMint),
           targetHlpMint: new PublicKey(hlpMint),
         })
+        .remainingAccounts((input.oracleAccounts ?? []).map(key => ({ pubkey: new PublicKey(key),isSigner: false,isWritable: false })))
         .instruction();
       const preview = await simulateCapacityPreview(dependencies, instruction, minSlot);
       if (!preview) return null;
@@ -284,6 +287,7 @@ export async function captureMarketCapacities(
           collateralAssetMint: new PublicKey(collateralMint),
           debtAssetMint: new PublicKey(debtMint),
         })
+        .remainingAccounts((input.oracleAccounts ?? []).map(key => ({ pubkey: new PublicKey(key),isSigner: false,isWritable: false })))
         .instruction();
       const preview = await simulateCapacityPreview(dependencies, instruction, minSlot);
       if (!preview) return null;

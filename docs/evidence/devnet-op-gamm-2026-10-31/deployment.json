@@ -1,0 +1,59 @@
+{
+  "revision": "next-2026-10-31-8fadcc31",
+  "verifiedFinalizedSlot": 517075135,
+  "firstSlot": 517074908,
+  "programs": [
+    {
+      "name": "dusk",
+      "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
+      "binary": {
+        "path": "on-chain (devnet)",
+        "sha256": "1c7a472981d59b2e1a36d9662478f34b33dff9d851782f88d15172d2e66e3a30"
+      },
+      "idl": {
+        "path": "protocol/idl/dusk.json",
+        "sha256": "f655c03652871b4880d945571c28a726da62345f324809b4d442cffe866d3609",
+        "canonicalSha256": "cfc543b6c60e0ea9e66c9c93c4aecf52bd52618d002590b3c84928d22d363b66"
+      },
+      "deployment": {
+        "programData": "FH3oEMmx2n7YMeEsrLM8dzr7FxuZLQgMacwQF6ZHdWk",
+        "deploySlot": 517074591,
+        "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+        "allocatedBinaryBytes": 4585128
+      }
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv",
+      "binary": {
+        "path": "on-chain (devnet)",
+        "sha256": "2800faa1ec9ced73b5577338b041cc62694e4e1530415108f796e4471c32464d"
+      },
+      "idl": {
+        "path": "protocol/idl/leverage_delegate.json",
+        "sha256": "170d29e1617104a4718214fd5e0c475aff14793bcf721e0caedb5a92550c5d76",
+        "canonicalSha256": "debb68410b8cc6add5c3603506e5a7ef26f0e0edd76a5ea9b614e6f5e91e7f35"
+      },
+      "deployment": {
+        "programData": "8y1gTuEN5t417sBWNbeerGFQ5v49MpRmxVBgVDatnJjv",
+        "deploySlot": 517074907,
+        "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+        "allocatedBinaryBytes": 1317600
+      }
+    }
+  ],
+  "sourceCommit": "8fadcc31fbe542f4f822060724639a5057fad2cc",
+  "upgradeSignatures": {
+    "dusk": "d82WL9rCGWfq99FPH3rVSZv6v86xceFmoBYwE46ST5b2AZDVTLVL6njf3GB6mPwjNfjpYrEDvHvAVDm9RRJ7yd6",
+    "leverageDelegate": "5ngC1SUZC7cX7axPNfAU47oezzjs9ohpfTvdGQctbZuYeMcRQviEqQ3cDkGHA5KZhXS8RqVYsWpXtyKUvaNFsEak"
+  },
+  "nativeMarket": {
+    "address": "76YZDJG3rP7AUje7o3fQCVNjkzJvhtqdPLfZzZyv1bJQ",
+    "creationSignature": "5A47yCRcuYaJCKbxdbU3y3jYWdaEfZUdtyw91A9nUJQ7xq9Hp2DgjqW3jWA5TAFFydEpvNmJHUVyJn7b86dhdJw3",
+    "seedSignature": "3HwxKJg3JM2Cr9eP14xZRzK49yP8Nfwv2WVUs97cVj4MhdGRDB5n2LK6rMT31KTwGZmRCrEWGpoVEmRYqHCHTZaT",
+    "seedTokensPerSide": "1000",
+    "version": 7,
+    "accountBytes": 3461,
+    "versionOffset": 333
+  }
+}

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MARKET_LAYOUT_VERSION } from '@omnipair/dusk-sdk';
+import { marketLayoutVersion } from '../services/duskProtocolSchema';
+const MARKET_LAYOUT_VERSION = marketLayoutVersion();
 import { loadPinnedProtocol } from '../config/duskProtocol';
 import { nativeFields } from '../services/duskPortfolioMath';
 import { marketGrowthPoint, MarketGrowthPoint, recordedYlpRates } from '../services/duskYieldRateMath';

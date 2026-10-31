@@ -6,7 +6,7 @@ use {
     std::collections::BTreeSet,
 };
 
-const DUSK_EVENTS: [&str; 57] = [
+const DUSK_EVENTS: [&str; 56] = [
     "BorrowInterestAccrued",
     "BorrowInterestPaid",
     "BorrowPositionLiquidated",
@@ -34,7 +34,6 @@ const DUSK_EVENTS: [&str; 57] = [
     "LeveragePositionUpdated",
     "LiquidationAuctionCancelled",
     "LiquidationAuctionStarted",
-    "LiquidationObserved",
     "LiquidityAdded",
     "LiquidityRemoved",
     "LpTransferred",
@@ -302,7 +301,7 @@ fn anchor_tags_and_every_idl_discriminator_are_cryptographically_verified() {
     anchor_event_digest.reverse();
     assert_eq!(anchor_event_digest, ANCHOR_EVENT_CPI_TAG);
     let decoder = decoder();
-    assert_eq!(decoder.dusk.events.len(), 57);
+    assert_eq!(decoder.dusk.events.len(), 56);
     assert_eq!(decoder.dusk.instructions.len(), 77);
     assert_eq!(decoder.delegate.events.len(), 2);
     assert_eq!(decoder.delegate.instructions.len(), 18);
@@ -387,7 +386,7 @@ fn nonzero_event_fields_decode_with_lossless_integer_and_pubkey_representation()
     data.extend_from_slice(market.as_ref());
     data.extend_from_slice(&2_u32.to_le_bytes());
     data.extend_from_slice(&[4, 6]);
-    for revision in 99_u64..106 {
+    for revision in 99_u64..107 {
         data.extend_from_slice(&revision.to_le_bytes());
     }
     data.extend_from_slice(&(-7_i64).to_le_bytes());
@@ -400,7 +399,7 @@ fn nonzero_event_fields_decode_with_lossless_integer_and_pubkey_representation()
             "proposal": proposal.to_string(),
             "market": market.to_string(),
             "families": "BAY=",
-            "new_family_revisions": ["99", "100", "101", "102", "103", "104", "105"],
+            "new_family_revisions": ["99", "100", "101", "102", "103", "104", "105", "106"],
             "executed_at": "-7"
         }))
     );
@@ -952,5 +951,5 @@ fn oracle_candidate_matches_sdk_wire_bytes_without_promoting_the_pin() {
             )
             .is_err()
     );
-    assert_eq!(crate::PROTOCOL_REVISION, "devnet-2026-10-26-cd6f1ec");
+    assert_eq!(crate::PROTOCOL_REVISION, "next-2026-10-31-8fadcc31");
 }

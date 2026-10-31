@@ -44,7 +44,7 @@ export function parseLeverageMaximumInput(value: unknown, idl: Idl): { input: Le
     || BigInt(v.size.multiplierBps) < 10100n || BigInt(v.size.multiplierBps) % 100n !== 0n)) throw new Error('Invalid fixed-leverage size');
   const clientIdl = convertIdlToCamelCase(idl);
   const coder = new BorshInstructionCoder(clientIdl), programId = idl.address;
-  let budgets = 0;
+  let budgets = 0, heaps = 0;
   const entries = message.compiledInstructions.flatMap((ix,index) => {
     const target = message.staticAccountKeys[ix.programIdIndex]?.toBase58();
     if (!target || ix.accountKeyIndexes.some((key) => key >= message.staticAccountKeys.length)) throw new Error('Invalid preview account index');
@@ -52,7 +52,12 @@ export function parseLeverageMaximumInput(value: unknown, idl: Idl): { input: Le
       if (!SETUP_PROGRAMS.has(target)) throw new Error('Unexpected preview setup program');
       if (target === 'ComputeBudget111111111111111111111111111111') {
         const data = Buffer.from(ix.data);
-        if (++budgets !== 1 || data.length !== 5 || data[0] !== 2 || ![800000,1400000].includes(data.readUInt32LE(1))) throw new Error('Invalid preview compute budget');
+        if (data.length !== 5) throw new Error('Invalid preview compute budget');
+        if (data[0] === 1) {
+          if (++heaps !== 1 || data.readUInt32LE(1) !== 256*1024) throw new Error('Invalid preview heap budget');
+        } else if (data[0] === 2) {
+          if (++budgets !== 1 || ![800000,1400000].includes(data.readUInt32LE(1))) throw new Error('Invalid preview compute budget');
+        } else throw new Error('Invalid preview compute budget');
       }
       return [];
     }

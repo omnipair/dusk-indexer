@@ -28,7 +28,7 @@ test('native portfolio replay combines indexed positions and non-ATA LP ownershi
 
 test('retired hLP receipts replay with proven zero principal and require their captured cohort',async () => {
   const { source } = portfolioFixture();
-  const rawIdl = JSON.parse(readFileSync(resolve(__dirname,'../../node_modules/@omnipair/dusk-sdk/dist/idl_v2.json'),'utf8')) as Idl;
+  const rawIdl = JSON.parse(readFileSync(resolve(__dirname,'../../../protocol/idl/dusk.json'),'utf8')) as Idl;
   const coder = new BorshCoder(rawIdl),program = new PublicKey(rawIdl.address),mint = fixtureKey(180);
   const group = source.groups[0],market = new PublicKey(group.market);
   source.catalog.items[1].kind = 'base_hlp';

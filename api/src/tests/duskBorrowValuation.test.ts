@@ -18,7 +18,7 @@ import type { DuskDeploymentEnvelope } from '../services/duskDeploymentService';
 
 const CLOCK_OWNER = new PublicKey('Sysvar1111111111111111111111111111111111111');
 
-async function fixture(oracle = false) {
+async function fixture(oracle?: boolean) {
   const marketAddress = displayKey(72),
     positionId = displayKey(73);
   const state = {
@@ -77,7 +77,7 @@ async function fixture(oracle = false) {
   };
   const [address, bump] = deriveBorrowPositionAddress(marketAddress, state.owner, positionId);
   market = layout('market').decode(Buffer.alloc(16384));
-  Object.assign(market, { version: oracle ? 7 : 6 });
+  Object.assign(market, { version: oracle === undefined ? schema.marketLayoutVersion() : oracle ? 7 : 6 });
   const position = layout('borrowPosition').decode(Buffer.alloc(16384));
   Object.assign(position, {
     owner: state.owner,
@@ -160,16 +160,16 @@ test('a borrow valuation reads accrued debt, liquidation terms and distress from
     isLiquidatable: true, maxRepayAmount: '91',
     liquidationHealth: { collateralValue: '700', debt: '91', maintenanceBps: 700 },
     liquidationRates: { buyerDiscountBps: 500, emergencyRewardBps: 30 },
-    liquidationDistress: { active: false, startedAt: '0', observedSlot: '0' },
+    ...(schema.marketLayoutVersion() === 6 ? { liquidationDistress: { active: false, startedAt: '0', observedSlot: '0' } } : {}),
   });
   assert.equal(f.state.simulations[0].minContextSlot, 1990);
   assert.deepEqual((f.state.simulations[0].accounts as { addresses: string[] }).addresses,
     [f.ref.market, f.ref.address, SYSVAR_CLOCK_PUBKEY.toBase58()]);
   f.state.distressActive = true;
   const distressed = (await captureBorrowValuation(f.dusk, f.ref, 1990, displayKey(80).toBase58())) as BorrowValuation;
-  assert.deepEqual(distressed.quote.liquidationDistress, {
+  assert.deepEqual(distressed.quote.liquidationDistress, schema.marketLayoutVersion() === 6 ? {
     active: true, startedAt: '1789999900', observedSlot: '1999',
-  });
+  } : undefined);
 });
 
 test('a rejected preview is an unavailable row; a changed owner, bank or stale slot fails', async () => {

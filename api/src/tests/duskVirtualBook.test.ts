@@ -19,6 +19,8 @@ import {
   MARKET_LAYOUT_VERSION,
   type Dusk,
 } from '@omnipair/dusk-sdk';
+import { resolve } from 'node:path';
+process.env.DUSK_PROTOCOL_DIR = resolve(__dirname,'../../../protocol/archive/devnet-2026-10-26-cd6f1ec');
 import fixture from './fixtures/virtual-book-batch-devnet-20260920.json';
 import {
   currentVirtualBook,
