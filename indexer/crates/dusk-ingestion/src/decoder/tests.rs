@@ -951,5 +951,5 @@ fn oracle_candidate_matches_sdk_wire_bytes_without_promoting_the_pin() {
             )
             .is_err()
     );
-    assert_eq!(crate::PROTOCOL_REVISION, "next-2026-10-31-8fadcc31");
+    assert_eq!(crate::PROTOCOL_REVISION, "next-2026-10-31-layouts");
 }

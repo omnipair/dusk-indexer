@@ -14,7 +14,7 @@ or invalid feed makes the simulated valuation unavailable.
 
 ```ts
 oraclePolicy: null | {
-  format: number;                   // 0 = native default, 1 = normalized pair, 2 = Pyth ratio
+  format: number;                   // 0=native, 1=normalized pair, 2=Pyth ratio, 3=Pyth pair, 4=normalized ratio
   provider: string;                 // canonical base58 program ID
   baseAccount: string;
   quoteAccount: string;
@@ -156,3 +156,77 @@ candidate hashes, both SDK selections, Oracle family wire data, coherent report
 capture and health-only borrow previews. Docker image packaging and the actual
 Timescale hypertable job remain CI gates when those runtimes are unavailable
 locally. Live new-revision replay and signed writes await the deployment above.
+
+## Feed discovery and synthetic devnet publisher
+
+`GET /api/dusk/v1/oracle-feeds?baseMint=…&quoteMint=…` uses the normal
+deployment bracket. It matches exact ordered mint addresses and network; symbols
+never grant feed compatibility. The current catalog contains one centralized
+synthetic devnet META/USDC feed, with its public manifest in
+`api/src/config/oracles/devnet-mock.json`. Pyth and arbitrary custom sources
+remain manual inputs; no catalog coverage is invented for unsupported assets.
+
+The API authenticates report owner, magic, feed ID and embedded mints. It reads
+the report and Clock in one RPC bank, keeps u64 amounts exact, distinguishes
+fresh/stale/invalid/unavailable, and rejects future time/slot observations.
+No report is presented as external market data. Frontend state comes only from
+this endpoint, and an expired cached report loses its actionable price button.
+
+The optional prices-worker publisher requires both
+`DUSK_DEVNET_MOCK_ORACLE_ENABLED=true` and a dedicated
+`DUSK_DEVNET_MOCK_ORACLE_SECRET`. It verifies devnet genesis, signer and PDA.
+The deployment wallet is never installed in the service. Its compare-and-set
+sequence avoids overwriting a newer manual price; an invalidated report is
+left invalid until its publisher explicitly resumes it.
+
+## Independent feed layouts — pending layout-8 rollout
+
+The latest companion protocol change separates provider from composition:
+normalized direct pair (format 1), Pyth ratio (2), Pyth direct pair (3), and
+normalized ratio (4). `oracleReportAccounts` includes the second account for
+formats 2 and 4. A single feed must actually quote the market pair; no USD feed
+is treated as a stablecoin-denominated pair by assuming a peg. Normalized ratio
+reports must identify the respective asset mints and the same nonzero
+common-denomination mint. The protocol checks each leg's age/status/identity,
+publication skew and outward-rounded ratio confidence.
+
+Market layout 8 adds per-leg sequence/content replay state (80 bytes), including
+independent updates when the other leg is unchanged. Its version byte is at
+413 and its serialized account size is 3,541 bytes. Policy and proposal-argument
+encoding are unchanged. The future SDK is vendored as
+`@omnipair/dusk-sdk-layouts`; runtime selection still requires an exact canonical
+IDL match for both programs. Installing this alias does not activate it.
+
+`protocol/candidates/next-2026-10-31-layouts/` contains generated IDLs, the exact
+SDK shared with the FE, and a synthetic wire fixture. The active layout-7 devnet
+lock, executable metadata, quote runtime and historical observations remain
+unchanged. Activating layout 8 requires a verified Dusk/delegate rollout, a new
+quote runtime and identity, and a replay/compatibility review. This PR does not
+claim live layout-8 write verification or relabel existing accounts as layout 8.
+
+The live mock catalog explicitly reports `composition: direct`. Its currently
+published META/USDC pair report is the only live catalog entry; no two mock
+asset reports or direct Pyth pair feeds are invented to populate the other
+layout. The shared editor supports manual sources when the provider actually
+publishes the required records. Chainlink still needs its actual adapter.
+
+
+## Activated layout-8 devnet rollout — 1 November 2026
+
+Both programs from `45549d87` are now byte-verified on devnet. Dusk upgraded at
+slot 517183744 and the delegate at 517184936; the new event identity begins at
+517184937. The previous layout-7 lock, generated IDLs, references and exact quote
+runtime are archived under `protocol/archive/next-2026-10-31-8fadcc31/`; existing
+accounts are not relabelled. The new active filter selects layout 8, whose
+version byte is at 413 and complete account allocation is 3,541 bytes.
+
+Fresh native META/USDC test market `FGdALX7jwNaj87zKfEt79wQk3bVSM6kyZNGNxBs7G4jA`
+was created and seeded with 1,000 synthetic tokens per side through the current
+SDK. A lookup-table confirmation notification timed out although the ledger
+transaction had finalized; setup resumed using the existing table and LP mints,
+with HTTP signature-status confirmation and no duplicate account creation.
+The 0.4 existing wrapped SOL was recovered for upload rent; no faucet SOL was
+requested. Public transactions and finalized binary hashes are recorded in
+`docs/evidence/devnet-layout8-2026-11-01/deployment.json`.
+
+The matching backend release `3600cde` is deployed to the seven existing devnet services. The API attests the new program/IDL identity, the synthetic report publisher is running, and the oracle frontend preview lists both fresh layout-8 markets without the deployment mismatch. Both markets passed all 13 signed SDK product flows, first attempt, with all 26 transactions finalized successfully. Public envelope, oracle catalog and signed receipts are recorded in `docs/evidence/devnet-layout8-2026-11-01/`.

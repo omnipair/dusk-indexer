@@ -1,0 +1,166 @@
+{
+  "network": "devnet",
+  "sourceCommit": "45549d878ce68e938898437c8946b21320fbc080",
+  "market": "2x5qENXTdR7Q1Zy1Aiq1q9CyozAGDqRwgAXxy3juWCWa",
+  "layout": 8,
+  "oracle": {
+    "format": 1,
+    "provider": "8aaFKbz66kvfA4vdXg7fs1gi5e5HbkZ6rtuB5UkHHkFH",
+    "baseAccount": "4jPsKhPRLWVUb39RMftmu2rK8vjpq7GkQwpbL8nmMZrZ",
+    "quoteAccount": "11111111111111111111111111111111",
+    "baseFeedId": [
+      224,
+      39,
+      212,
+      58,
+      213,
+      22,
+      191,
+      147,
+      139,
+      171,
+      182,
+      129,
+      31,
+      225,
+      10,
+      105,
+      31,
+      51,
+      40,
+      124,
+      215,
+      248,
+      74,
+      18,
+      221,
+      215,
+      173,
+      124,
+      73,
+      167,
+      189,
+      211
+    ],
+    "quoteFeedId": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "lambdaBps": 3500,
+    "adjustmentCapNad": "1250000000",
+    "maxAgeSeconds": 60,
+    "maxAgeSlots": "150",
+    "maxConfidenceBps": 100,
+    "maxPublishSkewSeconds": 0
+  },
+  "flows": [
+    {
+      "attempts": 1,
+      "detail": "2wR9ydNAQPiUpXpyd1UKAAz4AajN2JwkzrQZ97UaXHGJF5muCV7wCSgaWhs23F9zZh2dAU8NCC5HYEci7wZzHYPT",
+      "flow": "swap",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "5h7eDUc9RPhgzCDpxipvr3rKLHAYMDvvAm9zHRPbFzPMgW4tMaw5ZEr6ySNP9iRTtcwHRMY8wSbMPV9uL9jRyXu4",
+      "flow": "add liquidity",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "5TURYR21bAxaQ7XUVXN74Cwx2v73bXq5Y6Et7n9onhQe6WQihG8T4cypi8HnhuLukrkPmn2c9QF2WJiy6eutinJ9",
+      "flow": "remove liquidity",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "rHsK4auahP3T6DEAPvFW12hd2GDTR4gqfrKrjgYiyLBG7E9cjQq9akSxLDyA92sQ4au25JkmKRKXZYWiHZmLMuz",
+      "flow": "deposit collateral",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "5EtxTk1LHSmzhaBbtWWm1eG2MF6D97dfWUKjpUyXwRPj6QtVQF4Ns1n4Jk5u91PjDiBpENrt8JKrGz2Dq1RkEn5T",
+      "flow": "borrow",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "3YFSCJyLnfv2iMMNeyUz2AjXepD7jnyQrjQuPsDyuNCQy2adPT5F1oN9bR9U1gDpti8YT45Su4VFK7vpSkdw6rUa",
+      "flow": "repay",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "4y465hxCzTcm8UxuJLt7HoDy4JctxagvhR9J8vPCRumhcsSvFqEM9rnPF1h7NGHEMEsYNJiNk2WMJhPPfzAMyXz7",
+      "flow": "withdraw collateral",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "3ndAm7rEGzpD7nFmtKsze75aq9Ccx2kjruK448fmJgbqmMN9DEumLqsvrFhAB5oVBsb1756QBBxq8x4s8Wpd3r7T",
+      "flow": "open leverage",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "E7QeYZiL9N5q3Ny7kFBh4VFXwnt7oZe3zngHBWjXd67WXc8JvpPfbhmoYcGDWpL6khCwPUBe9VSdpfm6E69RZiV",
+      "flow": "add leverage margin",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "46iqtidJgg1HbNtCUcr2zKnratscWKydx7gLZuDsBGL9ywAeArtwYawrikrLwdG27CgGoQHoVys4fNpdH7sKwYVB",
+      "flow": "delegate leverage position",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "4aLTkg8ffoUQp8ruZJPRzLfdRPEGzp6eQbY1QQjGsdQkAJdSMzLaitgihhupnptCReb8HXVWpwxudPbNfSsm1PS4",
+      "flow": "place conditional order",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "qW2CBrpiUDuhWL7J4JRBEwkVfxDaDu3nbQMErPxW8swpMD2fXpiKj4LRgdsnCAutZvTohpVZZtHpCUqSNTpW1Gm",
+      "flow": "cancel conditional order",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "uVujKhg9AgQXVKNEBVS1gRtHUgyacM9K2kEY42zmB2Yr8qc858acBpm1bRqguqBbrxDySaaAbTSAYmoQaJtLx4V",
+      "flow": "close leverage",
+      "ok": true
+    }
+  ]
+}

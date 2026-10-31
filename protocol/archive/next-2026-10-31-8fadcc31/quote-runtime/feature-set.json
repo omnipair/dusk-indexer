@@ -1,0 +1,886 @@
+{
+  "schemaVersion": "dusk-quote-features.v1",
+  "source": "Dusk strict offline runtime (litesvm 0.8.0)",
+  "features": [
+    {
+      "address": "16FMCmgLzCNNz6eTwGanbyN2ZxvTBSLuQ6DZhgeMshg",
+      "slot": "0"
+    },
+    {
+      "address": "21AWDosvp3pBamFW91KB35pNoaoZVTM7ess8nr2nt53B",
+      "slot": "0"
+    },
+    {
+      "address": "25vqsfjk7Nv1prsQJmA4Xu1bN61s8LXCBGUPp8Rfy1UF",
+      "slot": "0"
+    },
+    {
+      "address": "265hPS8k8xJ37ot82KEgjRunsUp5w4n4Q4VwwiN9i9ps",
+      "slot": "0"
+    },
+    {
+      "address": "28s7i3htzhahXQKqmS2ExzbEoUypg9krwvtK2M9UWXh9",
+      "slot": "0"
+    },
+    {
+      "address": "2B2SBNbUcr438LtGXNcJNBP2GBSxjx81F945SdSkUSfC",
+      "slot": "0"
+    },
+    {
+      "address": "2Fr57nzzkLYXW695UdDxDeR5fhnZWSttZeZYemrnpGFV",
+      "slot": "0"
+    },
+    {
+      "address": "2h63t332mGCCsWK2nqqqHhN4U9ayyqhLVFvczznHDoTZ",
+      "slot": "0"
+    },
+    {
+      "address": "2HmTkCj9tXuPE4ueHzdD7jPeMf9JGCoZh5AsyoATiWEe",
+      "slot": "0"
+    },
+    {
+      "address": "2jXx2yDmGysmBKfKYNgLj2DQyAQv6mMk2BPh4eSbyB4H",
+      "slot": "0"
+    },
+    {
+      "address": "2R72wpcQ7qV7aTJWUumdn8u5wmmTyXbK7qzEy7YSAgyY",
+      "slot": "0"
+    },
+    {
+      "address": "2ry7ygxiYURULZCrypHhveanvP5tzZ4toRwVp89oCNSj",
+      "slot": "0"
+    },
+    {
+      "address": "36PRUK2Dz6HWYdG9SpjeAsF5F3KxnFCakA2BZMbtMhSb",
+      "slot": "0"
+    },
+    {
+      "address": "3aJdcZqxoLpSBxgeYGjPwaYS1zzcByxUDqJkbzWAH1Zb",
+      "slot": "0"
+    },
+    {
+      "address": "3BX6SBeEBibHaVQXywdkcgyUk6evfYZkHdztXiDtEpFS",
+      "slot": "0"
+    },
+    {
+      "address": "3ccR6QpxGYsAbWyfevEtBNGfWV4xBffxRj2tD6A9i39F",
+      "slot": "0"
+    },
+    {
+      "address": "3E3jV7v9VcdJL8iYZUMax9DiDno8j7EWUVbhm9RtShj2",
+      "slot": "0"
+    },
+    {
+      "address": "3gtZPqvPpsbXZVCx6hceMfWxtsmrjMzmg8C7PLKSxS2d",
+      "slot": "0"
+    },
+    {
+      "address": "3KZZ6Ks1885aGBQ45fwRcPXVBCtzUvxhUTkwKMR41Tca",
+      "slot": "0"
+    },
+    {
+      "address": "3NKRSwpySNwD3TvP5pHnRmkAQRsdkXWRr1WaQh8p4PWX",
+      "slot": "0"
+    },
+    {
+      "address": "3opE3EzAKnUftUDURkzMgwpNgimBAypW1mNDYH4x4Zg7",
+      "slot": "0"
+    },
+    {
+      "address": "3u3Er5Vc2jVcwz4xr2GJeSAXT3fAj6ADHZ4BJMZiScFd",
+      "slot": "0"
+    },
+    {
+      "address": "3uFHb9oKdGfgZGJK9EHaAXN4USvnQtAFC13Fh5gGFS5B",
+      "slot": "0"
+    },
+    {
+      "address": "3uRVPBpyEJRo1emLCrq38eLRFGcu6uKSpUXqGvU8T7SZ",
+      "slot": "0"
+    },
+    {
+      "address": "3XgNukcZWf9o3HdA3fpJbm94XFc4qpvTXc8h1wxYwiPi",
+      "slot": "0"
+    },
+    {
+      "address": "437r62HoAdUb63amq3D7ENnBLDhHT2xY8eFkLJYVKK4x",
+      "slot": "0"
+    },
+    {
+      "address": "4ApgRX3ud6p7LNMJmsuaAcZY5HWctGPr5obAsjB3A54d",
+      "slot": "0"
+    },
+    {
+      "address": "4d5AKtxoh93Dwm1vHXUU3iRATuMndx1c431KgT2td52r",
+      "slot": "0"
+    },
+    {
+      "address": "4Di3y24QFLt5QEUPZtbnjyfQKfm6ZMTfa6Dw1psfoMKU",
+      "slot": "0"
+    },
+    {
+      "address": "4EJQtF2pkRyawwcTVfQutzq4Sa5hRhibF6QAK1QXhtEX",
+      "slot": "0"
+    },
+    {
+      "address": "4eohviozzEeivk1y9UbrnekbAFMDQyJz5JjA9Y6gyvky",
+      "slot": "0"
+    },
+    {
+      "address": "4kpdyrcj5jS47CZb2oJGfVxjYbsMm2Kx97gFyZrxxwXz",
+      "slot": "0"
+    },
+    {
+      "address": "4RWNif6C2WCNiKVW7otP4G7dkmkHGyKQWRpuZ1pxKU5m",
+      "slot": "0"
+    },
+    {
+      "address": "4UDcAfQ6EcA6bdcadkeHpkarkhZGJ7Bpq7wTAiRMjkoi",
+      "slot": "0"
+    },
+    {
+      "address": "4WeHX6QoXCCwqbSFgi6dxnB6QsPo6YApaNTH7P4MLQ99",
+      "slot": "0"
+    },
+    {
+      "address": "4yuaYAj2jGMGTh1sSmi4G2eFscsDq8qjugJXZoBN6YEa",
+      "slot": "0"
+    },
+    {
+      "address": "54KAoNiUERNoWWUhTWWwXgym94gzoXFVnHyQwPA18V9A",
+      "slot": "0"
+    },
+    {
+      "address": "5ekBxc8itEnPv4NzGJtr8BVVQLNMQuLMNQQj7pHoLNZ9",
+      "slot": "0"
+    },
+    {
+      "address": "5GpmAKxaGsWWbPp4bNXFLJxZVvG92ctxf7jQnzTQjF3n",
+      "slot": "0"
+    },
+    {
+      "address": "5JsG4NWH8Jbrqdd8uL6BNwnyZK3dQSoieRXG5vmofj9y",
+      "slot": "0"
+    },
+    {
+      "address": "5KLGJSASDVxKPjLCDWNtnABLpZjsQSrYZ8HKwcEdAMC8",
+      "slot": "0"
+    },
+    {
+      "address": "5oMCU3JPaFLr8Zr4ct7yFA7jdk6Mw1RmB8K4u9ZbS42z",
+      "slot": "0"
+    },
+    {
+      "address": "5Pecy6ie6XGm22pc9d4P9W5c31BugcFBuy6hsP2zkETv",
+      "slot": "0"
+    },
+    {
+      "address": "5wAGiy15X1Jb2hkHnPDCM8oB9V42VNA9ftNVFK84dEgv",
+      "slot": "0"
+    },
+    {
+      "address": "5x3825XS7M2A3Ekbn5VGGkvFoAg5qrRWkTrY4bARP1GL",
+      "slot": "0"
+    },
+    {
+      "address": "5xXZc66h4UdB6Yq7FzdBxBiRAFMMScMLwHxk2QZDaNZL",
+      "slot": "0"
+    },
+    {
+      "address": "5ZCcFAzJ1zsFKe1KSZa9K92jhx7gkcKj97ci2DBo1vwj",
+      "slot": "0"
+    },
+    {
+      "address": "64ixypL1HPu8WtJhNSMb9mSgfFaJvsANuRkTbHyuLfnx",
+      "slot": "0"
+    },
+    {
+      "address": "6iyggb5MTcsvdcugX7bEKbHV8c6jdLbpHwkncrgLMhfo",
+      "slot": "0"
+    },
+    {
+      "address": "6M4oQ6eXneVhtLoiAr4yRYQY43eVLjrKbiDZDJc892yk",
+      "slot": "0"
+    },
+    {
+      "address": "6oMCUgfY6BzZ6jwB681J6ju5Bh6CjVXbd7NeWYqiXBSu",
+      "slot": "0"
+    },
+    {
+      "address": "6ppMXNYLhVd7GcsZ5uV11wQEW7spppiMVfqQv5SXhDpX",
+      "slot": "0"
+    },
+    {
+      "address": "6RvdSWHh8oh72Dp7wMTS2DBkf3fRPtChfNrAo3cZZoXJ",
+      "slot": "0"
+    },
+    {
+      "address": "6tRxEYKuy2L5nnv5bgn7iT28MxUbYxp5h7F3Ncf1exrT",
+      "slot": "0"
+    },
+    {
+      "address": "6uaHcKPGUy4J7emLBgUTeufhJdiwhngW6a1R9B7c2ob9",
+      "slot": "0"
+    },
+    {
+      "address": "6Uf8S75PVh91MYgPQSHnjRAPQq6an5BDv9vomrCwDqLe",
+      "slot": "0"
+    },
+    {
+      "address": "6YsBCejwK96GZCkJ6mkZ4b68oP63z2PLoQmWjC7ggTqZ",
+      "slot": "0"
+    },
+    {
+      "address": "74CoWuBmt3rUVUrCb2JiSTvh6nXyBWUsK4SaMj3CtE3T",
+      "slot": "0"
+    },
+    {
+      "address": "75m6ysz33AfLA5DDEzWM1obBrnPQRSsdVQ2nRmc8Vuu1",
+      "slot": "0"
+    },
+    {
+      "address": "79HWsX9rpnnJBPcdNURVqygpMAfxdrAirzAGAVmf92im",
+      "slot": "0"
+    },
+    {
+      "address": "7axKe5BTYBDD87ftzWbk5DfzWMGyRvqmWTduuo22Yaqy",
+      "slot": "0"
+    },
+    {
+      "address": "7bTK6Jis8Xpfrs8ZoUfiMDPazTcdPcTWheZFJTA5Z6X4",
+      "slot": "0"
+    },
+    {
+      "address": "7g9EUwj4j7CS21Yx1wvgWLjSZeh5aPq8x9kpoPwXM8n8",
+      "slot": "0"
+    },
+    {
+      "address": "7GUcYgq4tVtaqNCKT3dho9r4665Qp5TxCZ27Qgjx3829",
+      "slot": "0"
+    },
+    {
+      "address": "7rcw5UtqgDTBBv2EcynNfYckgdAaH1MAsCjKgXMkN7Ri",
+      "slot": "0"
+    },
+    {
+      "address": "7txXZZD6Um59YoLMF7XUNimbMjsqsWhc7g2EniiTrmp1",
+      "slot": "0"
+    },
+    {
+      "address": "7uZBkJXJ1HkuP6R3MJfZs7mLwymBcDbKdqbF51ZWLier",
+      "slot": "0"
+    },
+    {
+      "address": "7Vced912WrRnfjaiKRiNBcbuFw7RrnLv3E3z95Y4GTNc",
+      "slot": "0"
+    },
+    {
+      "address": "7VVhpg5oAjAmnmz1zCcSHb2Z9ecZB2FQqpnEwReka9Zm",
+      "slot": "0"
+    },
+    {
+      "address": "7WeS1vfPRgeeoXArLh7879YcB9mgE9ktjPDtajXeWfXn",
+      "slot": "0"
+    },
+    {
+      "address": "812kqX67odAp5NFwM8D2N24cku7WTm9CHUTFUXaDkWPn",
+      "slot": "0"
+    },
+    {
+      "address": "8199Q2gMD2kwgfopK5qqVWuDbegLgpuFUFHCcUJQDN8b",
+      "slot": "0"
+    },
+    {
+      "address": "86HpNqzutEZwLcPxS6EHDcMNYWk6ikhteg9un7Y2PBKE",
+      "slot": "0"
+    },
+    {
+      "address": "8C8MCtsab5SsfammbzvYz65HHauuUYdbY2DZ4sznH6h5",
+      "slot": "0"
+    },
+    {
+      "address": "8FdwgyHFEjhAdjWfV2vfqk7wA1g9X3fQpKH7SBpEv3kC",
+      "slot": "0"
+    },
+    {
+      "address": "8kEuAshXLsgkUEdcFVLqrjCGGHVWFW99ZZpxvAzzMtBp",
+      "slot": "0"
+    },
+    {
+      "address": "8pgXCMNXC8qyEFypuwpXyRxLXZdpM4Qo72gJ6k87A6wL",
+      "slot": "0"
+    },
+    {
+      "address": "8sKQrMQoUHtQSUP83SPG4ta2JDjSAiWs7t5aJ9uEd6To",
+      "slot": "0"
+    },
+    {
+      "address": "8U4skmMVnF6k2kMvrWbQuRUT3qQSiTYpSjqmhmgfthZu",
+      "slot": "0"
+    },
+    {
+      "address": "8We4E7DPwF2WfAN8tRTtWQNhi98B99Qpuj7JoZ3Aikgg",
+      "slot": "0"
+    },
+    {
+      "address": "8Zs9W7D9MpSEtUWSQdGniZk2cNmV22y6FLJwCx53asme",
+      "slot": "0"
+    },
+    {
+      "address": "98std1NSHqXi9WYvFShfVepRdCoq1qvsp8fsR2XZtG8g",
+      "slot": "0"
+    },
+    {
+      "address": "9gxu85LYRAcZL38We8MYJ4A9AwgBBPtVBAqebMcT1241",
+      "slot": "0"
+    },
+    {
+      "address": "9k5ijzTbYPtjzu8wj2ErH9v45xecHzQ1x4PMYMMxFgdM",
+      "slot": "0"
+    },
+    {
+      "address": "9kdtFSrXHQg3hKkbXkQ6trJ3Ja1xpJ22CTFSNAciEwmL",
+      "slot": "0"
+    },
+    {
+      "address": "9ypxGLzkMxi89eDerRKXWDXe44UY2z4hBig4mDhNq5Dp",
+      "slot": "0"
+    },
+    {
+      "address": "A16q37opZdQMCbe5qJ6xpBB9usykfv8jZaMkxvZQi4GJ",
+      "slot": "0"
+    },
+    {
+      "address": "A8xyMHZovGXFkorFqEmVH2PKGLiBip5JD7jt4zsUWo4H",
+      "slot": "0"
+    },
+    {
+      "address": "ALBk3EWdeAg2WAGf6GPDUf1nynyNqCdEVmgouG7rpuCj",
+      "slot": "0"
+    },
+    {
+      "address": "AVZS3ZsN4gi6Rkx2QUibYuSJG3S6QHib7xCYhG6vGJxU",
+      "slot": "0"
+    },
+    {
+      "address": "B7H2caeia4ZFcpE3QcgMqbiWiBtWrdBRBSJ1DY6Ktxbq",
+      "slot": "0"
+    },
+    {
+      "address": "B9cdB55u4jQsDNsdTK525yE9dmSc5Ga7YBaBrDFvEhM9",
+      "slot": "0"
+    },
+    {
+      "address": "BcWknVcgvonN8sL4HE4XFuEVgfcee5MwxWPAgP6ZV89X",
+      "slot": "0"
+    },
+    {
+      "address": "BiCU7M5w8ZCMykVSyhZ7Q3m2SWoR2qrEQ86ERcDX77ME",
+      "slot": "0"
+    },
+    {
+      "address": "Bj2jmUsM2iRhfdLLDSTkhM5UQRQvQHm57HSmPibPtEyu",
+      "slot": "0"
+    },
+    {
+      "address": "BKCPBQQBZqggVnFso5nQ8rQ4RwwogYwjuUt9biBjxwNF",
+      "slot": "0"
+    },
+    {
+      "address": "BkFDxiJQWZXGTZaJQxH7wVEHkAmwCgSEVkrvswFfRJPD",
+      "slot": "0"
+    },
+    {
+      "address": "BL99GYhdjjcv6ys22C9wPgn2aTVERDbPHHo4NbS3hgp7",
+      "slot": "0"
+    },
+    {
+      "address": "bn2puAyxUx6JUabAxYdKdJ5QHbNNmKw8dCGuGCyRrFN",
+      "slot": "0"
+    },
+    {
+      "address": "bnYzodLwmybj7e1HAe98yZrdJTd7we69eMMLgCXqKZm",
+      "slot": "0"
+    },
+    {
+      "address": "BrTR9hzw4WBGFP65AJMbpAo64DcA3U6jdPSga9fMV5cS",
+      "slot": "0"
+    },
+    {
+      "address": "BsKLKAn1WM4HVhPRDsjosmqSg2J8Tq5xP2s2daDS6Ni4",
+      "slot": "0"
+    },
+    {
+      "address": "BtVN7YjDzNE6Dk7kTT7YTDgMNUZTNgiSJgsdzAeTg2jF",
+      "slot": "0"
+    },
+    {
+      "address": "BTWmtJC8U5ZLMbBUUA1k6As62sYjPEjAiNAT55xYGdJU",
+      "slot": "0"
+    },
+    {
+      "address": "BUS12ciZ5gCoFafUHWW8qaFMMtwFQGVxjsDheWLdqBE2",
+      "slot": "0"
+    },
+    {
+      "address": "C5fh68nJ7uyKAuYZg2x9sEQ5YrVf3dkW6oojNBSc3Jvo",
+      "slot": "0"
+    },
+    {
+      "address": "C97eKZygrkU4JxJsZdjgbUY7iQR7rKTr4NyDWo2E5pRm",
+      "slot": "0"
+    },
+    {
+      "address": "C9oAhLxDBm3ssWtJx1yBGzPY55r2rArHmN1pbQn6HogH",
+      "slot": "0"
+    },
+    {
+      "address": "CBkDroRDqm8HwHe6ak9cguPjUomrASEkfmxEaZ5CNNxz",
+      "slot": "0"
+    },
+    {
+      "address": "CCu4boMmfLuqcmfTLPHQiUo22ZdUsXjgzPAURYaWt1Bw",
+      "slot": "0"
+    },
+    {
+      "address": "Cdkc8PPTeTNUPoZEfCY5AyetUrEdkZtNPMgz58nqyaHD",
+      "slot": "0"
+    },
+    {
+      "address": "CE2et8pqgyQMP2mQRg3CgvX8nJBKUArMu3wfiQiQKY1y",
+      "slot": "0"
+    },
+    {
+      "address": "CFK1hRCNy8JJuAAY8Pb2GjLFNdCThS2qwZNe3izzBMgn",
+      "slot": "0"
+    },
+    {
+      "address": "CGB2jM8pwZkeeiXQ66kBMyBR6Np61mggL7XUsmLjVcrw",
+      "slot": "0"
+    },
+    {
+      "address": "CHaChatUnR3s6cPyPMMGNJa3VdQQ8PNH2JqdD4LpCKnB",
+      "slot": "0"
+    },
+    {
+      "address": "CJzY83ggJHqPGDq8VisV3U91jDJLuEaALZooBrXtnnLU",
+      "slot": "0"
+    },
+    {
+      "address": "CLCoTADvV64PSrnR6QXty6Fwrt9Xc6EdxSJE4wLRePjq",
+      "slot": "0"
+    },
+    {
+      "address": "CpkdQmspsaZZ8FVAouQTtTWZkc8eeQ7V3uj7dWz543rZ",
+      "slot": "0"
+    },
+    {
+      "address": "CveezY6FDLVBToHDcvJRmtMouqzsmj4UXYh5ths5G5Uv",
+      "slot": "0"
+    },
+    {
+      "address": "D2aip4BBr8NPWtU9vLrwrBvbuaQ8w1zV38zFLxx4pfBV",
+      "slot": "0"
+    },
+    {
+      "address": "D31EFnLgdiysi84Woo3of4JMu7VmasUS3Z7j9HYXCeLY",
+      "slot": "0"
+    },
+    {
+      "address": "D4jsDcXaqdW8tDAWn8H4R25Cdns2YwLneujSL1zvjW6R",
+      "slot": "0"
+    },
+    {
+      "address": "DdLwVYuvDz26JohmgSbA7mjpJFgX5zP2dkp8qsF2C33V",
+      "slot": "0"
+    },
+    {
+      "address": "decoMktMcnmiq6t3u7g5BfgcQu91nKZr6RvMYf9z1Jb",
+      "slot": "0"
+    },
+    {
+      "address": "DeS7sR48ZcFTUmt5FFEVDr1v1bh73aAbZiZq3SYr8Eh8",
+      "slot": "0"
+    },
+    {
+      "address": "DhsYfRjxfnh2g7HKJYSzT79r74Afa1wbHkAgHndrA1oy",
+      "slot": "0"
+    },
+    {
+      "address": "DpJREPyuMZ5nDfU6H3WTqSqUFSXAfw8u7xqmWtEwJDcP",
+      "slot": "0"
+    },
+    {
+      "address": "Ds87KVeqhbv7Jw8W6avsS1mqz3Mw5J3pRTpPoDQ2QdiJ",
+      "slot": "0"
+    },
+    {
+      "address": "DTVTkmw3JSofd8CJVJte8PXEbxNQ2yZijvVr3pe2APPj",
+      "slot": "0"
+    },
+    {
+      "address": "dupPajaLy2SSn8ko42aZz4mHANDNrLe8Nw8VQgFecLa",
+      "slot": "0"
+    },
+    {
+      "address": "DwScAzPUjuv65TMbDnFY7AgwmotzWy3xpEJMXM3hZFaB",
+      "slot": "0"
+    },
+    {
+      "address": "E3PHP7w8kB7np3CTQ1qQ2tW3KCtjRSXBQgW9vM2mWv2Y",
+      "slot": "0"
+    },
+    {
+      "address": "E5JiFDQCwyC6QfT9REFyMpfK2mHcmv1GUDySU1Ue7TYv",
+      "slot": "0"
+    },
+    {
+      "address": "E8MkiWZNNPGU6n55jkGzyj8ghUmjCHRmDFdYYFYHxWhQ",
+      "slot": "0"
+    },
+    {
+      "address": "EBeznQDjcPG8491sFsKZYBi5S5jTVXMpAKNDJMQPS2kq",
+      "slot": "0"
+    },
+    {
+      "address": "eca6zf6JJRjQsYYPkBHF3N32MTzur4n2WL4QiiacPCL",
+      "slot": "0"
+    },
+    {
+      "address": "ed9tNscbWLYBooxWA7FE2B5KHWs8A6sxfY8EzezEcoo",
+      "slot": "0"
+    },
+    {
+      "address": "EfhYd3SafzGT472tYQDUc4dPd2xdEfKs5fwkowUgVt4W",
+      "slot": "0"
+    },
+    {
+      "address": "EJJewYSddEEtSZHiqugnvhQHiWyZKjkFDQASd7oKSagn",
+      "slot": "0"
+    },
+    {
+      "address": "EMX9Q7TVFAmQ9V1CggAkhMzhXSg8ECp7fHrWQX2G1chf",
+      "slot": "0"
+    },
+    {
+      "address": "Eoh7e1sDqtyPtuiWAhBNSJinvtJWTTDgeUMRi3RF8zWS",
+      "slot": "0"
+    },
+    {
+      "address": "EQUMpNFr7Nacb1sva56xn1aLfBxppEoSBH8RRVdkcD1x",
+      "slot": "0"
+    },
+    {
+      "address": "EVW9B5xD9FFK7vw1SBARwMA4s5eRo5eKJdKpsBikzKBz",
+      "slot": "0"
+    },
+    {
+      "address": "EWme9uFqfy1ikK1jhJs8fM5hxWnK336QJpbscNtizkTU",
+      "slot": "0"
+    },
+    {
+      "address": "EYVpEP7uzH1CoXzbD6PubGhYmnxRXPeq3PPsm1ba3gpo",
+      "slot": "0"
+    },
+    {
+      "address": "F6UVKh1ujTEFK3en2SyAL3cdVnqko1FVEXWhmdLRu6WP",
+      "slot": "0"
+    },
+    {
+      "address": "Fab5oP3DmsLYCiQZXdjyqT3ukFFPrsmqhXU4WU1AWVVF",
+      "slot": "0"
+    },
+    {
+      "address": "FaTa17gVKoqbh38HcfiQonPsAaQViyDCCSg71AubYZw8",
+      "slot": "0"
+    },
+    {
+      "address": "FaTa4SpiaSNH44PGC4z8bnGVTkSRYaWvrBs3KTu8XQQq",
+      "slot": "0"
+    },
+    {
+      "address": "Ff8b1fBeB86q8cjq47ZhsQLgv5EkHu3G1C99zjUfAzrq",
+      "slot": "0"
+    },
+    {
+      "address": "ffecLRhhakKSGhMuc6Fz2Lnfq4uT9q3iu9ZsNaPLxPc",
+      "slot": "0"
+    },
+    {
+      "address": "Ffswd3egL3tccB6Rv3XY6oqfdzn913vUcjCSnpvCKpfx",
+      "slot": "0"
+    },
+    {
+      "address": "fixfecLZYMfkGzwq6NJA11Yw6KYztzXiK9QcL3K78in",
+      "slot": "0"
+    },
+    {
+      "address": "FKAcEvNgSY79RpqsPNUV5gDyumopH4cEHqUxyfm8b8Ap",
+      "slot": "0"
+    },
+    {
+      "address": "FKe75t4LXxGaQnVHdUKM6DSFifVVraGZ8LyNo7oPwy1Z",
+      "slot": "0"
+    },
+    {
+      "address": "FKu1qYwLQSiehz644H6Si65U5ZQ2cp9GxsyFUfYcuADv",
+      "slot": "0"
+    },
+    {
+      "address": "FL9RsQA6TVUoh5xJQ9d936RHSebA1NLQqe3Zv9sXZRpr",
+      "slot": "0"
+    },
+    {
+      "address": "FNKCMBzYUdjhHyPdsKG2LSmdzH8TCHXn3ytj8RNBS4nG",
+      "slot": "0"
+    },
+    {
+      "address": "FQnc7U4koHqWgRvFaBJjZnV8VPg6L6wWK33yJeDp4yvV",
+      "slot": "0"
+    },
+    {
+      "address": "Ftok2jhqAqxUWEiCVRrfRs9DPppWP8cgTB7NQNKL88mS",
+      "slot": "0"
+    },
+    {
+      "address": "Ftok4njE8b7tDffYkC5bAbCaQv5sL6jispYrprzatUwN",
+      "slot": "0"
+    },
+    {
+      "address": "FToKNBYyiF4ky9s8WsmLBXHCht17Ek7RXaLZGHzzQhJ1",
+      "slot": "0"
+    },
+    {
+      "address": "FuS3FPfJDKSNot99ECLXtp3rueq36hMNStJkPJwWodLh",
+      "slot": "0"
+    },
+    {
+      "address": "FXs1zh47QbNnhXcnB6YiAQoJ4sGB91tKF3UFHLcKT7PM",
+      "slot": "0"
+    },
+    {
+      "address": "G6vbf1UBok8MWb8m25ex86aoQHeKTzDKzuZADHkShqm6",
+      "slot": "0"
+    },
+    {
+      "address": "G74BkWBzmsByZ1kxHy44H3wjwp5hp7JbrGRuDpco22tY",
+      "slot": "0"
+    },
+    {
+      "address": "GaBtBJvmS4Arjj5W1NmFcyvPjsHN38UGYDq2MDwbs9Qu",
+      "slot": "0"
+    },
+    {
+      "address": "GDH5TVdbTPUpRnXaRyQqiKUa7uZAbZ28Q2N9bhbKoMLm",
+      "slot": "0"
+    },
+    {
+      "address": "GE7fRxmW46K6EmCD9AMZSbnaJ2e3LfqCZzdHi9hmYAgi",
+      "slot": "0"
+    },
+    {
+      "address": "Gea3ZkK2N4pHuVZVxWcnAtS6UEDdyumdYt4pFcKjA3ar",
+      "slot": "0"
+    },
+    {
+      "address": "GmC19j9qLn2RFk5NduX6QXaDhVpGncVVBzyM8e9WMz2F",
+      "slot": "0"
+    },
+    {
+      "address": "GmuBvtFb2aHfSfMXpuFeWZGHyDeCLPS79s48fmCWCfM5",
+      "slot": "0"
+    },
+    {
+      "address": "GQALDaC48fEhZGWRj9iL5Q889emJKcj3aCvHF7VCbbF4",
+      "slot": "0"
+    },
+    {
+      "address": "GTUMCZ8LTNxVfxdrw7ZsDFTxXb7TutYkzJnFwinpE6dg",
+      "slot": "0"
+    },
+    {
+      "address": "GV49KKQdBNaiv2pgqhS2Dy3GWYJGXMTVYbYkdk91orRy",
+      "slot": "0"
+    },
+    {
+      "address": "GvDsGDkH5gyzwpDhxNixx8vtx1kwYHH13RiNAPw27zXb",
+      "slot": "0"
+    },
+    {
+      "address": "GwtDQBghCTBgmX2cpEGNPxTEBUTQRaDMGTr5qychdGMj",
+      "slot": "0"
+    },
+    {
+      "address": "Gx4XFcrVMt4HUvPzTpTSVkdDVgcDSjKhDN1RqRS6KDuZ",
+      "slot": "0"
+    },
+    {
+      "address": "H3kBSaKdeiUsyHmeHqjJYNc27jesXZ6zWj3zWkowQbkV",
+      "slot": "0"
+    },
+    {
+      "address": "H6iVbVaDZgDphcPbcZwc5LoznMPWQfnJ1AM7L1xzqvt5",
+      "slot": "0"
+    },
+    {
+      "address": "HFpdDDNQjvcXnXKec697HDDsyk6tFoWS2o8fkxuhQZpL",
+      "slot": "0"
+    },
+    {
+      "address": "HH3MUYReL2BvqqA3oEcAa7txju5GY6G4nxJ51zvsEjEZ",
+      "slot": "0"
+    },
+    {
+      "address": "HooKD5NC9QNxk25QuzCssB8ecrEzGt6eXEPBUxWp1LaR",
+      "slot": "0"
+    },
+    {
+      "address": "Hr1nUA9b7NJ6eChS26o7Vi8gYYDDwWD3YeBfzJkTbU86",
+      "slot": "0"
+    },
+    {
+      "address": "htsptAwi2yRoZH83SKaUXykeZGtZHgxkS2QwW1pssR8",
+      "slot": "0"
+    },
+    {
+      "address": "HTTgmruMYRZEntyL3EdCDdnS6e4D5wRq1FA7kQsb66qq",
+      "slot": "0"
+    },
+    {
+      "address": "HxrEu1gXuH7iD3Puua1ohd5n4iUKJyFNtNxk9DVJkvgr",
+      "slot": "0"
+    },
+    {
+      "address": "HyrbKftCdJ5CrUfEti6x26Cj7rZLNe32weugk7tLcWb8",
+      "slot": "0"
+    },
+    {
+      "address": "J2QdYx8crLbTVK8nur1jeLsmc3krDbfjoxoea2V1Uy5Q",
+      "slot": "0"
+    },
+    {
+      "address": "J4HFT8usBxpcF63y46t1upYobJgChmKyZPm5uTBRg25Z",
+      "slot": "0"
+    },
+    {
+      "address": "JAN1trEUEtZjgXYzNBYHU9DYd7GnThhXfFP7SzPXkPsG",
+      "slot": "0"
+    },
+    {
+      "address": "JDn5q3GBeqzvUa7z67BbmVHVdE3EbUAjvFep3weR3jxX",
+      "slot": "0"
+    },
+    {
+      "address": "JE86WkYvTrzW8HgNmrHY7dFYpCmSptUpKupbo2AdQ9cG",
+      "slot": "0"
+    },
+    {
+      "address": "LTdLt9Ycbyoipz5fLysCi1NnDnASsZfmJLJXts5ZxZz",
+      "slot": "0"
+    },
+    {
+      "address": "LTHasHQX6661DaDD4S6A2TFi6QBuiwXKv66fB1obfHq",
+      "slot": "0"
+    },
+    {
+      "address": "LTsNAP8h1voEVVToMNBNqoiNQex4aqfUrbFhRH3mSQ2",
+      "slot": "0"
+    },
+    {
+      "address": "meRgp4ArRPhD3KtCY9c5yAf2med7mBLsjKTPeVUHqBL",
+      "slot": "0"
+    },
+    {
+      "address": "mrkPjRg79B2oK2ZLgd7S3AfEJaX9B6gAF3H9aEykRUS",
+      "slot": "0"
+    },
+    {
+      "address": "noRuG2kzACwgaY7TVmLRnUNPLKNVQE1fb7X55YWBehp",
+      "slot": "0"
+    },
+    {
+      "address": "nWBqjr3gpETbiaVj3CBJ3HFC5TMdnJDGt21hnvSTvVZ",
+      "slot": "0"
+    },
+    {
+      "address": "PaymEPK2oqwT9TXAVfadjztH2H6KfLEB9Hhd5Q5frvP",
+      "slot": "0"
+    },
+    {
+      "address": "PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8",
+      "slot": "0"
+    },
+    {
+      "address": "poUdAqRXXsNmfqAZ6UqpjbeYgwBygbfQLEvWSqVhSnb",
+      "slot": "0"
+    },
+    {
+      "address": "prpFrMtgNmzaNzkPJg9o753fVvbHKqNrNTm76foJ2wm",
+      "slot": "0"
+    },
+    {
+      "address": "ptokFjwyJtrwCa9Kgo9xoDS59V4QccBGEaRFnRPnSdP",
+      "slot": "0"
+    },
+    {
+      "address": "rent6iVy6PDoViPBeJ6k5EJQrkj62h7DPyLbWGHwjrC",
+      "slot": "0"
+    },
+    {
+      "address": "RENtePQcDLrAbxAsP3k8dwVcnNYQ466hi2uKvALjnXx",
+      "slot": "0"
+    },
+    {
+      "address": "rexav5eNTUSNT1K2N7cfRjnthwhcP5BC25v2tA4rW4h",
+      "slot": "0"
+    },
+    {
+      "address": "SAdVFw3RZvzbo6DvySbSdBnHN4gkzSTH9dSxesyKKPj",
+      "slot": "0"
+    },
+    {
+      "address": "srremy31J5Y25FrAApwVb9kZcfXbusYMMsvTK9aWv5q",
+      "slot": "0"
+    },
+    {
+      "address": "St8k9dVXP97xT6faW24YmRSYConLbhsMJA4TJTBLmMT",
+      "slot": "0"
+    },
+    {
+      "address": "sTKz343FM8mqtyGvYWvbLpTThw3ixRM4Xk8QvZ985mw",
+      "slot": "0"
+    },
+    {
+      "address": "SVn36yVApPLYsa8koK3qUcy14zXDnqkNYWyUh1f4oK1",
+      "slot": "0"
+    },
+    {
+      "address": "tSynMCspg4xFiCj1v3TDb4c7crMR5tSBhLz4sF7rrNA",
+      "slot": "0"
+    },
+    {
+      "address": "turbnbNRp22nwZCmgVVXFSshz7H7V23zMzQgA46YpmQ",
+      "slot": "0"
+    },
+    {
+      "address": "tvcF6b1TRz353zKuhBjinZkKzjmihXmBAHJdjNYw1sQ",
+      "slot": "0"
+    },
+    {
+      "address": "Vo5siZ442SaZBKPXNocthiXysNviW4UYPwRFggmbgAp",
+      "slot": "0"
+    },
+    {
+      "address": "wLckV1a64ngtcKPRGU4S4grVTestXjmNjxBjaKZrAcn",
+      "slot": "0"
+    },
+    {
+      "address": "zkdoVwnSFnSLtGJG7irJPEYUpmb4i7sGMGcnN6T9rnC",
+      "slot": "0"
+    },
+    {
+      "address": "zkhiy5oLowR7HY4zogXjCjeMXyruLqBwSWH21qcFtnv",
+      "slot": "0"
+    }
+  ]
+}

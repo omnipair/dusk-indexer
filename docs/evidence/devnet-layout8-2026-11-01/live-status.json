@@ -1,0 +1,22 @@
+{
+  "success": true,
+  "data": {
+    "cluster": "devnet",
+    "protocolRevision": "next-2026-10-31-layouts",
+    "programs": {
+      "dusk": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
+      "leverageDelegate": "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv"
+    },
+    "deploymentIdentitySha256": "3889d0345ef452e19c5216282eca77a37c8c11e46765e5080f0eda1b72a1a45d",
+    "deploymentError": null,
+    "chainSlot": 517198168,
+    "indexedSlot": 517198146,
+    "slotLag": 22,
+    "cursorUpdatedAt": "2026-10-31T16:45:53.824Z",
+    "cursorAgeSeconds": 1,
+    "indexedEvents": 32,
+    "indexedMarkets": 2,
+    "latestEventAt": "2026-10-31T16:42:28.000Z",
+    "degraded": []
+  }
+}
