@@ -119,3 +119,16 @@ test('each vault and debt asset is previewed separately and one failure leaves o
   assert.equal(capacities.borrow.quote,null);
   assert.equal(connection.calls.length,4);
 });
+
+
+test('both hLP vault and borrowing capacity previews carry the pinned source reports', async () => {
+  const reports = [fixtureKey(170).toBase58(),fixtureKey(171).toBase58()];
+  const connection = rpc((_name,_data,accounts) => {
+    assert.deepEqual(accounts.slice(-2),reports);
+    return { err: { InstructionError: [2,{ Custom: 6000 }] } };
+  });
+  const result = await captureMarketCapacities({ ...input,oracleAccounts: reports },700,
+    { rpc: connection,payer: fixtureKey(80).toBase58() },builder);
+  assert.equal(connection.calls.length,4);
+  assert.equal(result.hlp.base,null); assert.equal(result.borrow.quote,null);
+});

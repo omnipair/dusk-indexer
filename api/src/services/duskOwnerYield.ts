@@ -169,11 +169,10 @@ export async function captureYieldGroup(
   const addresses = [group.market, group.lpMint, lpAccount.toBase58(), ...yields.map(String), ...assets.map(String), SYSVAR_CLOCK_PUBKEY.toBase58()];
   if (group.kind === 'hlp') addresses.push(hlpCohortAddress(market, lpMint, program)[0].toBase58());
   if (new Set(addresses).size !== addresses.length) throw new Error('Duplicate yield source accounts');
-  const instruction = await dusk.program.methods
-    .previewMarket()
-    .accountsStrict({ market })
-    .remainingAccounts(addresses.slice(1).map((key) => ({ pubkey: new PublicKey(key), isSigner: false, isWritable: false })))
-    .instruction();
+  const instruction = await dusk.write.instruction('previewMarket', undefined, {
+    accounts: { market },
+    remainingAccounts: addresses.slice(1).map(key => ({ pubkey: new PublicKey(key),isSigner: false,isWritable: false })),
+  });
   const transaction = new VersionedTransaction(
     new TransactionMessage({
       payerKey: new PublicKey(payer),

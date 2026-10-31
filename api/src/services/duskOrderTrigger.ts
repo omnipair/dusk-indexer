@@ -28,22 +28,13 @@ export async function previewDuskHlpOrderTrigger(
   signal?.throwIfAborted();
   const cohort = expectedHlpMint ? hlpCohortAddress(market, expectedHlpMint, dusk.program.programId)[0] : null;
   if (cohort) accounts = [...new Set([...(accounts ?? []), market.toBase58(), cohort.toBase58()])];
-  const instruction = await dusk.program.methods
-    .previewHlpOrderTrigger({
-      targetAsset,
-      hlpAmount: new BN(hlpAmount.toString()),
-    })
-    .accountsStrict({ market })
-    .remainingAccounts(
-      (accounts ?? [])
-        .filter((key) => key !== market.toBase58())
-        .map((key) => ({
-          pubkey: new PublicKey(key),
-          isSigner: false,
-          isWritable: false,
-        })),
-    )
-    .instruction();
+  const instruction = await dusk.write.instruction('previewHlpOrderTrigger', {
+    targetAsset, hlpAmount: new BN(hlpAmount.toString()),
+  }, {
+    accounts: { market },
+    remainingAccounts: (accounts ?? []).filter(key => key !== market.toBase58())
+      .map(key => ({ pubkey: new PublicKey(key),isSigner: false,isWritable: false })),
+  });
   const tx = new VersionedTransaction(
     new TransactionMessage({
       payerKey: new PublicKey(payer),

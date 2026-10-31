@@ -1,8 +1,8 @@
 # Native leverage-capacity candidate runtime
 
 `dusk.so` is the exact unpadded SBF payload from Dusk commit
-`77877d576018fd2bd8191d13f05534b0484e2282`, deployed on devnet at slot
-515502278. The manifest verifies its payload hash and its zero-padded on-chain
+`8fadcc31fbe542f4f822060724639a5057fad2cc`, deployed on devnet at slot
+517074591. The manifest verifies its payload hash and its zero-padded on-chain
 allocation hash against `compatible-deployment.json`. A future Dusk deployment
 must update these artifacts together; a mismatched runtime refuses quotes.
 
@@ -41,3 +41,6 @@ classic/Token-2022 transfer fees and 50% swap-fee compounding. The independent
 original SBF runtime accepted each selected economic grid point and rejected its
 next point under the same financial-capacity budget. These are offline financial
 parity checks, not a claim that every case fits devnet's execution budget.
+
+The previous runtime and its immutable parity fixtures remain bound to the
+archived October 26 IDL/executable. They are not relabelled as current accounts.

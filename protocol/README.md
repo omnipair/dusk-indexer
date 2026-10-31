@@ -1,5 +1,23 @@
 # Dusk devnet protocol pin
 
+The active revision is `next-2026-10-31-8fadcc31`, from the tested OP-GAMM
+PR #58 head `8fadcc31fbe542f4f822060724639a5057fad2cc`. Dusk and the delegate
+were upgraded at finalized slots **517074591** and **517074907**. The complete
+revision begins at slot **517074908**. Generated IDLs and both finalized
+executables were checked against the reviewed build before pin activation.
+
+The previous October 26 lock, IDLs, compatible executable metadata, price
+references and exact quote runtime are preserved under
+`archive/devnet-2026-10-26-cd6f1ec/`. Existing observations and cursors retain
+their original identity. The `candidates/` manifest remains the immutable
+pre-deployment review bundle; `protocol.lock.json` carries the deployed facts.
+
+[Deployment evidence](../docs/evidence/devnet-op-gamm-2026-10-31/deployment.json)
+records both signatures and the new seeded native market. The revision name
+retains the FE preview's pinned identifier so its interface check can match.
+
+## Previous deployment history
+
 `protocol.lock.json` records the original deployment and the active decoding
 identity. It includes the devnet genesis, program IDs, original binary hashes,
 raw IDL hashes and canonical IDL hashes. Later executable upgrades under the
@@ -10,7 +28,7 @@ Never hand-edit generated IDLs. A protocol upgrade vendors a new revision, runs
 replay/reconciliation checks, and deliberately switches the active identity.
 The legacy Omnipair decoder cannot decode Dusk accounts or events.
 
-The current pin is `devnet-2026-10-26-cd6f1ec`, built from Dusk PR #45
+The preceding pin was `devnet-2026-10-26-cd6f1ec`, built from Dusk PR #45
 (`cd6f1ec0e074082b9c191b0ec741477037aa9eb3`). Dusk was upgraded at
 finalized slot 515117115 and leverage delegate at slot 515117216. The first
 slot for the complete revision is 515117217. No market creation or service

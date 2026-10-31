@@ -89,7 +89,21 @@ Regenerate only the synthetic wire fixture from the repository root with:
 node api/scripts/generate-oracle-fixtures.mjs
 ```
 
-## Rollout after the protocol is merged and deployed
+## Activated devnet revision — 31 October 2026
+
+The tested #58 head is deployed on devnet under the existing program IDs.
+`protocol.lock.json` records finalized deployment slots and executable hashes;
+the prior identity is archived. [Deployment evidence](evidence/devnet-op-gamm-2026-10-31/deployment.json)
+records the byte verification and seeded layout-7 market. Repository review and
+merge status remain separate from the authorized devnet deployment.
+
+Market discovery derives the fixed Borsh version offset and account size from
+the pinned IDL: OracleState is serialized before version, so v7 uses offset333
+and 3,461-byte accounts. Old-layout accounts are excluded before decoding.
+Capacity, yield and hLP trigger previews carry their configured source reports.
+The archived quote lineage includes the prior active revision.
+
+## Rollout procedure
 
 1. Verify the final protocol commit against this candidate. If its generated IDLs
    or SDK differ, vendor a new candidate and update the FE pin together.

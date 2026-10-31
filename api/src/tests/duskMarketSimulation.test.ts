@@ -12,6 +12,8 @@ function fixture(options: { failed?: boolean; identityChanged?: boolean; slot?: 
   const pin = loadPinnedProtocol(),source = priceFixture().source(),requestedSlots: number[] = [],extra = fixtureKey(145).toBase58();
   let envelopeCalls = 0,fallbackCalls = 0,simulationCalls = 0;
   const rpc = {
+    getAccountInfoAndContext: async () => ({ context: { slot: source.slot },value: {
+      owner: new PublicKey(pin.dusk.programId),executable: false,data: Buffer.from(source.rawMarket,'base64') } }),
     simulateTransaction: async (transaction: VersionedTransaction,config: SimulateTransactionConfig) => {
       assert.equal(config.commitment,options.live ? 'confirmed' : 'finalized'); assert.equal(config.sigVerify,false); assert.equal(config.replaceRecentBlockhash,true);
       assert.equal(config.minContextSlot,source.slot); assert.equal(config.accounts?.addresses[0],source.market);

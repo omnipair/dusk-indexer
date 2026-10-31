@@ -1,4 +1,5 @@
-import { projectOraclePolicy } from './duskOraclePolicy';
+import { marketAccountLayout, marketLayoutVersion } from './duskProtocolSchema';
+import { projectOraclePolicy, oracleReportAccounts } from './duskOraclePolicy';
 /**
  * Market state, read from chain through the pinned IDL.
  *
@@ -349,7 +350,7 @@ export async function currentMarketCapacities(snapshot: LiveMarketSimulationSnap
   if (!payer) return null;
   const decoded = new anchor.BorshCoder(duskRawIdl()).accounts.decode('Market',Buffer.from(snapshot.marketAccount.data,'base64'));
   const side = (name: 'base' | 'quote') => field<Record<string, unknown>>(decoded,`${name}Side`,`${name}_side`);
-  const input = { market: snapshot.market,
+  const input = { market: snapshot.market,oracleAccounts: oracleReportAccounts(projectOraclePolicy(decoded)),
     baseMint: stringValue(field(side('base'),'assetMint','asset_mint')),quoteMint: stringValue(field(side('quote'),'assetMint','asset_mint')),
     baseDecimals: numberValue(field(side('base'),'assetDecimals','asset_decimals')),quoteDecimals: numberValue(field(side('quote'),'assetDecimals','asset_decimals')),
     baseHlpMint: stringValue(field(side('base'),'hlpMint','hlp_mint')),quoteHlpMint: stringValue(field(side('quote'),'hlpMint','hlp_mint')) };
@@ -657,12 +658,13 @@ export async function discoverMarkets(): Promise<{
   sourceSlot: number;
 }> {
   const { connection, program } = initializeRuntime();
-  const floor = discoveryFloor;
+  const floor = discoveryFloor, layout = marketAccountLayout();
   const read = () => connection.getProgramAccounts(program.programId, {
     commitment: DUSK_DEPLOYMENT_COMMITMENT,
     withContext: true,
     minContextSlot: floor || undefined,
-    filters: [{ memcmp: program.coder.accounts.memcmp('market') }],
+    filters: [{ dataSize: layout.accountBytes }, { memcmp: program.coder.accounts.memcmp('market') },
+      { memcmp: { offset: layout.versionOffset, bytes: anchor.utils.bytes.bs58.encode(Buffer.from([marketLayoutVersion()])) } }],
   });
   let observation: Awaited<ReturnType<typeof read>>;
   for (let attempt = 0; ; attempt++) {
@@ -675,7 +677,8 @@ export async function discoverMarkets(): Promise<{
   discoveryFloor = Math.max(discoveryFloor, observation.context.slot);
   return {
     markets: observation.value.map((entry) => {
-      if (!entry.account.owner.equals(program.programId)) throw new Error('Market account owner mismatch');
+      if (!entry.account.owner.equals(program.programId) || entry.account.data.length !== layout.accountBytes
+        || entry.account.data[layout.versionOffset] !== marketLayoutVersion()) throw new Error('Market account owner or layout mismatch');
       return { address: entry.pubkey, account: program.coder.accounts.decode('market', entry.account.data) };
     }),
     sourceSlot: observation.context.slot,

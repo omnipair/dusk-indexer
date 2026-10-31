@@ -184,7 +184,7 @@ test('market payload exposes configured Oracle terms even when its valuation pre
   const { IdlCoder } = await import('@coral-xyz/anchor/dist/cjs/coder/borsh/idl');
   const schema = await import('../services/duskProtocolSchema');
   const sample = liveFixture();
-  assert.equal(projectMarketSnapshot(sample.snapshot,sample.references).oraclePolicy,null);
+  assert.equal((projectMarketSnapshot(sample.snapshot,sample.references).oraclePolicy as { lambdaBps: number }).lambdaBps,0);
   const root = resolve(__dirname,'../../../protocol/candidates/next-2026-10-31-8fadcc31');
   const idl = JSON.parse(readFileSync(resolve(root,'idl/dusk.json'),'utf8'));
   const golden = JSON.parse(readFileSync(resolve(root,'fixtures/oracle-wire.json'),'utf8'));

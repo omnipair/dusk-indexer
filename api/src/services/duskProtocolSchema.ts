@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { IdlCoder } from '@coral-xyz/anchor/dist/cjs/coder/borsh/idl';
 import type { Idl } from '@coral-xyz/anchor';
 import type { IdlField } from '@coral-xyz/anchor/dist/cjs/idl';
 import { loadPinnedProtocol, sha256 } from '../config/duskProtocol';
@@ -35,4 +36,23 @@ export function governanceFamilyCount(idl: Idl = pinnedDuskIdl()): number {
   const length = revisions && typeof revisions.type === 'object' && 'array' in revisions.type ? revisions.type.array[1] : null;
   if (length !== 7 && length !== 8) throw new Error('Unsupported governance revision layout');
   return length;
+}
+
+/** Box fields serialize inline. Derive the version location instead of assuming
+ * it immediately follows the discriminator (OracleState precedes it in v7). */
+export function marketAccountLayout(idl: Idl = pinnedDuskIdl()) {
+  const definition = idl.types?.find(row => row.name === 'Market');
+  if (definition?.type.kind !== 'struct') throw new Error('Missing pinned Market layout');
+  let versionOffset = 8, found = false;
+  for (const field of definition.type.fields ?? []) {
+    if (typeof field !== 'object' || !('name' in field)) throw new Error('Unsupported Market tuple layout');
+    if (field.name === 'version') { found = true; break; }
+    const size = IdlCoder.fieldLayout(field, idl.types).span;
+    if (!Number.isSafeInteger(size) || size < 0) throw new Error('Dynamic Market identity prefix');
+    versionOffset += size;
+  }
+  const bodySize = IdlCoder.typeDefLayout({ typeDef: definition,types: idl.types! }).span;
+  if (!found || versionOffset > 4096 || !Number.isSafeInteger(bodySize) || bodySize <= versionOffset-8)
+    throw new Error('Invalid Market identity layout');
+  return { versionOffset, prefixBytes: versionOffset+1, accountBytes: bodySize+8 };
 }

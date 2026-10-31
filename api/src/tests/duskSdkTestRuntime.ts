@@ -2,11 +2,11 @@ import { mock } from 'node:test';
 import { AnchorProvider, Wallet } from '@coral-xyz/anchor';
 import type { Connection } from '@solana/web3.js';
 import * as protocol from '../config/duskProtocol';
-import { createVirtualBookRuntime } from '../services/virtualBook/native';
+import { createVirtualBookRuntime, sdkForProtocol } from '../services/virtualBook/native';
 
 /** Unit fixtures exercise the pending SDK without changing the deployed pin. */
-export async function createSdkTestRuntime(connection: Connection, oracle = false) {
-  const sdk = await (new Function(`return import('${oracle ? "@omnipair/dusk-sdk-oracle" : "@omnipair/dusk-sdk"}')`)() as Promise<typeof import('@omnipair/dusk-sdk')>);
+export async function createSdkTestRuntime(connection: Connection, oracle?: boolean) {
+  const sdk = oracle === undefined ? await sdkForProtocol() : await (new Function(`return import('${oracle ? "@omnipair/dusk-sdk-oracle" : "@omnipair/dusk-sdk"}')`)() as Promise<typeof import('@omnipair/dusk-sdk')>);
   const pin = protocol.loadPinnedProtocol();
   const delegate = sdk.createLeverageDelegateProgram({ provider: new AnchorProvider(connection, {} as Wallet, {}) });
   const mocked = mock.method(protocol, 'loadPinnedProtocol', () => ({ ...pin,
