@@ -1,3 +1,4 @@
+import { oracleFeedCatalog } from '../../services/duskOracleCatalog';
 import { currentPayload, payloadSelection } from '../../services/duskPayloads';
 import { openVirtualBookStream } from '../../services/duskSnapshotStream';
 import { currentLeverageMaximum } from '../../services/duskLeverageMaximum';
@@ -61,6 +62,11 @@ import { provenance, renderMetrics } from '../../utils/metrics';
 import { PublicKey } from '@solana/web3.js';
 
 const router = Router();
+
+router.get('/oracle-feeds', asyncRoute(async (req, res) => {
+  res.set('Cache-Control', 'no-store').json(await withDeploymentRead(deployment =>
+    oracleFeedCatalog(req.query.baseMint, req.query.quoteMint, deployment.sourceSlot)));
+}));
 
 router.get('/virtual-book/:market/stream', asyncRoute(openVirtualBookStream));
 

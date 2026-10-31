@@ -156,3 +156,25 @@ candidate hashes, both SDK selections, Oracle family wire data, coherent report
 capture and health-only borrow previews. Docker image packaging and the actual
 Timescale hypertable job remain CI gates when those runtimes are unavailable
 locally. Live new-revision replay and signed writes await the deployment above.
+
+## Feed discovery and synthetic devnet publisher
+
+`GET /api/dusk/v1/oracle-feeds?baseMint=…&quoteMint=…` uses the normal
+deployment bracket. It matches exact ordered mint addresses and network; symbols
+never grant feed compatibility. The current catalog contains one centralized
+synthetic devnet META/USDC feed, with its public manifest in
+`api/src/config/oracles/devnet-mock.json`. Pyth and arbitrary custom sources
+remain manual inputs; no catalog coverage is invented for unsupported assets.
+
+The API authenticates report owner, magic, feed ID and embedded mints. It reads
+the report and Clock in one RPC bank, keeps u64 amounts exact, distinguishes
+fresh/stale/invalid/unavailable, and rejects future time/slot observations.
+No report is presented as external market data. Frontend state comes only from
+this endpoint, and an expired cached report loses its actionable price button.
+
+The optional prices-worker publisher requires both
+`DUSK_DEVNET_MOCK_ORACLE_ENABLED=true` and a dedicated
+`DUSK_DEVNET_MOCK_ORACLE_SECRET`. It verifies devnet genesis, signer and PDA.
+The deployment wallet is never installed in the service. Its compare-and-set
+sequence avoids overwriting a newer manual price; an invalidated report is
+left invalid until its publisher explicitly resumes it.
