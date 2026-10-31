@@ -51,7 +51,7 @@ export interface YieldGroup {
   holder: string;
   market: string;
   lpMint: string;
-  kind: 'ylp' | 'hlp';
+  kind: 'ylp' | 'hlp' | 'junior';
   baseMint: string;
   quoteMint: string;
 }
@@ -62,7 +62,7 @@ export interface YieldStream {
   market: string;
   lpMint: string;
   assetMint: string;
-  kind: 'ylp' | 'hlp';
+  kind: 'ylp' | 'hlp' | 'junior';
   retired: boolean;
   recipient: string;
   initialized: boolean;
@@ -128,7 +128,7 @@ export async function readOwnerYieldGroups(
     holder: owner,
     market: row.market,
     lpMint: row.lp_mint,
-    kind: row.kind === 'ylp' ? 'ylp' : 'hlp',
+    kind: row.kind === 'ylp' ? 'ylp' : row.kind === 'junior' ? 'junior' : 'hlp',
     baseMint: row.base_mint,
     quoteMint: row.quote_mint,
   }));
@@ -165,9 +165,12 @@ export async function captureYieldGroup(
     lpMint = new PublicKey(group.lpMint);
   const assets = [new PublicKey(group.baseMint), new PublicKey(group.quoteMint)];
   const lpAccount = getAssociatedTokenAddressSync(lpMint, holder, true, TOKEN_2022_PROGRAM_ID);
-  const yields = assets.map((asset) => deriveYieldAccountAddress(market, holder, lpMint, asset, group.kind, program)[0]);
+  const yields = assets.map((asset) => deriveYieldAccountAddress(market, holder, lpMint, asset, group.kind as any, program)[0]);
   const addresses = [group.market, group.lpMint, lpAccount.toBase58(), ...yields.map(String), ...assets.map(String), SYSVAR_CLOCK_PUBKEY.toBase58()];
   if (group.kind === 'hlp') addresses.push(hlpCohortAddress(market, lpMint, program)[0].toBase58());
+  if (group.kind === 'junior') addresses.push(PublicKey.findProgramAddressSync(
+    [Buffer.from('junior_cohort'),market.toBuffer(),lpMint.toBuffer()],program,
+  )[0].toBase58());
   if (new Set(addresses).size !== addresses.length) throw new Error('Duplicate yield source accounts');
   const instruction = await dusk.write.instruction('previewMarket', undefined, {
     accounts: { market },
@@ -229,9 +232,15 @@ export async function captureYieldGroup(
     (group.kind === 'ylp' && !state.ylpMint.equals(lpMint))
   )
     throw new Error('Yield market, LP mint or bank changed');
-  const retired = group.kind === 'hlp' && !state.baseSide.hlpMint.equals(lpMint) && !state.quoteSide.hlpMint.equals(lpMint);
-  const cohort = retired ? dusk.program.coder.accounts.decode<HlpCohort>('hlpCohort', owned(infos[8], program).data) : null;
+  const juniorMint = (state as any).juniorMint as PublicKey | undefined;
+  const retiredHlp = group.kind === 'hlp' && !state.baseSide.hlpMint.equals(lpMint) && !state.quoteSide.hlpMint.equals(lpMint);
+  const retiredJunior = group.kind === 'junior' && (!juniorMint || !juniorMint.equals(lpMint));
+  const retired = retiredHlp || retiredJunior;
+  const cohort = retiredHlp ? dusk.program.coder.accounts.decode<HlpCohort>('hlpCohort', owned(infos[8], program).data) : null;
   if (cohort) assertRetiredHlpCohort(cohort, market, lpMint, program);
+  const juniorCohort = retiredJunior ? dusk.program.coder.accounts.decode<any>('juniorCohort', owned(infos[8], program).data) : null;
+  if (juniorCohort && (!juniorCohort.market.equals(market) || !juniorCohort.mint.equals(lpMint) || !juniorCohort.retired))
+    throw new Error('Invalid retired junior cohort');
   const lp = unpackMint(lpMint, owned(infos[1], TOKEN_2022_PROGRAM_ID), TOKEN_2022_PROGRAM_ID);
   if (!lp.isInitialized || !lp.mintAuthority?.equals(market)) throw new Error('Invalid yield LP mint');
   const token = infos[2] ? unpackAccount(lpAccount, owned(infos[2], TOKEN_2022_PROGRAM_ID), TOKEN_2022_PROGRAM_ID) : null;
@@ -252,11 +261,12 @@ export async function captureYieldGroup(
     if (
       account &&
       (!account.owner.equals(holder) || !account.market.equals(market) || !account.lpMint.equals(lpMint) ||
-        !account.assetMint.equals(assetMint) || account.tokenKind !== (group.kind === 'ylp' ? 0 : 1) ||
+        !account.assetMint.equals(assetMint) || account.tokenKind !== (group.kind === 'ylp' ? 0 : group.kind === 'hlp' ? 1 : 2) ||
         account.recipient.equals(PublicKey.default))
     )
       throw new Error('Yield account identity changed');
-    const amounts = account ? projectLiveYield(state, account, balance, cohort?.finalVault) : { swapFeeAmount: 0n, interestAmount: 0n, totalAmount: 0n };
+    const retiredLedger = cohort?.finalVault ?? juniorCohort?.finalIncome?.[index];
+    const amounts = account ? projectLiveYield(state as any, account, balance, retiredLedger) : { swapFeeAmount: 0n, interestAmount: 0n, totalAmount: 0n };
     const fees = getTransferFeeConfig(mint);
     const fee = (amount: bigint) => (fees ? calculateEpochFee(fees, epoch, amount) : 0n);
     return {

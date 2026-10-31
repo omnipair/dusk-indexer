@@ -124,7 +124,16 @@ export async function currentMarketSnapshot(market: PublicKey, discovery: unknow
   const collateral = ['base','quote'].map((side) => stringValue(field(field(discovery,`${side}Side`,`${side}_side`),'collateralVault','collateral_vault')));
   const reserves = ['base','quote'].map((side) => stringValue(field(field(discovery,`${side}Side`,`${side}_side`),'reserveVault','reserve_vault')));
   const hlpMints = ['base','quote'].map((side) => stringValue(field(field(discovery,`${side}Side`,`${side}_side`),'hlpMint','hlp_mint')));
-  const extras = [...mints,...collateral,...reserves,...mints.map((mint) => leverageCollateralAddress(market.toBase58(),mint)),...mints.map(tokenMetadataAddress),...hlpMints];
+  const juniorMint = stringValue(field(discovery,'juniorMint','junior_mint'));
+  const juniorExtras = (() => {
+    try {
+      const key = new PublicKey(juniorMint);
+      return key.equals(PublicKey.default) ? [] : [key.toBase58()];
+    } catch {
+      return [];
+    }
+  })();
+  const extras = [...mints,...collateral,...reserves,...mints.map((mint) => leverageCollateralAddress(market.toBase58(),mint)),...mints.map(tokenMetadataAddress),...hlpMints,...juniorExtras];
   const snapshot = await cache.getOrSet(`${key}:floor:${minSlot}`,0,() => capture(market.toBase58(),minSlot,extras));
   if (snapshot.commitment !== 'confirmed' || snapshot.slot<minSlot || snapshot.market !== market.toBase58()
     || snapshot.deploymentIdentitySha256 !== identity) throw new Error('Live market snapshot identity or slot mismatch');
@@ -230,7 +239,19 @@ function marketConfigPayload(marketAccount: unknown): Record<string, unknown> {
         (field<number[]>(amm, 'reserved') ?? []) as number[],
       ).map((byte) => Number(byte)),
     },
-    irm: {
+    irm: field(irm, 'lowerSignalNad', 'lower_signal_nad') !== undefined ? {
+      model: 'junior-coverage.v1',
+      lowerSignalNad: stringValue(field(irm, 'lowerSignalNad', 'lower_signal_nad')),
+      upperSignalNad: stringValue(field(irm, 'upperSignalNad', 'upper_signal_nad')),
+      halfLifeMs: stringValue(field(irm, 'halfLifeMs', 'half_life_ms')),
+      initialAprNad: stringValue(field(irm, 'initialAprNad', 'initial_apr_nad')),
+      minimumAprNad: stringValue(field(irm, 'minimumAprNad', 'minimum_apr_nad')),
+      maximumAprNad: stringValue(field(irm, 'maximumAprNad', 'maximum_apr_nad')),
+      borrowUtilizationLimitBps: numberValue(
+        field(irm, 'borrowUtilizationLimitBps', 'borrow_utilization_limit_bps'),
+      ),
+    } : {
+      model: 'utilization.v1',
       targetUtilizationBps: numberValue(
         field(irm, 'targetUtilizationBps', 'target_utilization_bps'),
       ),
@@ -252,6 +273,7 @@ export interface DuskMarketAssociatedAddresses {
   baseTokenProgram: string;
   quoteTokenProgram: string;
   ylpMint: string;
+  juniorMint: string | null;
   baseHlpMint: string;
   quoteHlpMint: string;
   baseReserveVault: string;
@@ -292,6 +314,14 @@ function associatedAddresses(
   const baseHlpMint = stringValue(field(baseSide, 'hlpMint', 'hlp_mint'));
   const quoteHlpMint = stringValue(field(quoteSide, 'hlpMint', 'hlp_mint'));
   const ylpMint = stringValue(field(marketAccount, 'ylpMint', 'ylp_mint'));
+  const juniorMintRaw = field(marketAccount, 'juniorMint', 'junior_mint');
+  let juniorMint: string | null = null;
+  try {
+    const candidate = new PublicKey(stringValue(juniorMintRaw));
+    if (!candidate.equals(PublicKey.default)) juniorMint = candidate.toBase58();
+  } catch {
+    // Pre-tranche revisions have no junior mint.
+  }
 
   const readMint = (mint: PublicKey,decimals: number) => {
     const account = snapshot.accounts.find((entry) => entry.address === mint.toBase58())?.account;
@@ -327,6 +357,7 @@ function associatedAddresses(
     baseTokenProgram: baseMintInfo.owner.toBase58(),
     quoteTokenProgram: quoteMintInfo.owner.toBase58(),
     ylpMint,
+    juniorMint,
     baseHlpMint,
     quoteHlpMint,
     baseReserveVault: stringValue(field(baseSide, 'reserveVault', 'reserve_vault')),
@@ -339,6 +370,48 @@ function associatedAddresses(
     quoteInterestVault: stringValue(field(quoteSide, 'interestVault', 'interest_vault')),
     baseHlpYlpVault: hlpYlpVault(baseHlpMint),
     quoteHlpYlpVault: hlpYlpVault(quoteHlpMint),
+  };
+}
+
+/** Tranche state is absent on pre-tranche revisions. Keep the active devnet
+ * readable while exposing the complete candidate state after promotion. */
+function trancheProjection(marketAccount: unknown, sourceSlot: number) {
+  const juniorMintRaw = field(marketAccount, 'juniorMint', 'junior_mint');
+  let juniorMint: string;
+  try {
+    const key = new PublicKey(stringValue(juniorMintRaw));
+    if (key.equals(PublicKey.default)) return null;
+    juniorMint = key.toBase58();
+  } catch {
+    return null;
+  }
+  const capital = field<Record<string, unknown>>(marketAccount, 'tranches');
+  const exit = field<Record<string, unknown>>(marketAccount, 'juniorExitConfig', 'junior_exit_config');
+  const totalReserveShares = toBigInt(field(field(field(marketAccount, 'baseSide', 'base_side'), 'shares'), 'ylpSupply', 'ylp_supply'));
+  const juniorReserveShares = toBigInt(field(capital, 'juniorReserveShares', 'junior_reserve_shares'));
+  const juniorReceiptSupply = toBigInt(field(capital, 'juniorReceiptSupply', 'junior_receipt_supply'));
+  if (juniorReserveShares > totalReserveShares) throw new Error('Junior reserve shares exceed market supply');
+  return {
+    schemaVersion: 'dusk-market-tranches.v1',
+    sourceSlot,
+    juniorMint,
+    generation: stringValue(field(capital, 'generation')),
+    totalReserveShares: totalReserveShares.toString(),
+    seniorReserveShares: (totalReserveShares - juniorReserveShares).toString(),
+    juniorReserveShares: juniorReserveShares.toString(),
+    juniorReceiptSupply: juniorReceiptSupply.toString(),
+    permanentReceipts: stringValue(field(capital, 'permanentReceipts', 'permanent_receipts')),
+    queuedReceipts: stringValue(field(capital, 'queuedReceipts', 'queued_receipts')),
+    juniorReserveSharesPerReceiptNad: juniorReceiptSupply === 0n
+      ? null
+      : (juniorReserveShares * NAD / juniorReceiptSupply).toString(),
+    exit: {
+      minimumNoticeSlots: stringValue(field(exit, 'minimumNoticeSlots', 'minimum_notice_slots')),
+      maximumNoticeSlots: stringValue(field(exit, 'maximumNoticeSlots', 'maximum_notice_slots')),
+      exerciseWindowSlots: stringValue(field(exit, 'exerciseWindowSlots', 'exercise_window_slots')),
+      requestFeeBps: numberValue(field(exit, 'requestFeeBps', 'request_fee_bps')),
+    },
+    rates: null,
   };
 }
 
@@ -368,7 +441,10 @@ export async function marketPayload(
   const snapshot = await currentMarketSnapshot(market,marketAccount,sourceSlot,envelope.deploymentIdentitySha256);
   const capacities = await currentMarketCapacities(snapshot,
     process.env.DUSK_PREVIEW_PAYER?.trim() || envelope.programUpgradeAuthority);
-  return withHlpRates(projectMarketSnapshot(snapshot,undefined,capacities),envelope.deploymentIdentitySha256);
+  const projected = projectMarketSnapshot(snapshot,undefined,capacities);
+  const withHlp = await withHlpRates(projected,envelope.deploymentIdentitySha256);
+  const { withTrancheRates } = await import('./duskTrancheRates');
+  return withTrancheRates(withHlp,envelope.deploymentIdentitySha256);
 }
 
 /** The highest bank one market payload read, including its capacity previews. */
@@ -475,6 +551,7 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
     targetHlpLeverageBps: config.targetHlpLeverageBps,
     swapFeeBps: config.swapFeeBps,
     config,
+    tranches: trancheProjection(marketAccount, sourceSlot),
     oraclePolicy: projectOraclePolicy(marketAccount),
     insurance: {
       principalCoverageBps: numberValue(

@@ -28,11 +28,13 @@ interface GrowthFees {
   swapFeeGrowthIndexQ64: unknown; interestGrowthIndexQ64: unknown;
   unallocatedSwapFeeLiability: unknown; unallocatedInterestLiability: unknown;
   swapFeeGrowthRemainderScaled: unknown; interestGrowthRemainderScaled: unknown;
+  junior?: { swapGrowthQ64: unknown; interestGrowthQ64: unknown };
 }
 interface GrowthSide { assetMint: { equals(other: unknown): boolean }; hlpMint: { equals(other: unknown): boolean }; fees: GrowthFees; shares: { ylpSupply: unknown } }
 /** The camelCase market and yield account the pinned SDK decodes. */
 export interface LiveYieldMarket {
   ylpMint: { equals(other: unknown): boolean };
+  juniorMint?: { equals(other: unknown): boolean };
   baseSide: GrowthSide; quoteSide: GrowthSide;
   baseHlpVault: Record<string, unknown>; quoteHlpVault: Record<string, unknown>;
 }
@@ -41,6 +43,7 @@ export interface LiveYieldAccount {
   swapFeeCheckpointQ64: unknown; interestCheckpointQ64: unknown;
   swapFeeRemainderQ64: unknown; interestRemainderQ64: unknown;
   accruedSwapFeeAmount: unknown; accruedInterestAmount: unknown;
+  escrowBalance?: unknown;
 }
 
 /** An index after crediting growth that is recorded but not yet distributed. */
@@ -59,10 +62,21 @@ export function projectLiveYield(market: LiveYieldMarket, account: LiveYieldAcco
     : market.quoteSide.assetMint.equals(account.assetMint) ? 'quote' : null;
   if (!side) throw new Error('Yield asset is outside its market');
   const state = side === 'base' ? market.baseSide : market.quoteSide;
-  let swap = retiredVault ? unsigned(retiredVault[`${side}SwapFeeGrowthIndexQ64`]) : publishedIndex(state.fees.swapFeeGrowthIndexQ64, state.fees.unallocatedSwapFeeLiability,
-    state.shares.ylpSupply, state.fees.swapFeeGrowthRemainderScaled);
-  let interest = retiredVault ? unsigned(retiredVault[`${side}InterestGrowthIndexQ64`]) : publishedIndex(state.fees.interestGrowthIndexQ64, state.fees.unallocatedInterestLiability,
-    state.shares.ylpSupply, state.fees.interestGrowthRemainderScaled);
+  let swap: bigint;
+  let interest: bigint;
+  if (account.tokenKind === 2) {
+    if (!retiredVault && !market.juniorMint?.equals(account.lpMint)) throw new Error('Invalid jrLP mint');
+    const junior = retiredVault ?? state.fees.junior;
+    if (!junior) throw new Error('Missing junior yield ledger');
+    swap = unsigned(junior.swapGrowthQ64);
+    interest = unsigned(junior.interestGrowthQ64);
+    balance = unsigned(balance + unsigned(account.escrowBalance ?? 0,U64_MAX),U64_MAX);
+  } else {
+    swap = retiredVault ? unsigned(retiredVault[`${side}SwapFeeGrowthIndexQ64`]) : publishedIndex(state.fees.swapFeeGrowthIndexQ64, state.fees.unallocatedSwapFeeLiability,
+      state.shares.ylpSupply, state.fees.swapFeeGrowthRemainderScaled);
+    interest = retiredVault ? unsigned(retiredVault[`${side}InterestGrowthIndexQ64`]) : publishedIndex(state.fees.interestGrowthIndexQ64, state.fees.unallocatedInterestLiability,
+      state.shares.ylpSupply, state.fees.interestGrowthRemainderScaled);
+  }
   if (account.tokenKind === 0) {
     if (retiredVault) throw new Error('Retired yield requires an hLP receipt');
     if (!market.ylpMint.equals(account.lpMint)) throw new Error('Invalid yLP mint');
@@ -78,7 +92,7 @@ export function projectLiveYield(market: LiveYieldMarket, account: LiveYieldAcco
       vault.hlpSupply, vault[`${side}SwapFeeGrowthRemainderScaled`]);
     interest = publishedIndex(vault[`${side}InterestGrowthIndexQ64`], unsigned(vault[`unallocated${prefix}InterestAmount`], U64_MAX) + interestCredit,
       vault.hlpSupply, vault[`${side}InterestGrowthRemainderScaled`]);
-  } else if (account.tokenKind !== 1) throw new Error('Invalid LP token kind');
+  } else if (account.tokenKind !== 1 && account.tokenKind !== 2) throw new Error('Invalid LP token kind');
   const swapFeeAmount = BigInt(settleRecordedGrowth({ balance, index: swap, checkpoint: account.swapFeeCheckpointQ64,
     remainder: account.swapFeeRemainderQ64, accrued: account.accruedSwapFeeAmount }).amount);
   const interestAmount = BigInt(settleRecordedGrowth({ balance, index: interest, checkpoint: account.interestCheckpointQ64,

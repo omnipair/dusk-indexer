@@ -12,6 +12,7 @@ import { type DuskReadBoundary } from './virtualBook/native';
 import { captureBorrowValuation, readStreamedBorrowPositions } from './duskBorrowValuation';
 import { captureHlpPositions, readStreamedHlpBalances } from './duskHlpPositions';
 import { readLeverageCashFlows } from './duskLeverageCashFlows';
+import { readJuniorExitPositions } from './duskJuniorPositions';
 
 /** Publish only complete batches; retain original per-observation slots. */
 export async function completeBatch<T, R>(
@@ -51,6 +52,7 @@ export const walletCaptureDependencies = {
   hlpBalances: readStreamedHlpBalances,
   hlpPositions: captureHlpPositions,
   cashFlows: readLeverageCashFlows,
+  juniorExits: readJuniorExitPositions,
 };
 export async function captureWalletSnapshot(
   dusk: Dusk,
@@ -80,9 +82,10 @@ export async function captureWalletSnapshot(
     undefined;
   // Borrow positions and hLP holdings are discovered from streamed events;
   // their live values are previewed at or after the stream's slot.
-  const [borrowPositions, hlpBalances] = await Promise.all([
+  const [borrowPositions, hlpBalances, juniorExits] = await Promise.all([
     deps.borrowPositions({ owner }),
     deps.hlpBalances(owner),
+    deps.juniorExits(owner),
   ]);
   if (borrowPositions.positions.length && !previewPayer)
     throw new Error('A read-only preview payer must be configured');
@@ -145,6 +148,7 @@ export async function captureWalletSnapshot(
     orders.slot,
     borrowPositions.sourceSlot,
     hlpBalances.sourceSlot,
+    juniorExits.sourceSlot,
     ...valuations.map((row) => row.sourceSlot),
     ...oracleValuations.map((row) => row.sourceSlot),
     ...borrowValuations.map((row) => row.sourceSlot),
@@ -242,6 +246,7 @@ export async function captureWalletSnapshot(
     cashFlows,
     borrowValuations,
     lpBalances: { basis: 'streamed-events.v1' as const, sourceSlot: hlpBalances.sourceSlot, balances: hlpBalances.lpBalances },
+    juniorExits: { basis: 'streamed-events.v1' as const, sourceSlot: juniorExits.sourceSlot, positions: juniorExits.positions },
     hlpPositions,
     orders: {
       owner,

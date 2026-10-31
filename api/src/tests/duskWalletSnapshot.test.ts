@@ -97,6 +97,7 @@ async function fixture() {
     borrowPositions: async () => ({ positions: [], sourceSlot: 1010 }),
     borrowValuation: walletCaptureDependencies.borrowValuation,
     hlpBalances: async () => ({ balances: [], lpBalances: [], sourceSlot: 1010 }),
+    juniorExits: async () => ({ positions: [], sourceSlot: 1010 }),
     hlpPositions: walletCaptureDependencies.hlpPositions,
   };
   const capture = () =>

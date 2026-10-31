@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "dusk-protocol-candidate.v1",
+  "status": "undeployed",
+  "revision": "next-2026-11-01-96c1fba5",
+  "source": {
+    "repository": "https://github.com/omnipair/dusk",
+    "gitCommit": "96c1fba5f803270c292a5a7821d0efa4708ae6bb"
+  },
+  "programs": [
+    {
+      "name": "dusk",
+      "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
+      "idl": {
+        "path": "idl/dusk.json",
+        "sha256": "8b933655796f1d0004413d617573ce535bd7cbee7f97aa23a0317dd4e74a32c5",
+        "canonicalSha256": "9179fe9f46331a5c5f58708cb5df9a8364a4b9d4cb98ada8f64f16f6eeec89af"
+      }
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv",
+      "idl": {
+        "path": "idl/leverage_delegate.json",
+        "sha256": "9e4ac80b9a19b559268603e93497f9ad3a86178faf1686967fc04ba14bd8a328",
+        "canonicalSha256": "bb19653c8a635edca2b0ea0e7f9ba86f5306a74d1403709097eeed79e3ce9498"
+      }
+    }
+  ],
+  "sdk": {
+    "version": "2.15.0-next.20261031",
+    "path": "api/vendor/dusk-sdk-2.15.0-next.20261031-tranches.tgz",
+    "sha256": "e731e8b19af1f9c9e36a58049ddd18c86212a900d862e5532d9f823320a43356"
+  },
+  "activation": "Junior tranche and risk-pricing candidate. Requires verified Dusk and leverage-delegate deployments, pin promotion, replay review, and indexer activation; the active protocol lock is unchanged."
+}

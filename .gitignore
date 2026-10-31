@@ -179,3 +179,4 @@ dist
 !api/vendor/dusk-sdk-2.9.0.tgz
 !api/vendor/dusk-sdk-2.10.2-devnet.20260927.tgz
 !api/vendor/dusk-sdk-2.14.2-devnet.20261025.tgz
+!api/vendor/dusk-sdk-2.15.0-next.20261031-tranches.tgz
