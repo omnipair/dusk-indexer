@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "dusk-protocol-candidate.v1",
+  "status": "undeployed",
+  "revision": "next-2026-10-31-layouts",
+  "source": {
+    "repository": "https://github.com/omnipair/dusk",
+    "gitCommit": "45549d878ce68e938898437c8946b21320fbc080"
+  },
+  "programs": [
+    {
+      "name": "dusk",
+      "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
+      "idl": {
+        "path": "idl/dusk.json",
+        "sha256": "b12aefdf9cdc26187aa667bc2c01c424b60dd82bef4b222b3670faa50598a374",
+        "canonicalSha256": "10656eac966e26db84314240b36f514ea3c3bf229275aa0f478a41b022b1d448"
+      }
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv",
+      "idl": {
+        "path": "idl/leverage_delegate.json",
+        "sha256": "b07ddd72c38ac8e634476ecf553a8f1cf23371dd22eafc55029c00264e715b7f",
+        "canonicalSha256": "59bbc38e7b3df2509f1f89c80b60b483ed5816809d8f9cc357d9522fd81169b6"
+      }
+    }
+  ],
+  "sdk": {
+    "version": "2.15.0-next.20261031",
+    "path": "api/vendor/dusk-sdk-2.15.0-next.20261031-layout8.tgz",
+    "sha256": "ecfb05d58063a4966a09b82a259be02de36cfa8ddef0920c36927b00cdcf684f"
+  },
+  "activation": "Market layout 8. Requires verified program/delegate deployment, new quote runtime, identity promotion and replay/compatibility review; the active layout-7 devnet lock is unchanged."
+}

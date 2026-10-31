@@ -53,7 +53,7 @@ export async function oracleFeedCatalog(base: unknown, quote: unknown, minimumSl
       catch { report = { ...report, status: 'invalid' }; }
     }
     return { id: 'devnet-meta-usdc', name: 'META / USDC test feed', providerKind: 'mock', providerLabel: 'Devnet mock',
-      ...source, format: 'normalized', provider: source.programId, baseAccount: source.report, quoteAccount: null,
+      ...source, format: 'normalized', composition: 'direct', provider: source.programId, baseAccount: source.report, quoteAccount: null,
       baseFeedId: source.feedId, quoteFeedId: null, ...report,
       maxAgeSeconds: 60, maxAgeSlots: '150',
       description: 'Centralized synthetic price for these devnet mock mints. No external market data.',

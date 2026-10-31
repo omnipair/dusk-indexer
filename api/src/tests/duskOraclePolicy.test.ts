@@ -73,7 +73,7 @@ test('Pyth reports remain distinct and complete; malformed and inexact policies 
   for (const mutation of [
     { lambdaBps: 10000 },{ maxAgeSlots: Number.MAX_SAFE_INTEGER+1 },{ maxAgeSlots: '18446744073709551616' },
     { adjustmentCapNad: '1000000000' },{ maxAgeSeconds: 0 },{ baseFeedId: '0x01' },{ baseFeedId: Array(32).fill(256) },
-    { provider: key(0) },{ format: 3 },{ baseAccount: undefined },{ maxAgeSlots: undefined },{ maxConfidenceBps: -1 },
+    { provider: key(0) },{ format: 5 },{ baseAccount: undefined },{ maxAgeSlots: undefined },{ maxConfidenceBps: -1 },
   ]) assert.throws(() => project({ ...normalized(),...mutation }));
   assert.throws(() => project({ ...pyth,quoteAccount: pyth.baseAccount }));
   assert.throws(() => project({ ...pyth,quoteFeedId: pyth.baseFeedId }));
@@ -93,4 +93,44 @@ test('market identity filters follow fixed serialized fields, including the boxe
   if (market.type.kind !== 'struct') throw Error('fixture');
   (market.type.fields as import('@coral-xyz/anchor/dist/cjs/idl').IdlField[]).unshift({ name: 'dynamic_prefix',type: 'string' });
   assert.throws(() => marketAccountLayout(malformed),/Dynamic/);
+});
+
+test('feed layout is independent of provider for policy projection and report accounts', () => {
+  for (const format of [1,2,3,4]) {
+    const ratio = [2,4].includes(format), pyth = [2,3].includes(format);
+    const policy = { ...normalized(),format,provider: pyth ? 'rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ' : key(2),
+      quoteAccount: ratio ? key(4) : key(0),quoteFeedId: Array(32).fill(ratio ? 2 : 0),maxPublishSkewSeconds: ratio ? 5 : 0 };
+    assert.deepEqual(oracleReportAccounts(project(policy)),ratio ? [key(3),key(4)] : [key(3)]);
+    assert.deepEqual(oracleReportAccounts(project({...policy,lambdaBps:0})),[]);
+    if (ratio) assert.throws(() => project({...policy,quoteAccount:policy.baseAccount}));
+    else assert.throws(() => project({...policy,maxPublishSkewSeconds:1}));
+    if (pyth) assert.throws(() => project({...policy,provider:key(2)}));
+  }
+});
+
+test('layout-8 candidate preserves independent source replay state without promoting the active pin', async () => {
+  const futureRoot = resolve(root,'../next-2026-10-31-layouts');
+  const manifest = JSON.parse(readFileSync(resolve(futureRoot,'candidate.json'),'utf8'));
+  assert.equal(manifest.status,'undeployed');
+  for (const program of manifest.programs) {
+    const bytes=readFileSync(resolve(futureRoot,program.idl.path));
+    assert.equal(sha256(bytes),program.idl.sha256);
+    assert.equal(sha256(canonicalJson(JSON.parse(bytes.toString()))),program.idl.canonicalSha256);
+    assert.equal(program.deployment,undefined);assert.equal(program.binary,undefined);
+  }
+  assert.equal(sha256(readFileSync(resolve(futureRoot,'../../..',manifest.sdk.path))),manifest.sdk.sha256);
+  const futureIdl=JSON.parse(readFileSync(resolve(futureRoot,'idl/dusk.json'),'utf8')) as Idl;
+  const fixture=JSON.parse(readFileSync(resolve(futureRoot,'fixtures/oracle-wire.json'),'utf8'));
+  assert.deepEqual(marketAccountLayout(futureIdl),{versionOffset:413,prefixBytes:414,accountBytes:3541});
+  assert.equal(fixture.marketVersion,8);
+  const coder=new BorshCoder(futureIdl);
+  const decoded=coder.accounts.decode('Market',Buffer.from(fixture.marketHex,'hex')) as {oracle:{last_observation:unknown}};
+  assert.deepEqual(projectOraclePolicy(decoded),projectOraclePolicy(new BorshCoder(idl).accounts.decode('Market',Buffer.from(golden.marketHex,'hex'))));
+  const observation=decoded.oracle.last_observation as {source_sequences:unknown[];source_hashes:unknown[]};
+  assert.equal(observation.source_sequences.length,2);assert.equal(observation.source_hashes.length,2);
+  const active=loadPinnedProtocol();
+  assert.notEqual(active.dusk.idlCanonicalSha256,manifest.programs[0].idl.canonicalSha256);
+  const sdk=await sdkForProtocol({...active,dusk:{...active.dusk,idlCanonicalSha256:manifest.programs[0].idl.canonicalSha256}});
+  assert.equal(sha256(canonicalJson(sdk.IDL)),manifest.programs[0].idl.canonicalSha256);
+  assert.throws(() => loadProtocolAt(futureRoot),/protocol.lock/);
 });

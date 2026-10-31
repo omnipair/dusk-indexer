@@ -14,7 +14,7 @@ or invalid feed makes the simulated valuation unavailable.
 
 ```ts
 oraclePolicy: null | {
-  format: number;                   // 0 = native default, 1 = normalized pair, 2 = Pyth ratio
+  format: number;                   // 0=native, 1=normalized pair, 2=Pyth ratio, 3=Pyth pair, 4=normalized ratio
   provider: string;                 // canonical base58 program ID
   baseAccount: string;
   quoteAccount: string;
@@ -178,3 +178,34 @@ The optional prices-worker publisher requires both
 The deployment wallet is never installed in the service. Its compare-and-set
 sequence avoids overwriting a newer manual price; an invalidated report is
 left invalid until its publisher explicitly resumes it.
+
+## Independent feed layouts — pending layout-8 rollout
+
+The latest companion protocol change separates provider from composition:
+normalized direct pair (format 1), Pyth ratio (2), Pyth direct pair (3), and
+normalized ratio (4). `oracleReportAccounts` includes the second account for
+formats 2 and 4. A single feed must actually quote the market pair; no USD feed
+is treated as a stablecoin-denominated pair by assuming a peg. Normalized ratio
+reports must identify the respective asset mints and the same nonzero
+common-denomination mint. The protocol checks each leg's age/status/identity,
+publication skew and outward-rounded ratio confidence.
+
+Market layout 8 adds per-leg sequence/content replay state (80 bytes), including
+independent updates when the other leg is unchanged. Its version byte is at
+413 and its serialized account size is 3,541 bytes. Policy and proposal-argument
+encoding are unchanged. The future SDK is vendored as
+`@omnipair/dusk-sdk-layouts`; runtime selection still requires an exact canonical
+IDL match for both programs. Installing this alias does not activate it.
+
+`protocol/candidates/next-2026-10-31-layouts/` contains generated IDLs, the exact
+SDK shared with the FE, and a synthetic wire fixture. The active layout-7 devnet
+lock, executable metadata, quote runtime and historical observations remain
+unchanged. Activating layout 8 requires a verified Dusk/delegate rollout, a new
+quote runtime and identity, and a replay/compatibility review. This PR does not
+claim live layout-8 write verification or relabel existing accounts as layout 8.
+
+The live mock catalog explicitly reports `composition: direct`. Its currently
+published META/USDC pair report is the only live catalog entry; no two mock
+asset reports or direct Pyth pair feeds are invented to populate the other
+layout. The shared editor supports manual sources when the provider actually
+publishes the required records. Chainlink still needs its actual adapter.

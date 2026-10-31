@@ -4,7 +4,9 @@ import { resolve } from 'node:path';
 import { canonicalJson, DuskPinnedProtocol, loadPinnedProtocol, sha256 } from '../config/duskProtocol';
 import { unsigned } from './duskYieldAccounting';
 
-export interface PriceReference { mint: string; priceUsd: string; note: string; externalMint?: string }
+/** `usdStablecoin` marks a mint whose dollar value is its peg, not a demo
+ * figure: a swap against it is valued from that leg. */
+export interface PriceReference { mint: string; priceUsd: string; note: string; externalMint?: string; usdStablecoin?: true }
 export interface PriceReferences {
   schemaVersion: 'dusk-price-references.v1'; cluster: string; programId: string; idlSha256: string; protocolRevision: string;
   effectiveFrom: string; references: PriceReference[];
@@ -37,7 +39,10 @@ export function parsePriceReferences(value: unknown, pin: DuskPinnedProtocol): P
     if (seen.has(mint)) throw new Error('Duplicate configured price reference');
     seen.add(mint);
     if (typeof ref.note !== 'string' || !ref.note.trim()) throw new Error('Configured prices require a source note');
-    return { mint,priceUsd,note: ref.note.trim(),...(ref.externalMint === undefined ? {} : { externalMint: key(ref.externalMint) }) };
+    if (ref.usdStablecoin !== undefined && (ref.usdStablecoin !== true || priceUsd !== '1'))
+      throw new Error('A USD stablecoin reference is a one-dollar peg marked true');
+    return { mint,priceUsd,note: ref.note.trim(),...(ref.externalMint === undefined ? {} : { externalMint: key(ref.externalMint) }),
+      ...(ref.usdStablecoin ? { usdStablecoin: true as const } : {}) };
   }).sort((a,b) => a.mint.localeCompare(b.mint));
   return { schemaVersion: 'dusk-price-references.v1',cluster: pin.cluster,programId: pin.dusk.programId,
     idlSha256: pin.dusk.idlCanonicalSha256,protocolRevision: pin.revision,effectiveFrom: new Date(data.effectiveFrom).toISOString(),references };
@@ -95,6 +100,22 @@ export function observedMarketBindings(value: unknown,created?: { baseMint: stri
   return bound;
 }
 
+/** A market's mints and decimals from its MarketCreated event. */
+export function createdMarketBindings(value: unknown) {
+  const created = fields(value);
+  const bound = { baseMint: key(created.base_mint),quoteMint: key(created.quote_mint),
+    baseDecimals: Number(unsigned(created.base_decimals,255n)),quoteDecimals: Number(unsigned(created.quote_decimals,255n)) };
+  if (bound.baseMint === bound.quoteMint) throw new Error('Invalid created market price bindings');
+  return bound;
+}
+
+/** Before any swap snapshot quotes a market's spot price, only each mint's
+ * own dated reference applies; nothing is derived from its counterasset. */
+export function projectReferencePrices(input: { pin: DuskPinnedProtocol; market: unknown; blockTime: string; references: unknown }) {
+  return projectSpotPrices({ pin: input.pin,bound: createdMarketBindings(input.market),blockTime: input.blockTime,
+    references: input.references,spotPrices: { base: '0',quote: '0' } });
+}
+
 /** USD prices from a canonical post-swap snapshot and the dated references. */
 export function projectObservedPrices(input: {
   pin: DuskPinnedProtocol; observation: unknown; blockTime: string; references: unknown;
@@ -135,5 +156,6 @@ function projectSpotPrices(input: {
       quality: own ? 'configured-reference' as const : 'derived-reference' as const,
       reference,spotPriceNad: own ? null : spotPriceNad.toString() });
   }
-  return { prices,referenceHash,bound,spotPrices };
+  const stablecoins = [bound.baseMint,bound.quoteMint].filter((mint) => byMint.get(mint)?.usdStablecoin);
+  return { prices,referenceHash,bound,spotPrices,stablecoins };
 }

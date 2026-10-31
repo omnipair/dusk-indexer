@@ -58,7 +58,7 @@ test('new liquidation settlements count leverage turnover and paid interest by m
 });
 
 const fixture = priceFixture();
-const basis = (): ActivityPriceBasis => ({ captureId: '1',slot: activitySlot-1,blockTime: '2026-09-02T00:00:05Z',
+const basis = (): ActivityPriceBasis => ({ capture: { id: '1',slot: activitySlot-1,blockTime: '2026-09-02T00:00:05Z' },
   bound: { baseMint: fixture.baseMint,quoteMint: fixture.quoteMint,baseDecimals: 9,quoteDecimals: 6 },
   spotPrices: { base: '2500000000',quote: '400000000' },prices: [
     { mint: fixture.baseMint,decimals: 9,priceUsd: '2.5',quality: 'derived-reference' },
@@ -73,6 +73,38 @@ test('provider quotes precede on-chain fallback; price provenance stays in the v
   const value = valueActivityAmounts(parse('LeveragePositionOpened').amounts,prices,activitySlot,activityTime);
   assert.equal(value[0].usd,'10');
   assert.equal(value[0].priceObservationId,'9');
+});
+test('a USD stablecoin keeps its peg rather than a counterasset quote times the curve',() => {
+  const base = { ...provider(),mint: fixture.baseMint,decimals: 9,priceUsd: '3' };
+  const prices = (value: ActivityPriceBasis) => activityPriceBasis(value,[base],activityTime).prices.map(({ priceUsd,quality }) => [priceUsd,quality]);
+  assert.deepEqual(prices(basis()),[['3','external-observation'],['1.2','derived-reference']]);
+  assert.deepEqual(prices({ ...basis(),stablecoins: [fixture.quoteMint] }),[['3','external-observation'],['1','configured-reference']]);
+});
+/** Devnet META/USDC (3A9o): META's configured $1 is a demo figure, and the
+ * curve quotes it at 0.258440303 USDC. */
+const meta = (): ActivityPriceBasis => ({ ...basis(),spotPrices: { base: '258440303',quote: '3869365530' },stablecoins: [fixture.quoteMint],
+  prices: [ { mint: fixture.baseMint,decimals: 9,priceUsd: '1',quality: 'configured-reference' },
+    { mint: fixture.quoteMint,decimals: 6,priceUsd: '1',quality: 'configured-reference' } ] });
+test('a USD stablecoin\'s peg prices its counterasset through the curve ahead of a configured demo price',() => {
+  const prices = (value: ActivityPriceBasis,external: ReturnType<typeof provider>[] = []) =>
+    activityPriceBasis(value,external,activityTime).prices.map(({ priceUsd,quality }) => [priceUsd,quality]);
+  assert.deepEqual(prices(meta()),[['0.258440303','derived-reference'],['1','configured-reference']]);
+  // Unmarked references, a stablecoin pair, a peg for other decimals and a
+  // market before its first snapshot keep the configured prices.
+  const configured = [['1','configured-reference'],['1','configured-reference']];
+  assert.deepEqual(prices({ ...meta(),stablecoins: [] }),configured);
+  assert.deepEqual(prices({ ...meta(),stablecoins: [fixture.baseMint,fixture.quoteMint] }),configured);
+  const otherDecimals = meta(); otherDecimals.prices[1].decimals = 9;
+  assert.deepEqual(prices(otherDecimals),configured);
+  assert.deepEqual(prices({ ...meta(),capture: null,spotPrices: undefined }),configured);
+  // A provider quote on either side still precedes the peg.
+  assert.deepEqual(prices(meta(),[{ ...provider(),mint: fixture.baseMint,decimals: 9,priceUsd: '0.3' }]),
+    [['0.3','external-observation'],['1','configured-reference']]);
+  assert.deepEqual(prices(meta(),[{ ...provider(),priceUsd: '0.99' }]),[['0.25585589997','derived-reference'],['0.99','external-observation']]);
+  // META margin follows the curve, with no provider observation behind it.
+  const margin = valueActivityAmounts(parse('LeveragePositionOpened',{},true).amounts,activityPriceBasis(meta(),[],activityTime),activitySlot,activityTime);
+  assert.deepEqual(margin.map(({ metric,usd,priceQuality,priceObservationId }) => [metric,usd,priceQuality,priceObservationId]),
+    [['marginVolume','0.775320909','derived-reference',null]]);
 });
 test('future and wrong-decimal provider quotes cannot override captured prices',() => {
   for (const change of [{ sourceTime: '2026-09-02T00:00:11Z' },{ observedAt: '2026-09-02T00:00:11Z' },

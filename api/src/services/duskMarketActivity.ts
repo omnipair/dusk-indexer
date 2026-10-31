@@ -7,7 +7,7 @@ import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
 import { ACTIVITY_EVENTS, ACTIVITY_METRICS, ActivityMetric, ActivityPriceBasis, ActivityExternalPrice, activityPriceBasis, parseActivityEvent, swapVolumeBasis, valueActivityAmounts } from './duskActivityMath';
 import { formatUsd, usdUnits } from './duskPortfolioMath';
-import { activePriceReferences, projectObservedPrices } from './duskPriceMath';
+import { activePriceReferences, projectObservedPrices, projectReferencePrices } from './duskPriceMath';
 import { HistoryDeploymentQuery, historyDeploymentIdentities } from './duskHistoryDeployment';
 import { historyScanCovers, readHistoryScan } from './duskHistoryCoverage';
 
@@ -125,10 +125,12 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
   const references = activePriceReferences();
   do {
     const page = await client.query<ActivitySource & { price_key: string | null; price_slot: string | null; price_time: Date | null;
-      price_payload: unknown; external_prices: ActivityExternalPrice[] }>(`
+      price_payload: unknown; market_created: unknown; external_prices: ActivityExternalPrice[] }>(`
       SELECT a.*,a.observation_id::text,a.slot::text,p.event_key AS price_key,p.slot::text AS price_slot,p.time AS price_time,
-        p.payload AS price_payload,COALESCE(external.quotes,'[]'::jsonb) AS external_prices
+        p.payload AS price_payload,m.payload AS market_created,COALESCE(external.quotes,'[]'::jsonb) AS external_prices
       FROM dusk_ingestion.market_activity_events a
+      LEFT JOIN dusk_ingestion.streamed_markets m
+        ON (m.cluster,m.program_id,m.idl_hash,m.protocol_revision,m.market)=(a.cluster,a.program_id,a.idl_hash,a.protocol_revision,a.market)
       LEFT JOIN LATERAL (SELECT p.event_key,p.slot,p.time,p.payload FROM dusk_ingestion.streamed_market_snapshots p
         WHERE (p.cluster,p.program_id,p.idl_hash,p.protocol_revision)=(a.cluster,a.program_id,a.idl_hash,a.protocol_revision)
           AND p.market=a.market
@@ -141,7 +143,7 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
           to_char(x.observed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "observedAt"
         FROM dusk_ingestion.price_observations x
         WHERE (x.cluster,x.program_id,x.idl_hash,x.protocol_revision)=(a.cluster,a.program_id,a.idl_hash,a.protocol_revision)
-          AND x.mint IN (p.payload->'base'->>'asset_mint',p.payload->'quote'->>'asset_mint') AND x.quality='external-observation'
+          AND x.mint IN (m.base_mint,m.quote_mint) AND x.quality='external-observation'
           AND (x.source LIKE 'dusk-provider.v1:jupiter:%' OR x.source LIKE 'dusk-provider.v1:birdeye:%')
           AND x.source_evidence->>'basis'='dusk-provider.v1' AND x.source_evidence->>'sourceCluster'='mainnet-beta'
           AND x.source_evidence->>'deploymentIdentitySha256'=ANY($11::text[])
@@ -160,10 +162,16 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
         if (!basis) {
           const projected = projectObservedPrices({ pin: loadPinnedProtocol(),observation: row.price_payload,
             blockTime: row.price_time.toISOString(),references });
-          basis = { captureId: row.price_key,slot: Number(row.price_slot),blockTime: row.price_time.toISOString(),
-            bound: projected.bound,prices: projected.prices,spotPrices: projected.spotPrices };
+          basis = { capture: { id: row.price_key,slot: Number(row.price_slot),blockTime: row.price_time.toISOString() },
+            bound: projected.bound,prices: projected.prices,spotPrices: projected.spotPrices,stablecoins: projected.stablecoins };
           prices.set(row.price_key,basis);
         }
+      } else if (row.market_created) {
+        // Before a market's first swap no snapshot quotes its spot price, but
+        // its mints' own references and provider quotes still apply.
+        const projected = projectReferencePrices({ pin: loadPinnedProtocol(),market: row.market_created,
+          blockTime: row.block_time.toISOString(),references });
+        basis = { capture: null,bound: projected.bound,prices: projected.prices,stablecoins: projected.stablecoins };
       }
       const parsed = parseActivityEvent(row.event_name,row.payload,row.slot,swapBasis);
       if (parsed.market !== row.market) throw new Error('FINALIZED_INVARIANT: activity market changed');

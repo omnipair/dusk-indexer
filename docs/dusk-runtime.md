@@ -96,7 +96,7 @@ Coverage reports indexed/projected/pending claim counts for the protocol identit
 
 Program prices come from canonical `SwapExecuted` snapshots at read time: the program's decimal-normalized, curve-aware spot quote per side, under the dated reference policy. Nothing simulates `preview_market` on a timer any more.
 
-`protocol/devnet-price-references.json` carries the existing webapp's three explicit devnet display references, with a full protocol identity, effective date and source notes. They are configured demo valuations, not external market prices. Override the path with `DUSK_PRICE_REFERENCES_FILE` when using another reviewed policy. A program/IDL/revision change requires deliberately updating this policy's identity. A configured value prices that specific mint; when only its counterasset has a reference, the program's spot quote derives an estimated reference. Arithmetic uses integers and decimal strings, with derived prices rounded down to 36 decimal places. It never substitutes a reserve ratio for a concentrated curve's price.
+`protocol/devnet-price-references.json` carries the existing webapp's three explicit devnet display references, with a full protocol identity, effective date and source notes. They are configured demo valuations, not external market prices. Override the path with `DUSK_PRICE_REFERENCES_FILE` when using another reviewed policy. A program/IDL/revision change requires deliberately updating this policy's identity. A configured value prices that specific mint; when only its counterasset has a reference, the program's spot quote derives an estimated reference. A reference may set `usdStablecoin: true`, which requires a `priceUsd` of `1` and marks a dollar peg rather than a demo value; activity valuation then values swaps from that leg and prices the other asset from the peg times the curve, ahead of that asset's own configured value. Only devnet USDC is marked. Arithmetic uses integers and decimal strings, with derived prices rounded down to 36 decimal places. It never substitutes a reserve ratio for a concentrated curve's price.
 
 `npm run start:prices-worker --prefix api` records provider quotes (Jupiter, with Birdeye as fallback) for every referenced mint in `MarketCreated`. It runs when events land, woken by `dusk_event_ingested`, and refreshes a mint at most every 30 s. Unlike the v1 volume enricher, a quote fetched after an event cannot price that same event; it becomes available to later events. `railway.prices.toml` defines the worker. `DUSK_PRICE_INTERVAL_MS` no longer exists.
 
@@ -125,7 +125,8 @@ It returns protocol-wide and
 per-market observed volume, swap fees, retained fees, compounded fees and
 explicitly reported interest payments under a freshly attested deployment
 envelope. All amounts are decimal strings. Spot swaps and embedded leverage
-swap receipts contribute input volume once. Margin-only leverage updates do not
+swap receipts contribute volume once, valued from a USD stablecoin leg when the
+swap has one and otherwise from its input. Margin-only leverage updates do not
 contribute a swap. Fees use their declared input/output asset; retained and
 compounded fees are components of swap fees, not additional fees. Claimed yield,
 referral allocations and fee auctions do not count as newly earned fees.
@@ -133,9 +134,11 @@ referral allocations and fee auctions do not count as newly earned fees.
 Valuation prices each event from the latest swap snapshot for its market at
 a strictly earlier slot and a non-future time
 (`latest-observed-prior-slot.v1`). Quiet markets have no native snapshot age
-cutoff. Valuation prefers the latest provider quote captured no later than the
-event, without a provider age cutoff. A quote captured after an event cannot
-price that event retroactively.
+cutoff. An event before its market's first swap has no snapshot; its
+`MarketCreated` mints still take their own references and provider quotes, and
+nothing is derived from the curve. Valuation prefers the latest provider quote
+captured no later than the event, without a provider age cutoff. A quote
+captured after an event cannot price that event retroactively.
 Same-slot snapshots are excluded because an event does not say where in its
 slot the trade fell. Arithmetic rounds down to 36 decimal places.
 

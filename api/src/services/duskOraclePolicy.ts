@@ -65,16 +65,17 @@ export function projectOraclePolicy(market: unknown): IndexedOraclePolicy | null
   if (native) return policy;
   if (BigInt(policy.adjustmentCapNad) <= 1000000000n || !policy.maxAgeSeconds || policy.maxAgeSlots === '0'
     || policy.provider === zeroKey || policy.baseAccount === zeroKey || policy.baseFeedId === zeroId) throw new Error('Invalid configured oracle policy');
-  if (policy.format === 1) {
-    if (policy.quoteAccount !== zeroKey || policy.quoteFeedId !== zeroId || policy.maxPublishSkewSeconds !== 0) throw new Error('Normalized oracle requires one pair report');
-  } else if (policy.format === 2) {
-    if (policy.provider !== pythReceiver || policy.quoteAccount === zeroKey || policy.baseAccount === policy.quoteAccount
-      || policy.quoteFeedId === zeroId || policy.baseFeedId === policy.quoteFeedId) throw new Error('Pyth oracle requires distinct base/quote feeds');
-  } else throw new Error('Unsupported oracle format');
+  if (![1,2,3,4].includes(policy.format)) throw new Error('Unsupported oracle format');
+  if ([2,3].includes(policy.format) && policy.provider !== pythReceiver) throw new Error('Pyth requires the verified receiver');
+  if ([2,4].includes(policy.format)) {
+    if (policy.quoteAccount === zeroKey || policy.baseAccount === policy.quoteAccount
+      || policy.quoteFeedId === zeroId || policy.baseFeedId === policy.quoteFeedId) throw new Error('Ratio requires distinct base/quote feeds');
+  } else if (policy.quoteAccount !== zeroKey || policy.quoteFeedId !== zeroId || policy.maxPublishSkewSeconds !== 0)
+    throw new Error('Direct oracle requires one pair report');
   return policy;
 }
 
 /** Zero weight has no feed-account dependency, including retained policies. */
 export function oracleReportAccounts(policy: IndexedOraclePolicy | null): string[] {
-  return !policy || policy.lambdaBps === 0 ? [] : [policy.baseAccount, ...(policy.format === 2 ? [policy.quoteAccount] : [])];
+  return !policy || policy.lambdaBps === 0 ? [] : [policy.baseAccount, ...([2,4].includes(policy.format) ? [policy.quoteAccount] : [])];
 }

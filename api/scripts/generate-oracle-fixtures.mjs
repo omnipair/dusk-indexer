@@ -5,7 +5,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 import { createRequire } from 'node:module';
 const require=createRequire(import.meta.url);
 const {IdlCoder}=require('@coral-xyz/anchor/dist/cjs/coder/borsh/idl');
-const {Dusk,oraclePolicy,oracleParameterUpdate,anchorParameterUpdate,deriveMarketAddress,MARKET_LAYOUT_VERSION}=await import('@omnipair/dusk-sdk-oracle');
+const revision=process.argv[2] ?? 'next-2026-10-31-8fadcc31';
+const sdkPackage=process.argv[3] ?? '@omnipair/dusk-sdk-oracle';
+const {Dusk,oraclePolicy,oracleParameterUpdate,anchorParameterUpdate,deriveMarketAddress,MARKET_LAYOUT_VERSION}=await import(sdkPackage);
 const {PublicKey}=await import('@solana/web3.js');
 const {AnchorProvider,BN}=require('@coral-xyz/anchor');
 const key=n=>new PublicKey(new Uint8Array(32).fill(n));
@@ -19,7 +21,7 @@ market.version=MARKET_LAYOUT_VERSION;market.oracle.policy=p;market.baseSide.asse
 const [marketAddress,bump]=deriveMarketAddress(key(4),key(5),market.paramsHash);market.bump=bump;
 const bytes=Buffer.alloc(32768),length=layout.encode(market,bytes);
 const discriminator=dusk.program.idl.accounts.find(a=>a.name==='market').discriminator;
-const out=path.resolve(root,'protocol/candidates/next-2026-10-31-8fadcc31/fixtures');fs.mkdirSync(out,{recursive:true});
+const out=path.resolve(root,'protocol/candidates',revision,'fixtures');fs.mkdirSync(out,{recursive:true});
 const policy=Object.fromEntries(Object.entries(p).map(([key,value])=>[key,value instanceof BN?value.toString():value instanceof PublicKey?value.toBase58():value]));
-fs.writeFileSync(path.join(out,'oracle-wire.json'),JSON.stringify({source:'@omnipair/dusk-sdk-oracle 2.15.0-next.20261030; synthetic fixture, not a deployment',policy,marketAddress:marketAddress.toBase58(),marketVersion:MARKET_LAYOUT_VERSION,updateHex:update.toString('hex'),marketHex:Buffer.concat([Buffer.from(discriminator),bytes.subarray(0,length)]).toString('hex')},null,2)+'\n');
+fs.writeFileSync(path.join(out,'oracle-wire.json'),JSON.stringify({source:`${sdkPackage}; synthetic fixture, not a deployment`,policy,marketAddress:marketAddress.toBase58(),marketVersion:MARKET_LAYOUT_VERSION,updateHex:update.toString('hex'),marketHex:Buffer.concat([Buffer.from(discriminator),bytes.subarray(0,length)]).toString('hex')},null,2)+'\n');
 console.log({updateBytes:update.length,marketBytes:length+8});
