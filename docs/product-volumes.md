@@ -34,7 +34,8 @@ activity valuation is:
 
 1. A captured Jupiter quote, with the existing Birdeye service as provider fallback.
 2. The native program's decimal-normalized, curve-aware spot quote times the
-   other asset's captured provider price.
+   other asset's captured provider price or, when that asset is a USD
+   stablecoin without one, its one-dollar peg.
 3. The existing mint-specific devnet references and native on-chain ratio.
 
 The Jupiter request uses [Price API V3](https://developers.jup.ag/docs/price).
@@ -57,7 +58,9 @@ output (`gross_amount_out`), so either leg includes the trading fee charged in
 its own asset. The devnet policy marks only its USDC mint, so a sale of 5,000
 META for 4,552.39 USDC counts $4,552.39, not 5,000 META at META's configured $1.
 An unpriced stablecoin leg falls back to the input; a swap between two
-stablecoins keeps its input.
+stablecoins keeps its input. The peg also prices the other asset through the
+curve ahead of that asset's configured reference, so META's margin volume and
+fees follow the META/USDC curve rather than META's configured $1.
 
 Every event uses the latest prior-slot native swap snapshot, even when a quiet
 market has not swapped recently. Before a market's first swap there is no

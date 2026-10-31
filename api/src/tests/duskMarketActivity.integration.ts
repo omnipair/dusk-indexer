@@ -241,7 +241,9 @@ test('an unpriced trade makes the observed total unknown while retaining the sep
 }));
 
 /** Devnet META/USDC (ogZU): a leverage open is the market's first swap, and
- * its post-swap state prices a later spot sale of the base for the stablecoin. */
+ * its post-swap state prices a later spot sale of the base for the stablecoin.
+ * The sale's fee is in the base, so the curve (1.01903572 USDC) prices it
+ * ahead of the base's configured $1. */
 test('a market\'s first trade needs no earlier snapshot, and a stablecoin leg values each swap',() => transaction(async (client) => {
   const market = fixtureMarket.market,opened = activitySlot-2,openedAt = '2026-09-02T00:00:05Z',trader = fixtureKey(121).toBase58();
   const side = (spot: string) => ({ spot_price_nad: spot,price_ema_nad: '1000000000',swap_fee_growth_index_q64: '0',interest_growth_index_q64: '0' });
@@ -260,7 +262,8 @@ test('a market\'s first trade needs no earlier snapshot, and a stablecoin leg va
   const view = await readMarketActivity(client,{ ...query,market });
   assert.equal(view.events,3); assert.equal(view.swaps,2);
   assert.deepEqual(view.metrics.volume,{ observedUsd: '5464.392015',valuedUsd: '5464.392015',unpricedObservations: 0,observations: 2,estimatedObservations: 2 });
-  assert.equal(view.metrics.swapFees.observedUsd,'15.539685');
+  assert.equal(view.metrics.swapFees.observedUsd,'15.79195557472848');
+  // No snapshot precedes the open, so its collateral keeps the configured $1.
   assert.equal(view.volumes.margin.observedUsd,'902.29459');
   // A base quote recorded before the open also prices it without a snapshot,
   // while the stablecoin keeps its peg instead of that quote times the curve.
@@ -270,6 +273,28 @@ test('a market\'s first trade needs no earlier snapshot, and a stablecoin leg va
   assert.equal(quoted.volumes.margin.observedUsd,'1804.58918');
   assert.equal(quoted.metrics.swapFees.observedUsd,'28.792169');
   assert.equal(quoted.metrics.volume.observedUsd,'5464.392015');
+}));
+
+/** Devnet META/USDC (3A9o): the curve quotes the base at 0.258440303 USDC,
+ * well below its configured $1. */
+test('a stablecoin-quoted curve values margin and fees in the base ahead of its configured demo price',() => transaction(async (client) => {
+  const market = fixtureMarket.market,trader = fixtureKey(121).toBase58();
+  await streamedMarket(client,fixtureMarket,activitySlot-10);
+  await streamedSwapSnapshot(client,{ market,slot: activitySlot-9,time: '2026-09-01T23:59:59.000Z',
+    baseSpotNad: 258_440_303n,quoteSpotNad: 3_869_365_530n });
+  await source(client,{ name: 'LeveragePositionClosed',fields: { ...activityPayload('LeveragePositionClosed'),market,
+    metadata: { market,slot: String(activitySlot),signer: trader },collateral_asset_mint: fixtureMarket.baseMint,
+    debt_asset_mint: fixtureMarket.quoteMint,collateral_sold: '1000000000000' } });
+  // A sale of two base for five USDC, paying one base in fees.
+  await source(client,{ fields: { ...activityPayload(),market,fee_asset_side: '0',amount_in_after_fee: '1000000000',
+    base_fee: '1000000000',divergence_fee: '0',volatility_fee: '0',retained_fee: '0',compounded_fee: '0' } });
+  await projectMarketActivityBatch(client);
+  const view = await readMarketActivity(client,{ ...query,market });
+  assert.equal(view.events,2);
+  assert.deepEqual(view.volumes.margin,{ observedUsd: '258.440303',valuedUsd: '258.440303',unpricedObservations: 0,observations: 1,estimatedObservations: 1 });
+  assert.equal(view.metrics.swapFees.observedUsd,'0.258440303');
+  assert.equal(view.metrics.volume.observedUsd,'5');
+  assert.equal(view.metrics.reportedInterest.observedUsd,'0.25');
 }));
 
 test('old prior-slot snapshots value quiet markets, while same-slot and future-time snapshots cannot',() => transaction(async (client) => {
