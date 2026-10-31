@@ -15,6 +15,9 @@ export interface ActivityAmount {
   metric: ActivityMetric;
   amount: string;
   asset: { side: 0 | 1 } | { mint: string };
+  /** A swap's curve output, before any output-side fee. It values the trade
+   * instead of the input when it is a USD stablecoin and the input is not. */
+  output?: { amount: string; asset: { side: 0 | 1 } };
 }
 const U64 = (1n << 64n) - 1n;
 function fields(value: unknown): Record<string,unknown> {
@@ -81,7 +84,8 @@ export function parseActivityEvent(eventName: string,payload: unknown,slot: stri
     if (leverage && unsigned(swap.claimable_fee_credit)>total-retained-compounded)
       throw new Error('Native swap fee credit exceeds its claimable debit');
     amounts.push(
-      { metric: 'volume',amount: amountIn.toString(),asset: { side: inputSide } },
+      { metric: 'volume',amount: amountIn.toString(),asset: { side: inputSide },
+        output: { amount: grossOut.toString(),asset: { side: inputSide === 0 ? 1 : 0 } } },
       { metric: 'swapFees',amount: total.toString(),asset: { side: feeSide } },
       { metric: 'retainedFees',amount: retained.toString(),asset: { side: feeSide } },
       { metric: 'compoundedFees',amount: compounded.toString(),asset: { side: feeSide } },
@@ -123,12 +127,15 @@ export function parseActivityEvent(eventName: string,payload: unknown,slot: stri
 }
 
 export interface ActivityPriceBasis {
-  captureId: string;
-  slot: number;
-  blockTime: string;
+  /** The latest prior-slot swap snapshot, which quotes the market's spot
+   * price. Null before the market's first swap, when only the mints' own
+   * prices apply. */
+  capture: { id: string; slot: number; blockTime: string } | null;
   bound: { baseMint: string; quoteMint: string; baseDecimals: number; quoteDecimals: number };
   spotPrices?: { base: string; quote: string };
   prices: { mint: string; decimals: number; priceUsd: string; quality: string; observationId?: string }[];
+  /** The market's mints that the dated reference policy marks as USD stablecoins. */
+  stablecoins?: string[];
 }
 
 export interface ActivityExternalPrice {
@@ -136,7 +143,9 @@ export interface ActivityExternalPrice {
 }
 
 /** Direct provider quote, then on-chain ratio to a provider quote, then the
- * captured devnet reference. No current quote is applied to a past event. */
+ * captured devnet reference. A USD stablecoin keeps its peg rather than a
+ * counterasset's quote times the curve. No current quote is applied to a
+ * past event. */
 export function activityPriceBasis(basis: ActivityPriceBasis,external: ActivityExternalPrice[],eventTime: string): ActivityPriceBasis {
   const valid = external.filter((price) => {
     const time = Date.parse(price.sourceTime),observed = Date.parse(price.observedAt),event = Date.parse(eventTime);
@@ -149,7 +158,7 @@ export function activityPriceBasis(basis: ActivityPriceBasis,external: ActivityE
     const otherDecimals = side === 'base' ? basis.bound.quoteDecimals : basis.bound.baseDecimals;
     const own = valid.find((price) => price.mint === mint && price.decimals === decimals);
     if (own) return [{ mint,decimals,priceUsd: own.priceUsd,quality: own.estimated ? 'external-reference' : 'external-observation',observationId: own.observationId }];
-    const other = valid.find((price) => price.mint === otherMint && price.decimals === otherDecimals);
+    const other = basis.stablecoins?.includes(mint) ? undefined : valid.find((price) => price.mint === otherMint && price.decimals === otherDecimals);
     const spot = BigInt(basis.spotPrices?.[side] ?? '0');
     if (other && spot>0n) return [{ mint,decimals,priceUsd: multiplyPriceRatio(other.priceUsd,spot,1_000_000_000n),
       quality: 'derived-reference',observationId: other.observationId }];
@@ -158,28 +167,40 @@ export function activityPriceBasis(basis: ActivityPriceBasis,external: ActivityE
   return { ...basis,prices };
 }
 
-/** One observed trade is valued once, in its input asset, at an as-of price. */
+/** One observed trade is valued once, at an as-of price: from its USD
+ * stablecoin leg when it has one, the cash that changed hands, otherwise from
+ * its input. Every other amount is valued in its own asset. */
 export function valueActivityAmounts(amounts: ActivityAmount[],price: ActivityPriceBasis | null,eventSlot: number,eventTime: string) {
   if (!Number.isSafeInteger(eventSlot) || eventSlot<0 || !Number.isFinite(Date.parse(eventTime)))
     throw new Error('Invalid native activity valuation boundary');
   // A captured bank has no transaction-order boundary within its slot. A
   // same-slot quote could already include the trade being valued.
-  if (price && (!Number.isSafeInteger(price.slot) || price.slot>=eventSlot || price.slot<0
-    || !Number.isFinite(Date.parse(price.blockTime)) || Date.parse(price.blockTime)>Date.parse(eventTime)))
+  const capture = price?.capture ?? null;
+  if (capture && (!Number.isSafeInteger(capture.slot) || capture.slot>=eventSlot || capture.slot<0
+    || !Number.isFinite(Date.parse(capture.blockTime)) || Date.parse(capture.blockTime)>Date.parse(eventTime)))
     throw new Error('Native activity price is outside the event-time boundary');
-  return amounts.map((entry) => {
-    const amount = unsigned(entry.amount);
-    if (amount === 0n) return { ...entry,usd: '0',priceCaptureId: null,priceQuality: null,priceObservationId: null };
-    const mint = 'mint' in entry.asset ? entry.asset.mint : price
-      ? entry.asset.side === 0 ? price.bound.baseMint : price.bound.quoteMint : null;
+  if (price && !capture && (price.spotPrices || price.prices.some((quote) => quote.quality === 'derived-reference')))
+    throw new Error('Native activity price derives from a missing snapshot');
+  const mintOf = (asset: ActivityAmount['asset']) => 'mint' in asset ? asset.mint : price
+    ? asset.side === 0 ? price.bound.baseMint : price.bound.quoteMint : null;
+  const stablecoins = new Set(price?.stablecoins),stable = (asset: ActivityAmount['asset']) => stablecoins.has(mintOf(asset) ?? '');
+  const valued = (amount: string,asset: ActivityAmount['asset']) => {
+    const mint = mintOf(asset);
     if (price && mint !== price.bound.baseMint && mint !== price.bound.quoteMint)
       throw new Error('Native activity amount mint is outside its market');
     const quote = price?.prices.find((candidate) => candidate.mint === mint);
-    if (!price || !quote) return { ...entry,usd: null,priceCaptureId: null,priceQuality: null,priceObservationId: null };
+    if (!price || !quote) return null;
     const decimals = mint === price.bound.baseMint ? price.bound.baseDecimals : mint === price.bound.quoteMint ? price.bound.quoteDecimals : null;
     if (decimals === null || quote.decimals !== decimals || !Number.isInteger(decimals) || decimals<0 || decimals>255 || usdUnits(quote.priceUsd)<=0n)
       throw new Error('Native activity price mint/decimals mismatch');
-    return { ...entry,usd: formatUsd(amount*usdUnits(quote.priceUsd)/10n**BigInt(decimals)),
-      priceCaptureId: price.captureId,priceQuality: quote.quality,priceObservationId: quote.observationId ?? null };
+    return { amount,asset,usd: formatUsd(unsigned(amount)*usdUnits(quote.priceUsd)/10n**BigInt(decimals)),
+      priceCaptureId: capture?.id ?? null,priceQuality: quote.quality,priceObservationId: quote.observationId ?? null };
+  };
+  return amounts.map(({ output,...entry }) => {
+    if (unsigned(entry.amount) === 0n) return { ...entry,usd: '0',priceCaptureId: null,priceQuality: null,priceObservationId: null };
+    const input = valued(entry.amount,entry.asset);
+    // An unpriced stablecoin leg leaves the trade to its input's price.
+    const leg = output && stable(output.asset) && !stable(entry.asset) ? valued(output.amount,output.asset) : null;
+    return { ...entry,...(leg ?? input ?? { usd: null,priceCaptureId: null,priceQuality: null,priceObservationId: null }) };
   });
 }
