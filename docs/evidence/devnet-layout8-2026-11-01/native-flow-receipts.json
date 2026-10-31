@@ -1,0 +1,86 @@
+{
+  "network": "devnet",
+  "sourceCommit": "45549d878ce68e938898437c8946b21320fbc080",
+  "market": "FGdALX7jwNaj87zKfEt79wQk3bVSM6kyZNGNxBs7G4jA",
+  "layout": 8,
+  "flows": [
+    {
+      "attempts": 1,
+      "detail": "kNLZ1CoLa3fma11cFFKhkfAn4VCt1gprj1tnRihSTKAbhMdxUHtzGM8AHWS5Up3UHM3vLoUkiSJK8D3hZoQSqmx",
+      "flow": "swap",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "4MVCZRQvBMsUC8d8ah3kPm8P5D4GijLs4RyLFdnncMquuiep8JJiePcD3TJTdZuVrg3vficKDQJ83LA6xEmwiGDs",
+      "flow": "add liquidity",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "4w5iS1h58ChxxAf2q4289N8UXHCWP5LgSevVJNphWDJ6pd6ZKwocCV5cY2DzJaxzowUq6pZVTmZEPYw1fdqafSGd",
+      "flow": "remove liquidity",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "3s2WRQjXDcTNxEiKieNCzLb9H5EfTy4gnpLYEvh3bAD5jJVu7qV35A31Pt1vDt55GTrt7zf8DjdQ54FCfAsLEbGX",
+      "flow": "deposit collateral",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "4eWmfomcbivJapuGMPGQpBXYDJx98xje2N4FGactnC9DW6pdsQZkwKnMR5tXN1hCbmrH6xiKKZxtpDTXQRnGru37",
+      "flow": "borrow",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "4cxmBKKiY9sLVdhbptcZeDqJKv6RiQoHvZ2SsT2yHNU9WeMnx3HtJpbd9hqJUDFyFgZ1B1kGmzQFdebaGh1nxDQx",
+      "flow": "repay",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "3nJAVbg3whuchZ7jfCUvnTTkhZ2gAC8QogctacdQq3EPqiuwsSFuuZ7nbTdtGcGcQuXLwfdGad1om7he1XwtvzKx",
+      "flow": "withdraw collateral",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "651vr5izxwDZfhzWB4CdLPkYQ6dc4po9HNSQSv1u3BdgWfgCx6oT3U9kBm6XTP5HUyM5GKqjyujtdk4oo8da2G2w",
+      "flow": "open leverage",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "34mBi6HVkBcWHxvG3GF2oQLy9Vn8AxQJM9y8b2GPU1VWK2hFJsq7KTfFDVZMVbt23kKwE1i6K5Fgd9R9SNtfnrTs",
+      "flow": "add leverage margin",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "3ASFgHSoTqfy3gfd1KFtKHRVSrDLpx8sKTkRnTU6vWBNJQiN44LYxKs8AvHVHwHuuDeAo1H9o5oPQZgG3DTB9gwn",
+      "flow": "delegate leverage position",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "4xGxy9CsE5bP5SNkc6xyu9PxezobHc5FQYM9kb9d9CjPqQi6estetTzoNhBpkrGvCPoijRW32wtVZcZeEQQZQtWE",
+      "flow": "place conditional order",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "3ScZVrhfPeHfWkvhCaxpFkmnmBcYVET8XdLD5gE1PpG5woZogm6FdbJmJh46Ro8fCqgGSaBeXxcgcVojncLyFeY6",
+      "flow": "cancel conditional order",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "4pbCDmp7cuo4of4THz76QUndJk7hU6DxxMm2pceXNZu1W4VyiQvAXcdeWtwhFd3n9J1Ptpd5nLGzjPHsAPqru4G5",
+      "flow": "close leverage",
+      "ok": true
+    }
+  ]
+}

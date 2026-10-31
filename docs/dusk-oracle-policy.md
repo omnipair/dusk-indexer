@@ -228,3 +228,5 @@ with HTTP signature-status confirmation and no duplicate account creation.
 The 0.4 existing wrapped SOL was recovered for upload rent; no faucet SOL was
 requested. Public transactions and finalized binary hashes are recorded in
 `docs/evidence/devnet-layout8-2026-11-01/deployment.json`.
+
+The matching backend release `3600cde` is deployed to the seven existing devnet services. The API attests the new program/IDL identity, the synthetic report publisher is running, and the oracle frontend preview lists both fresh layout-8 markets without the deployment mismatch. Both markets passed all 13 signed SDK product flows, first attempt, with all 26 transactions finalized successfully. Public envelope, oracle catalog and signed receipts are recorded in `docs/evidence/devnet-layout8-2026-11-01/`.
