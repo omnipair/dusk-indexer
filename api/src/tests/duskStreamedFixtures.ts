@@ -54,10 +54,11 @@ export async function streamedRelease(client: PoolClient,cursor: { slot: number 
  * fixtureKey(113) with 6, yLP fixtureKey(114). */
 export const observedMarket = { market: checkpointFixture().source().market,baseMint: key(112),quoteMint: key(113),ylp: key(114) };
 
-/** A created market and one canonical post-swap market snapshot. */
+/** A created market and one canonical post-swap market snapshot. The payload
+ * carries `start_price_nad` only when `startPriceNad` is given. */
 export async function streamedSwapSnapshot(client: PoolClient,options: {
   time: string; slot?: number; market?: string; baseMint?: string; quoteMint?: string; ylp?: string;
-  baseSpotNad?: bigint; quoteSpotNad?: bigint; baseEmaNad?: bigint; quoteEmaNad?: bigint;
+  baseSpotNad?: bigint; quoteSpotNad?: bigint; baseEmaNad?: bigint; quoteEmaNad?: bigint; startPriceNad?: bigint;
   ylpSupply?: bigint; baseReserve?: bigint; quoteReserve?: bigint;
   baseSwapIndex?: bigint; baseInterestIndex?: bigint; quoteSwapIndex?: bigint; quoteInterestIndex?: bigint;
 }) {
@@ -75,6 +76,7 @@ export async function streamedSwapSnapshot(client: PoolClient,options: {
     amount_in_after_fee: '1',base_fee: '0',divergence_fee: '0',volatility_fee: '0',retained_fee: '0',compounded_fee: '0',
     ylp_supply: (options.ylpSupply ?? 1_000_000n).toString(),
     base_live_reserve: (options.baseReserve ?? 0n).toString(),quote_live_reserve: (options.quoteReserve ?? 0n).toString(),
+    ...(options.startPriceNad === undefined ? {} : { start_price_nad: options.startPriceNad.toString() }),
     base: side(options.baseSpotNad ?? 2_500_000_000n,options.baseEmaNad ?? 0n,
       options.baseSwapIndex ?? 3n*Q64,options.baseInterestIndex ?? 2n*Q64),
     quote: side(options.quoteSpotNad ?? 0n,options.quoteEmaNad ?? 0n,

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nadPrice, quoteHistorySelection } from '../services/duskQuoteHistory';
+import { nadPrice, quoteHistorySelection, sideStartPriceNad } from '../services/duskQuoteHistory';
 import { priceFixture } from './duskPriceFixtures';
 
 const query = { market: priceFixture().source().market,side: 'base' as const,since: '2026-09-01T00:00:00Z',
@@ -20,4 +20,21 @@ test('program quotes retain all nine NAD decimals and u64 precision without appl
   assert.equal(nadPrice('9007199254740993'),'9007199.254740993');
   assert.equal(nadPrice('18446744073709551615'),'18446744073.709551615');
   for (const value of ['0','-1','1.0','01','NaN','18446744073709551616']) assert.throws(() => nadPrice(value));
+});
+test('a swap start price is the base price, and the program\'s floored inverse on the quote side',() => {
+  // Devnet market ogZU: quote spot 981319869 = floor(1e18 / base spot 1019035720).
+  assert.equal(sideStartPriceNad('999999999','base'),'999999999');
+  assert.equal(sideStartPriceNad('999999999','quote'),'1000000001');
+  assert.equal(sideStartPriceNad('1019035720','quote'),'981319869');
+  assert.equal(sideStartPriceNad('740348120','quote'),'1350715930');
+  assert.equal(sideStartPriceNad('18446744073709551615','base'),'18446744073709551615');
+  assert.equal(sideStartPriceNad('1000000000000000000','quote'),'1');
+  // Unavailable: absent, zero, or an inverse below one NAD.
+  for (const side of ['base','quote'] as const) {
+    assert.equal(sideStartPriceNad(null,side),null);
+    assert.equal(sideStartPriceNad('0',side),null);
+  }
+  assert.equal(sideStartPriceNad('1000000000000000001','quote'),null);
+  for (const value of ['','-1','1.0','01','NaN','18446744073709551616'])
+    assert.throws(() => sideStartPriceNad(value,'base'),/start price/);
 });

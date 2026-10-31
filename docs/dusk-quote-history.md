@@ -9,7 +9,8 @@ Required query parameter: `since` (ISO timestamp). Optional parameters:
 - `until`: ISO timestamp, defaulting to request time. The interval is `[since, until)`.
 - `side`: `base` (default) or `quote`. Each direction uses that side's saved
   `MarketPreview.spot_price_nad`; quote-side values are not computed by inverting
-  the base-side value.
+  the base-side value. The one exception is `openStart` (below), whose source
+  event carries only the base side's start price.
 - `resolutionSeconds`: 60 (default), 300, 900, 3600, 14400, or 86400. A request
   may intersect at most 2,000 buckets. Invalid selections return HTTP 400.
 
@@ -70,6 +71,33 @@ Zero quotes do not create zero-price candles, and empty buckets are not filled.
 `projectionComplete` only describes replay of saved captures; it says nothing
 about uncaptured historical banks. The response also includes a SHA-256 digest
 of the normalized selection, output, and coverage.
+
+## Pre-trade open (`openStart`)
+
+Live candles sample `SwapExecuted` snapshots (`streamed_market_snapshots`),
+whose prices are post-swap, so a bucket's `open` already includes its first
+swap's move. When no earlier sample precedes the bucket, as on a market's first
+swap, the response does not show where that move started: on devnet market
+`ogZU2fLhcSokMeaJGJBUDWzV3BLK4qHHsZhve64xhes` the first swap moved the price
+from 0.999999999 to 1.01903572, and its candle opened at 1.01903572.
+
+Each candle therefore also carries `openStart`, a witness with the same shape as
+`open`. Its `captureId`, `sourceHash`, `time` and `sourceSlot` are identical to
+`open`'s, because it describes the same capture; only `price` differs. On the
+base side the price is the opening swap's `start_price_nad`, the base price it
+was quoted at after any deferred controller step. On the quote side it is
+`floor(1e18 / start_price_nad)`, the same inversion that gives the program's
+quote-side spot price from its base-side one (quote spot 981319869 for base
+spot 1019035720 on that market).
+
+`openStart` is `null` when the bucket's opening sample carries no start price,
+when that price is zero on the requested side, and on archived reads: saved
+preview captures have no start price. The snapshot view does not expose
+`start_price_nad`, so the read takes it from the opening sample's own event
+observation, one primary-key lookup per bucket, and no migration is needed. The
+field is additive: `schemaVersion` stays `dusk-quote-history.v1`, `basis` stays
+`sampled-program-spot-quotes.v1`, and `open`, `high`, `low` and `close` keep
+their meaning. The payload stream's `candles` frames carry the same candles.
 
 ## Time-series reads and incremental refresh
 

@@ -32,6 +32,17 @@ export function nadPrice(value: string): string {
   const n = BigInt(value);
   return `${n/1_000_000_000n}.${(n%1_000_000_000n).toString().padStart(9,'0')}`.replace(/0+$/,'').replace(/\.$/,'');
 }
+/** A swap's pre-trade price on `side`, in NAD. `SwapExecuted.start_price_nad`
+ * is the base price the swap was quoted at; the program's quote-side price is
+ * floor(1e18 / base price). An absent or zero price is unavailable. */
+export function sideStartPriceNad(baseStartNad: string | null, side: 'base' | 'quote'): string | null {
+  if (baseStartNad === null) return null;
+  if (!/^(0|[1-9]\d{0,19})$/.test(baseStartNad) || BigInt(baseStartNad)>(1n<<64n)-1n)
+    throw new Error('Invalid program start price');
+  const base = BigInt(baseStartNad);
+  const price = base === 0n ? 0n : side === 'base' ? base : 1_000_000_000_000_000_000n/base;
+  return price === 0n ? null : price.toString();
+}
 type QuoteProjection = {
   base_mint: string; quote_mint: string; base_decimals: number; quote_decimals: number;
   base_spot_price_nad: string; quote_spot_price_nad: string;
@@ -99,18 +110,28 @@ export async function readQuoteHistory(client: PoolClient, query: QuoteHistoryQu
       (array_agg(spot ORDER BY price DESC,block_time,slot))[1] AS high,
       (array_agg(spot ORDER BY price,block_time,slot))[1] AS low
     FROM witnesses GROUP BY 1
+  ), candles AS (
+    -- The snapshot payload omits start_price_nad. Read it from the open's own
+    -- observation, one primary-key lookup per bucket.
+    SELECT buckets.*,(SELECT o.decoded_payload->>'start_price_nad' FROM dusk_ingestion.event_observations o
+        WHERE o.observation_id=(buckets.open->>'id')::bigint) AS open_start_nad
+    FROM buckets
   ) SELECT row_to_json(coverage) AS coverage,row_to_json(counts) AS counts,
-      COALESCE((SELECT json_agg(buckets ORDER BY time) FROM buckets),'[]'::json) AS buckets
+      COALESCE((SELECT json_agg(candles ORDER BY time) FROM candles),'[]'::json) AS buckets
     FROM coverage CROSS JOIN counts`,
     [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision,query.market,query.side,window.since,window.until,
       pin.historyFirstSlot,query.resolutionSeconds]);
   const { coverage,counts,buckets } = selection.rows[0];
   if (coverage.bindings>1) throw new Error('FINALIZED_INVARIANT: market quote bindings changed');
   const candles = (buckets as { time: string; samples: string; first_slot: string; last_slot: string; open: never; high: never;
-    low: never; close: never; oracle_close: { price: string } & Parameters<typeof witness>[0] }[]).map(row => ({
-    time: Number(row.time),samples: row.samples,firstSourceSlot: row.first_slot,lastSourceSlot: row.last_slot,
-    open: witness(row.open),high: witness(row.high),low: witness(row.low),close: witness(row.close),
-    oracleClose: row.oracle_close.price !== '0' ? witness(row.oracle_close) : null }));
+    low: never; close: never; oracle_close: { price: string } & Parameters<typeof witness>[0]; open_start_nad: string | null }[]).map(row => {
+    // openStart describes the same capture as open, at the swap's pre-trade price.
+    const open = witness(row.open),start = sideStartPriceNad(row.open_start_nad,query.side);
+    return { time: Number(row.time),samples: row.samples,firstSourceSlot: row.first_slot,lastSourceSlot: row.last_slot,
+      open,openStart: start === null ? null : { ...open,price: nadPrice(start) },
+      high: witness(row.high),low: witness(row.low),close: witness(row.close),
+      oracleClose: row.oracle_close.price !== '0' ? witness(row.oracle_close) : null };
+  });
   const data = {
     schemaVersion: 'dusk-quote-history.v1',window,binding: coverage.bindings ? coverage.binding : null,candles,
     revision: await observedQuoteRevision(client,query.market,pin),
@@ -205,9 +226,10 @@ export async function readCapturedQuoteHistory(client: PoolClient, query: QuoteH
     if (!value) throw new Error('FINALIZED_INVARIANT: quote-history source disappeared');
     return { captureId: id,sourceHash: value.sourceHash,price: nadPrice(oracle ? value.oracle : value.nad),time: value.time,sourceSlot: value.sourceSlot };
   };
+  // Saved preview captures carry no swap start price.
   const candles = buckets.rows.map(row => ({ time: Number(row.time),samples: row.samples,
     firstSourceSlot: row.first_slot,lastSourceSlot: row.last_slot,
-    open: witness(row.open_id),high: witness(row.high_id),low: witness(row.low_id),close: witness(row.close_id),
+    open: witness(row.open_id),openStart: null,high: witness(row.high_id),low: witness(row.low_id),close: witness(row.close_id),
     oracleClose: verified.get(row.close_id)?.oracle !== '0' ? witness(row.close_id, true) : null }));
   const pending = (BigInt(coverage.captures)-BigInt(coverage.projected)).toString();
   const data = {
