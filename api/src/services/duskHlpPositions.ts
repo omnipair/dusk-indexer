@@ -30,7 +30,7 @@ export interface StreamedHlpBalance {
 
 export interface StreamedLpBalance {
   market: string;
-  kind: 'ylp' | 'base_hlp' | 'quote_hlp';
+  kind: 'ylp' | 'junior' | 'base_hlp' | 'quote_hlp';
   lpMint: string;
   amount: string;
 }
@@ -64,17 +64,23 @@ export async function readStreamedHlpBalances(
   const pin = loadPinnedProtocol();
   const result = await client.query<{ market: string; kind: string; lp_mint: string; amount: string; retired: boolean }>(
     `SELECT b.market,b.kind,b.lp_mint,b.amount::text,
-      b.kind<>'ylp' AND b.lp_mint<>COALESCE((
+      CASE WHEN b.kind='junior' THEN b.lp_mint<>COALESCE((
+        SELECT e.payload->>'mint' FROM dusk_ingestion.streamed_events e
+        WHERE (e.cluster,e.program_id,e.idl_hash,e.protocol_revision)=(b.cluster,b.program_id,b.idl_hash,b.protocol_revision)
+          AND e.event_name='JuniorCohortInitialized' AND e.payload->>'market'=b.market
+        ORDER BY e.slot DESC,e.observation_id DESC LIMIT 1),b.lp_mint)
+      WHEN b.kind IN ('base_hlp','quote_hlp') THEN b.lp_mint<>COALESCE((
         SELECT e.payload->>'new_mint' FROM dusk_ingestion.streamed_events e
         WHERE (e.cluster,e.program_id,e.idl_hash,e.protocol_revision)=(b.cluster,b.program_id,b.idl_hash,b.protocol_revision)
           AND e.event_name='HlpCohortRotated' AND e.payload->>'market'=b.market
           AND e.payload->>'target_asset'=CASE b.kind WHEN 'base_hlp' THEN '0' ELSE '1' END
         ORDER BY e.slot DESC,e.observation_id DESC LIMIT 1),
-        CASE b.kind WHEN 'base_hlp' THEN m.base_hlp_mint ELSE m.quote_hlp_mint END) AS retired
+        CASE b.kind WHEN 'base_hlp' THEN m.base_hlp_mint ELSE m.quote_hlp_mint END)
+      ELSE false END AS retired
     FROM dusk_ingestion.streamed_lp_balances b
     JOIN dusk_ingestion.streamed_markets m USING(cluster,program_id,idl_hash,protocol_revision,market)
     WHERE b.cluster=$1 AND b.program_id=$2 AND b.idl_hash=$3 AND b.protocol_revision=$4 AND b.owner=$5
-      AND b.kind IN ('ylp','base_hlp','quote_hlp') AND b.amount>0
+      AND b.kind IN ('ylp','junior','base_hlp','quote_hlp') AND b.amount>0
     ORDER BY b.market,b.kind,b.lp_mint`,
     [pin.cluster, pin.dusk.programId, pin.dusk.idlCanonicalSha256, pin.revision, owner],
   );
@@ -82,11 +88,11 @@ export async function readStreamedHlpBalances(
   if (!stream) throw Object.assign(new Error('The Dusk stream has not started'), { status: 503 });
   const lpBalances = result.rows.map((row): StreamedLpBalance => {
     if (!/^[1-9]\d*$/.test(row.amount) || BigInt(row.amount) > U64_MAX) throw new Error('Invalid streamed LP balance');
-    if (row.kind !== 'ylp' && row.kind !== 'base_hlp' && row.kind !== 'quote_hlp') throw new Error('Invalid streamed LP kind');
+    if (row.kind !== 'ylp' && row.kind !== 'junior' && row.kind !== 'base_hlp' && row.kind !== 'quote_hlp') throw new Error('Invalid streamed LP kind');
     return { market: row.market, kind: row.kind, lpMint: row.lp_mint, amount: row.amount };
   });
   return {
-    balances: result.rows.filter((row) => row.kind !== 'ylp').map((row) => ({
+    balances: result.rows.filter((row) => row.kind === 'base_hlp' || row.kind === 'quote_hlp').map((row) => ({
       market: row.market, side: row.kind === 'base_hlp' ? 'base' as const : 'quote' as const, hlpMint: row.lp_mint, amount: row.amount,
       ...(row.retired ? { retired: true } : {}),
     })),

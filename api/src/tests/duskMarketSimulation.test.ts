@@ -137,7 +137,16 @@ test('oracle capture adds configured reports at the policy bank and never values
   const root = resolve(__dirname,'../../../protocol/candidates/next-2026-10-31-8fadcc31');
   const idl = JSON.parse(readFileSync(resolve(root,'idl/dusk.json'),'utf8'));
   const fixture = JSON.parse(readFileSync(resolve(root,'fixtures/oracle-wire.json'),'utf8'));
-  const raw = Buffer.from(fixture.marketHex,'hex'), pin = loadPinnedProtocol(),sourceSlot = 105;
+  const pin = loadPinnedProtocol(),sourceSlot = 105,coder = new BorshCoder(idl);
+  const marketAccount = coder.accounts.decode('Market',Buffer.from(fixture.marketHex,'hex')) as {
+    base_side: { asset_mint: PublicKey }; quote_side: { asset_mint: PublicKey }; params_hash: number[]; bump: number;
+  };
+  const [activeMarket,activeBump] = PublicKey.findProgramAddressSync([
+    Buffer.from('market_v2'),marketAccount.base_side.asset_mint.toBuffer(),marketAccount.quote_side.asset_mint.toBuffer(),
+    Buffer.from(marketAccount.params_hash),
+  ],new PublicKey(pin.dusk.programId));
+  const raw = Buffer.from(fixture.marketHex,'hex'),marketAddress = activeMarket.toBase58();
+  raw[raw.length-1] = activeBump;
   const pinned = mock.method(schema,'pinnedDuskIdl',() => idl);
   try {
     for (const failed of [false,true]) {
@@ -150,11 +159,10 @@ test('oracle capture adds configured reports at the policy bank and never values
         simulateTransaction: async (tx: VersionedTransaction,config: SimulateTransactionConfig) => {
           assert.equal(config.minContextSlot,sourceSlot);
           requested = config.accounts!.addresses;
-          assert.deepEqual(requested,[fixture.marketAddress,fixture.policy.baseAccount]);
+          assert.deepEqual(requested,[marketAddress,fixture.policy.baseAccount]);
           assert.ok(tx.message.staticAccountKeys.some(key => key.toBase58() === fixture.policy.baseAccount));
           // The zero-valued fixture has no usable economics. This is a wire/bank
           // coherence test; successful return bytes need only the matching slot.
-          const coder = new BorshCoder(idl);
           const preview = coder.types.decode('MarketPreview',Buffer.alloc(4096)) as { slot: InstanceType<typeof BN> };
           preview.slot = new BN(sourceSlot);
           return { context: { slot: sourceSlot },value: { err: failed ? 'StaleOracle' : null,
@@ -166,7 +174,7 @@ test('oracle capture adds configured reports at the policy bank and never values
           return { context: { slot: sourceSlot+1 },value: [{ owner: new PublicKey(pin.dusk.programId),executable: false,data: raw },null] };
         },
       } as unknown as Connection;
-      const snapshot = await captureMarketSimulation(fixture.marketAddress,100,[],{ rpc,
+      const snapshot = await captureMarketSimulation(marketAddress,100,[],{ rpc,
         envelope: async () => ({ programUpgradeAuthority: fixtureKey(1).toBase58(),deploymentIdentitySha256: 'c'.repeat(64) } as DuskDeploymentEnvelope),
         readBlock: async (_rpc,slot) => ({ blockhash: fixtureKey(2).toBase58(),parentSlot: slot-1,blockTime: 1788307200 }) });
       assert.equal(snapshot.previewUnavailable,failed);

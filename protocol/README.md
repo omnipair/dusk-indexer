@@ -1,20 +1,21 @@
 # Dusk devnet protocol pin
 
-The active revision is `next-2026-10-31-8fadcc31`, from the tested OP-GAMM
-PR #58 head `8fadcc31fbe542f4f822060724639a5057fad2cc`. Dusk and the delegate
-were upgraded at finalized slots **517074591** and **517074907**. The complete
-revision begins at slot **517074908**. Generated IDLs and both finalized
-executables were checked against the reviewed build before pin activation.
+The active revision is `devnet-2026-11-01-tranches-fresh`. It contains the
+junior-LP loss waterfall, risk-priced borrowing, tranche exits and yield
+allocation from Dusk PR #60, activated under the fresh Dusk identity from Dusk
+PR #61. The complete revision begins at slot **517399749**.
 
-The previous October 26 lock, IDLs, compatible executable metadata, price
-references and exact quote runtime are preserved under
-`archive/devnet-2026-10-26-cd6f1ec/`. Existing observations and cursors retain
-their original identity. The `candidates/` manifest remains the immutable
-pre-deployment review bundle; `protocol.lock.json` carries the deployed facts.
+Dusk was deployed at finalized slot **517399592** under program
+`5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ`. The delegate was upgraded at
+finalized slot **517399748** under program
+`3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi`. Finalized executable dumps and
+on-chain IDLs match the reviewed artifacts. The retired-address tranche lock,
+IDLs, price references and quote runtime are preserved under
+`archive/devnet-2026-11-01-tranches/`; historical observations keep their
+original identity.
 
-[Deployment evidence](../docs/evidence/devnet-op-gamm-2026-10-31/deployment.json)
-records both signatures and the new seeded native market. The revision name
-retains the FE preview's pinned identifier so its interface check can match.
+[Deployment evidence](../docs/evidence/devnet-tranches-2026-11-01/deployment.json)
+records the exact program, IDL, SDK, slot, signature and hash pins.
 
 ## Previous deployment history
 
@@ -82,9 +83,10 @@ are unchanged; no consumer interface migration or new market is required.
 
 Commit `77877d576018fd2bd8191d13f05534b0484e2282` fixes previews after all external liquidity exits. It was upgraded at finalized slot `515502278`. The payload is 3,519,968 bytes plus 8,824 zero padding bytes; the full allocated executable hashes to `d7eb11e277e4b215e0215fb926b353e145aac8452adc61adcbbbb432cffd71b9`. Program IDs, authority, IDL, SDK package and event revision are unchanged. Historical deployment boundaries remain intact.
 
-## Undeployed OP-GAMM candidate
+## Historical OP-GAMM candidate
 
 `candidates/next-2026-10-31-8fadcc31/` contains the generated interface and
-synthetic wire fixtures for protocol PR #58. It is not an active deployment pin.
+synthetic wire fixtures for protocol PR #58. It is retained as review history,
+not selected by the active deployment pin.
 See [the oracle projection contract and rollout](../docs/dusk-oracle-policy.md)
 for hashes, API behavior, and the required separate deployment/replay promotion.

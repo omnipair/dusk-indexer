@@ -12,7 +12,6 @@ export interface MarketGrowthPoint {
   basis: 'committed-market-growth.v1'; supply: string;
   assets: Array<{ mint: string; decimals: number; reserve: string; swapIndexQ64: string; interestIndexQ64: string }>;
 }
-
 /** Decode committed account bytes, never PreviewMarket's hypothetical post-state.
  * A growth index is an entitlement per raw yLP share, independent of a holder's
  * balance, claims, deposits or transfers during the observation interval. */

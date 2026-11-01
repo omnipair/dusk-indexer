@@ -22,7 +22,8 @@ test('claim projection rejects precision loss, impossible credit, and a mismatch
   assert.throws(() => parseYieldClaim({ ...payload(), swap_fee_amount: 9007199254740992 }, '123'), /amount/);
   assert.throws(() => parseYieldClaim({ ...payload(), swap_fee_amount: '18446744073709551615' }, '123'), /inconsistent/);
   assert.throws(() => parseYieldClaim({ ...payload(), recipient_credit: '18446744073709551615' }, '123'), /inconsistent/);
-  assert.throws(() => parseYieldClaim({ ...payload(), token_kind: '2' }, '123'), /kind/);
+  assert.equal(parseYieldClaim({ ...payload(), token_kind: '2' }, '123').tokenKind,'junior');
+  assert.throws(() => parseYieldClaim({ ...payload(), token_kind: '3' }, '123'), /kind/);
   assert.throws(() => parseYieldClaim(payload(), '124'), /metadata/);
   assert.throws(() => parseYieldClaim({ ...payload(), metadata: { ...payload().metadata, market: address(7) } }, '123'), /metadata/);
   assert.throws(() => parseYieldClaim({ ...payload(), owner: 'invalid' }, '123'));

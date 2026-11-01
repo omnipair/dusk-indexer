@@ -30,7 +30,7 @@ export function parseYieldClaim(value: unknown, sourceSlot: string) {
   const fields = value as Record<string, unknown>;
   const owner = publicKey(fields.owner), market = publicKey(fields.market);
   const lpMint = publicKey(fields.lp_mint), assetMint = publicKey(fields.asset_mint), recipient = publicKey(fields.recipient);
-  if (fields.token_kind !== '0' && fields.token_kind !== '1') throw new Error('Unsupported yield claim token kind');
+  if (fields.token_kind !== '0' && fields.token_kind !== '1' && fields.token_kind !== '2') throw new Error('Unsupported yield claim token kind');
   const swapFeeAmount = amount(fields.swap_fee_amount), interestAmount = amount(fields.interest_amount);
   const recipientCredit = amount(fields.recipient_credit), grossAmount = swapFeeAmount + interestAmount;
   if (grossAmount === 0n || grossAmount > U64_MAX || recipientCredit > grossAmount)
@@ -40,7 +40,7 @@ export function parseYieldClaim(value: unknown, sourceSlot: string) {
     throw new Error('Yield claim metadata differs from its containing event');
   const caller = publicKey(metadata.signer);
   return { owner, market, lpMint, assetMint, recipient, caller,
-    tokenKind: fields.token_kind === '0' ? 'ylp' as const : 'hlp' as const,
+    tokenKind: fields.token_kind === '0' ? 'ylp' as const : fields.token_kind === '1' ? 'hlp' as const : 'junior' as const,
     swapFeeAmount: swapFeeAmount.toString(), interestAmount: interestAmount.toString(),
     grossAmount: grossAmount.toString(), recipientCredit: recipientCredit.toString() };
 }
@@ -83,7 +83,8 @@ export async function projectYieldClaimBatch(client: PoolClient, limit = 500): P
        owner,market,lp_mint,asset_mint,recipient,token_kind,swap_fee_amount,interest_amount,recipient_credit,payload)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
       [...active,row.event_key,row.observation_id,row.signature,row.slot,row.blockhash,row.block_time_exact,
-        claim.owner,claim.market,claim.lpMint,claim.assetMint,claim.recipient,claim.tokenKind === 'ylp' ? 0 : 1,
+        claim.owner,claim.market,claim.lpMint,claim.assetMint,claim.recipient,
+        claim.tokenKind === 'ylp' ? 0 : claim.tokenKind === 'hlp' ? 1 : 2,
         claim.swapFeeAmount,claim.interestAmount,claim.recipientCredit,JSON.stringify(row.payload)]);
   }
   return sources.rows.length;

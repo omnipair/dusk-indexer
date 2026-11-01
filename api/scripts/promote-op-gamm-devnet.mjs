@@ -62,7 +62,7 @@ for (const path of ['protocol.lock.json', 'compatible-deployment.json', 'devnet-
 }
 for (const p of candidate.programs) copyFileSync(resolve(candidateDir, p.idl.path), resolve(protocol, `idl/${p.name}.json`));
 const lock = { ...old, revision: candidate.revision, status: 'deployed', generatedAt: new Date().toISOString(),
-  source: { repository: candidate.source.repository, branch: 'feat/bounded-op-gamm', gitCommit: candidate.source.gitCommit,
+  source: { repository: candidate.source.repository, branch: candidate.source.branch, gitCommit: candidate.source.gitCommit,
     note: 'Both generated IDLs match the reviewed candidate. Finalized ProgramData executable bytes match the local release payload plus zero allocation padding.' },
   programs, sdk: { package: '@omnipair/dusk-sdk', version: candidate.sdk.version, sha256: candidate.sdk.sha256 } };
 save(resolve(protocol, 'protocol.lock.json'), lock);
@@ -72,12 +72,14 @@ save(resolve(protocol, 'compatible-deployment.json'), { eventRevision: lock.revi
   deploySlot: dusk.deployment.deploySlot, binarySha256: dusk.binary.sha256, allocatedBinaryBytes: dusk.deployment.allocatedBinaryBytes });
 const refs = json(resolve(protocol, 'devnet-price-references.json'));
 const firstSlot = Math.max(...programs.map(p => p.deployment.deploySlot)) + 1;
-save(resolve(protocol, 'devnet-price-references.json'), { ...refs, idlSha256: dusk.idl.canonicalSha256, protocolRevision: lock.revision,
+save(resolve(protocol, 'devnet-price-references.json'), { ...refs, programId: dusk.programId,
+  idlSha256: dusk.idl.canonicalSha256, protocolRevision: lock.revision,
   effectiveFrom: new Date(blockTime * 1000).toISOString() });
 const payload = readFileSync(resolve(source, 'target/deploy/dusk.so'));
 copyFileSync(resolve(source, 'target/deploy/dusk.so'), resolve(protocol, 'quote-runtime/dusk.so'));
 const priorRuntime = json(resolve(protocol, 'quote-runtime/manifest.json'));
-save(resolve(protocol, 'quote-runtime/manifest.json'), { ...priorRuntime, programBinarySha256: dusk.binary.sha256,
+save(resolve(protocol, 'quote-runtime/manifest.json'), { ...priorRuntime, programId: dusk.programId,
+  programBinarySha256: dusk.binary.sha256,
   payloadSha256: sha(payload), payloadBytes: payload.length, allocatedBinaryBytes: dusk.deployment.allocatedBinaryBytes,
   sourceCommit: lock.source.gitCommit });
 const constants = resolve(root, 'indexer/crates/dusk-ingestion/src/lib.rs');
@@ -85,6 +87,7 @@ let code = readFileSync(constants, 'utf8');
 const replace = (name, value) => { const pattern = new RegExp(`(pub const ${name}: &str =\\s*)"[^"]+";`); if (!pattern.test(code)) throw Error(`Missing Rust pin ${name}`); code = code.replace(pattern, `$1"${value}";`); };
 replace('PROTOCOL_REVISION', lock.revision);
 for (const [prefix, p] of [['DUSK', dusk], ['LEVERAGE_DELEGATE', programs.find(p => p.name === 'leverage_delegate')]]) {
+  replace(`${prefix}_PROGRAM_ID`, p.programId);
   replace(`${prefix}_IDL_RAW_SHA256`, p.idl.sha256); replace(`${prefix}_IDL_SHA256`, p.idl.canonicalSha256);
 }
 writeFileSync(constants, code);
