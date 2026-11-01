@@ -16,6 +16,7 @@ import { openDuskPayloadStream } from '../../services/duskPayloadStream';
 import { currentOwnerAccounts, currentLeverageValuation } from '../../services/duskDisplayState';
 import { ownerAccountsSelection } from '../../services/duskOwnerAccounts';
 import { leverageValuationSelection } from '../../services/duskLeverageValuation';
+import { futarchyAuthorityStatus } from '../../services/duskFutarchyAuthority';
 
 import { duskApiConfig, loadPinnedProtocol } from '../../config/duskProtocol';
 import {
@@ -522,6 +523,9 @@ router.get(
       ? Math.max(0, Math.round((Date.now() - Date.parse(cursorUpdatedAt)) / 1000))
       : null;
     const staleAfterSeconds = Number(process.env.DUSK_CURSOR_STALE_SECONDS ?? 300);
+    // A deploy to a new program ID starts without it, and no market can launch
+    // until the upgrade authority creates it.
+    const futarchyAuthority = await futarchyAuthorityStatus(pinned.dusk.programId);
 
     const degraded: string[] = [];
     if (identityError) degraded.push('deployment-identity');
@@ -529,6 +533,7 @@ router.get(
     if (cursorAgeSeconds !== null && cursorAgeSeconds > staleAfterSeconds) {
       degraded.push('ingestion-stalled');
     }
+    if (futarchyAuthority.initialized === false) degraded.push('futarchy-authority');
 
     res.status(degraded.length > 0 ? 503 : 200).json({
       success: degraded.length === 0,
@@ -541,6 +546,7 @@ router.get(
         },
         deploymentIdentitySha256: identity,
         deploymentError: identityError,
+        futarchyAuthority,
         chainSlot,
         indexedSlot,
         slotLag,
@@ -660,6 +666,7 @@ const RUNBOOKS = {
   'ingestion-cursor': 'database-unavailable',
   'indexer-lag': 'indexer-lag',
   'ingestion-stalled': 'indexer-lag',
+  'futarchy-authority': 'futarchy-authority-missing',
 };
 const RUNBOOK_BASE =
   'https://github.com/omnipair/dusk-indexer/blob/main/docs/runbooks/';
@@ -681,6 +688,11 @@ async function refresh() {
       row('Cluster', data.cluster),
       row('Protocol revision', '<code>' + data.protocolRevision + '</code>'),
       row('Deployment identity', '<code>' + (data.deploymentIdentitySha256 || 'unavailable') + '</code>'),
+      row('Futarchy authority', data.futarchyAuthority
+        ? (data.futarchyAuthority.initialized === null ? 'unknown'
+          : data.futarchyAuthority.initialized ? 'initialized' : 'missing')
+          + ' <code>' + data.futarchyAuthority.address + '</code>'
+        : '—'),
       row('Chain slot', data.chainSlot === null ? '—' : data.chainSlot),
       row('Indexed slot', data.indexedSlot === null ? '—' : data.indexedSlot),
       row('Slot lag', data.slotLag === null ? '—' : data.slotLag),
