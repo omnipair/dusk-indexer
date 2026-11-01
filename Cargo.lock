@@ -1645,6 +1645,7 @@ dependencies = [
  "solana-client",
  "solana-commitment-config",
  "solana-instruction",
+ "solana-message",
  "solana-pubkey",
  "solana-signature",
  "solana-transaction",

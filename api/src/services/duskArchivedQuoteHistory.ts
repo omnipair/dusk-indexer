@@ -17,7 +17,9 @@ export const PREVIOUS_ACTIVE_QUOTE_REVISION = 'devnet-2026-10-25-296263d';
 export const LAST_ACTIVE_QUOTE_REVISION = 'devnet-2026-10-26-cd6f1ec';
 const ORACLE_V7_REVISION = 'next-2026-10-31-8fadcc31';
 const LAYOUT_V8_REVISION = 'next-2026-10-31-layouts';
-const ACTIVE_REVISION = 'devnet-2026-11-01-tranches';
+const ROTATED_PROGRAM_REVISION = 'devnet-2026-11-01-tranches';
+const ACTIVE_REVISION = 'devnet-2026-11-01-tranches-fresh';
+const ARCHIVED_DUSK_PROGRAM_ID = 'JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X';
 const successors: Record<string, string> = {
   [ARCHIVED_QUOTE_REVISION]: PREVIOUS_QUOTE_REVISION,
   [PREVIOUS_QUOTE_REVISION]: RECENT_QUOTE_REVISION,
@@ -26,7 +28,8 @@ const successors: Record<string, string> = {
   [PREVIOUS_ACTIVE_QUOTE_REVISION]: LAST_ACTIVE_QUOTE_REVISION,
   [LAST_ACTIVE_QUOTE_REVISION]: ORACLE_V7_REVISION,
   [ORACLE_V7_REVISION]: LAYOUT_V8_REVISION,
-  [LAYOUT_V8_REVISION]: ACTIVE_REVISION,
+  [LAYOUT_V8_REVISION]: ROTATED_PROGRAM_REVISION,
+  [ROTATED_PROGRAM_REVISION]: ACTIVE_REVISION,
 };
 
 /** Historical display only. Each release keeps its original tuple, envelope,
@@ -39,13 +42,16 @@ export async function readArchivedQuoteHistory(client: PoolClient,query: QuoteHi
   const root = resolve(process.env.DUSK_PROTOCOL_DIR?.trim() || resolve(__dirname,'../../../protocol'),'archive',revision);
   const pin = loadProtocolAt(root);
   if (pin.revision !== revision || pin.cluster !== active.cluster || pin.genesisHash !== active.genesisHash
-    || pin.dusk.programId !== active.dusk.programId)
+    || pin.dusk.programId !== ARCHIVED_DUSK_PROGRAM_ID)
     throw new Error('Quote archive is not part of this deployment lineage');
   const coder = new BorshCoder(JSON.parse(readFileSync(resolve(root,'idl/dusk.json'),'utf8')) as Idl);
   const successor = successors[revision] === active.revision ? active
     : loadProtocolAt(resolve(root, '..', successors[revision]));
+  const intentionalProgramRotation = revision === ROTATED_PROGRAM_REVISION
+    && successor.revision === ACTIVE_REVISION;
   if (successor.revision !== successors[revision] || successor.cluster !== pin.cluster
-    || successor.genesisHash !== pin.genesisHash || successor.dusk.programId !== pin.dusk.programId
+    || successor.genesisHash !== pin.genesisHash
+    || (!intentionalProgramRotation && successor.dusk.programId !== pin.dusk.programId)
     || successor.dusk.deployment.deploySlot <= pin.dusk.deployment.deploySlot)
     throw new Error('Invalid quote archive successor');
   const lastSlot = successor.dusk.deployment.deploySlot-1;

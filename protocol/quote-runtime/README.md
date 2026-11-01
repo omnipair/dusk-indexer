@@ -1,8 +1,8 @@
 # Native leverage-capacity candidate runtime
 
-`dusk.so` is the exact 4,942,904-byte finalized executable from Dusk PR #60,
-deployed on devnet at slot 517364372. Its SHA-256 is
-`9813fc3e8ddf9014a2707c06b056d06e3288bb9177c472fb0da413e623807992`.
+`dusk.so` is the exact 4,939,992-byte finalized executable from Dusk PR #61,
+deployed under the fresh devnet program identity at slot 517399592. Its SHA-256 is
+`7604f9d3c1c061e5563dd16750c64a545b45831cc32a586d20903400d62b4df5`.
 The manifest and `compatible-deployment.json` pin the same bytes. A future Dusk
 deployment must update these artifacts together; a mismatched runtime refuses
 quotes.

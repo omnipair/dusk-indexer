@@ -343,12 +343,30 @@ mod tests {
     /// back out of the pinned decoder with its hLP adjustment and swap events.
     #[test]
     fn a_streamed_devnet_swap_decodes_its_event() {
+        let source = include_str!("../fixtures/swap-executed-devnet.json").replace(
+            "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
+            dusk_indexer_foundation::DUSK_PROGRAM_ID,
+        );
         let fixture: EncodedConfirmedTransactionWithStatusMeta =
-            serde_json::from_str(include_str!("../fixtures/swap-executed-devnet.json")).unwrap();
-        let streamed = TransactionMetadata {
+            serde_json::from_str(&source).unwrap();
+        let mut streamed = TransactionMetadata {
             block_time: None,
             ..metadata_from_rpc(&fixture).unwrap()
         };
+        let retired: solana_pubkey::Pubkey = "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X"
+            .parse()
+            .unwrap();
+        let active: solana_pubkey::Pubkey =
+            dusk_indexer_foundation::DUSK_PROGRAM_ID.parse().unwrap();
+        let account_keys = match &mut streamed.message {
+            solana_message::VersionedMessage::Legacy(message) => &mut message.account_keys,
+            solana_message::VersionedMessage::V0(message) => &mut message.account_keys,
+        };
+        for key in account_keys {
+            if *key == retired {
+                *key = active;
+            }
+        }
         let signature = streamed.signature.to_string();
         let decoder = PinnedIdlDecoder::new("devnet").unwrap();
         let observed = extract::decode_transaction(

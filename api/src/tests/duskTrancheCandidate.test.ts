@@ -13,7 +13,7 @@ import { sdkForProtocol } from '../services/virtualBook/native';
 
 const root = resolve(
   __dirname,
-  '../../../protocol/candidates/next-2026-11-01-2820673e',
+  '../../../protocol/candidates/devnet-2026-11-01-tranches-fresh',
 );
 const candidate = JSON.parse(
   readFileSync(resolve(root, 'candidate.json'), 'utf8'),
@@ -22,10 +22,10 @@ const candidate = JSON.parse(
 test('junior tranche promotion bundle matches the active pin', async () => {
   assert.equal(candidate.schemaVersion, 'dusk-protocol-candidate.v1');
   assert.equal(candidate.status, 'promoted');
-  assert.equal(candidate.revision, 'next-2026-11-01-2820673e');
+  assert.equal(candidate.revision, 'devnet-2026-11-01-tranches-fresh');
   assert.equal(
     candidate.source.gitCommit,
-    '2820673e2d3fb7a2b259d7fe17c86e90aa9e71b8',
+    'c8ef8e32302ee88ce99c1244d5605892ca61aa80',
   );
 
   for (const program of candidate.programs) {
@@ -44,7 +44,7 @@ test('junior tranche promotion bundle matches the active pin', async () => {
   assert.throws(() => loadProtocolAt(root), /protocol.lock/);
 
   const active = loadPinnedProtocol();
-  assert.equal(active.revision, 'devnet-2026-11-01-tranches');
+  assert.equal(active.revision, 'devnet-2026-11-01-tranches-fresh');
   assert.equal(
     active.dusk.idlCanonicalSha256,
     candidate.programs[0].idl.canonicalSha256,

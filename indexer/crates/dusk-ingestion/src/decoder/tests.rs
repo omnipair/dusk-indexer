@@ -921,7 +921,9 @@ fn oracle_candidate_matches_sdk_wire_bytes_without_promoting_the_pin() {
         "/../../../protocol/candidates/next-2026-10-31-8fadcc31/fixtures/oracle-wire.json"
     )))
     .unwrap();
-    ProgramRegistry::from_bytes(&serde_json::to_vec(&idl).unwrap(), DUSK_PROGRAM_ID).unwrap();
+    let candidate_program_id = idl["address"].as_str().unwrap();
+    assert_ne!(candidate_program_id, DUSK_PROGRAM_ID);
+    ProgramRegistry::from_bytes(&serde_json::to_vec(&idl).unwrap(), candidate_program_id).unwrap();
     let registry = TypeRegistry::from_idl(&idl).unwrap();
     let decode_hex = |text: &str| -> Vec<u8> {
         text.as_bytes()
@@ -959,5 +961,5 @@ fn oracle_candidate_matches_sdk_wire_bytes_without_promoting_the_pin() {
             )
             .is_err()
     );
-    assert_eq!(crate::PROTOCOL_REVISION, "devnet-2026-11-01-tranches");
+    assert_eq!(crate::PROTOCOL_REVISION, "devnet-2026-11-01-tranches-fresh");
 }

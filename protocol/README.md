@@ -1,17 +1,18 @@
 # Dusk devnet protocol pin
 
-The active revision is `devnet-2026-11-01-tranches`. It contains the junior-LP
-loss waterfall, risk-priced borrowing, tranche exits and yield allocation from
-Dusk PR #60, plus the replacement leverage-delegate identity from Dusk PR #61.
-The complete revision begins at slot **517366196**.
+The active revision is `devnet-2026-11-01-tranches-fresh`. It contains the
+junior-LP loss waterfall, risk-priced borrowing, tranche exits and yield
+allocation from Dusk PR #60, activated under the fresh Dusk identity from Dusk
+PR #61. The complete revision begins at slot **517399749**.
 
-Dusk was upgraded at finalized slot **517364372**. The replacement delegate was
-deployed at finalized slot **517366195** under program
+Dusk was deployed at finalized slot **517399592** under program
+`5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ`. The delegate was upgraded at
+finalized slot **517399748** under program
 `3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi`. Finalized executable dumps and
-on-chain IDLs match the reviewed artifacts. The previous active lock, IDLs,
-price references and quote runtime are preserved under
-`archive/next-2026-10-31-layouts/`; historical observations keep their original
-identity.
+on-chain IDLs match the reviewed artifacts. The retired-address tranche lock,
+IDLs, price references and quote runtime are preserved under
+`archive/devnet-2026-11-01-tranches/`; historical observations keep their
+original identity.
 
 [Deployment evidence](../docs/evidence/devnet-tranches-2026-11-01/deployment.json)
 records the exact program, IDL, SDK, slot, signature and hash pins.

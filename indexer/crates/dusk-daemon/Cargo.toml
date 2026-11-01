@@ -38,3 +38,6 @@ log = "0.4"
 env_logger = "0.11"
 anyhow = "1"
 sha2 = "0.10"
+
+[dev-dependencies]
+solana-message = { workspace = true }

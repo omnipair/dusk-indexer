@@ -1,7 +1,7 @@
 # Dusk junior tranche read contract
 
 This change indexes the tranche interface from Dusk PR #60 under the verified
-`devnet-2026-11-01-tranches` deployment pin.
+`devnet-2026-11-01-tranches-fresh` deployment pin.
 
 ## Published market state
 
@@ -34,7 +34,7 @@ Retired jrLP remains discoverable for historical yield claims.
 
 ## Rollout
 
-The active lock starts at slot `517366196`, after both finalized programs were
-available. The previous layout-8 lock and IDLs remain archived; old observations
-keep their original identity. The promoted review bundle contains the generated
-IDLs and exact SDK archive used by the API.
+The active lock starts at slot `517399749`, after both finalized programs were
+available. The retired-address tranche lock and every earlier lock remain archived;
+old observations keep their original program and revision identity. The promoted
+review bundle contains the generated IDLs and exact SDK archive used by the API.
