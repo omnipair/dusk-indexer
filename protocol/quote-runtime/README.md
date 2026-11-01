@@ -1,10 +1,11 @@
 # Native leverage-capacity candidate runtime
 
-`dusk.so` is the exact unpadded SBF payload from Dusk commit
-`8fadcc31fbe542f4f822060724639a5057fad2cc`, deployed on devnet at slot
-517074591. The manifest verifies its payload hash and its zero-padded on-chain
-allocation hash against `compatible-deployment.json`. A future Dusk deployment
-must update these artifacts together; a mismatched runtime refuses quotes.
+`dusk.so` is the exact 4,942,904-byte finalized executable from Dusk PR #60,
+deployed on devnet at slot 517364372. Its SHA-256 is
+`9813fc3e8ddf9014a2707c06b056d06e3288bb9177c472fb0da413e623807992`.
+The manifest and `compatible-deployment.json` pin the same bytes. A future Dusk
+deployment must update these artifacts together; a mismatched runtime refuses
+quotes.
 
 The preview adapter uses LiteSVM 1.6.1 in a separate process. The hashed feature
 snapshot retains the 220 features used by Dusk’s strict offline runtime; the

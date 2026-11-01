@@ -32,7 +32,7 @@ test('reviewed candidate artifacts remain immutable beside the active deployment
   const legacy = loadProtocolAt(resolve(root,'../../archive/devnet-2026-10-26-cd6f1ec'));
   assert.equal(legacy.revision,'devnet-2026-10-26-cd6f1ec');
   assert.throws(() => loadProtocolAt(root),/protocol.lock/);
-  assert.equal(marketLayoutVersion(),8);
+  assert.equal(marketLayoutVersion(),9);
   assert.equal(governanceFamilyCount(),8);
   assert.equal(governanceFamilyCount(idl),8);
   const pin = loadPinnedProtocol();
@@ -107,7 +107,7 @@ test('feed layout is independent of provider for policy projection and report ac
   }
 });
 
-test('layout-8 wire and SDK match the explicitly activated deployment', async () => {
+test('layout-8 wire and SDK remain available as archived review material', async () => {
   const futureRoot = resolve(root,'../next-2026-10-31-layouts');
   const manifest = JSON.parse(readFileSync(resolve(futureRoot,'candidate.json'),'utf8'));
   assert.equal(manifest.status,'undeployed');
@@ -128,7 +128,7 @@ test('layout-8 wire and SDK match the explicitly activated deployment', async ()
   const observation=decoded.oracle.last_observation as {source_sequences:unknown[];source_hashes:unknown[]};
   assert.equal(observation.source_sequences.length,2);assert.equal(observation.source_hashes.length,2);
   const active=loadPinnedProtocol();
-  assert.equal(active.dusk.idlCanonicalSha256,manifest.programs[0].idl.canonicalSha256);
+  assert.notEqual(active.dusk.idlCanonicalSha256,manifest.programs[0].idl.canonicalSha256);
   const sdk=await sdkForProtocol({...active,dusk:{...active.dusk,idlCanonicalSha256:manifest.programs[0].idl.canonicalSha256}});
   assert.equal(sha256(canonicalJson(sdk.IDL)),manifest.programs[0].idl.canonicalSha256);
   assert.throws(() => loadProtocolAt(futureRoot),/protocol.lock/);

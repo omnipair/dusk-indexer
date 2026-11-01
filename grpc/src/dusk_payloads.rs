@@ -5,7 +5,7 @@ use {
         dusk_stream::valid_envelope,
         grpc_server::stream::{DuskPayload, DuskPayloadsRequest},
     },
-    serde_json::{json, Value},
+    serde_json::{Value, json},
     std::{pin::Pin, sync::Arc, time::Duration},
     tokio::sync::Semaphore,
     tokio_stream::Stream,
@@ -171,17 +171,32 @@ mod tests {
             .map(|program| program["deployment"]["deploySlot"].as_u64().unwrap())
             .max()
             .unwrap();
-        for (name, slots, binary, canonical_idl, raw_idl) in [
+        for (
+            name,
+            program_id,
+            program_data,
+            slots,
+            upgrade_authority,
+            binary,
+            canonical_idl,
+            raw_idl,
+        ) in [
             (
                 "dusk",
+                "programId",
+                "programDataAddress",
                 "programDataSlot",
+                "programUpgradeAuthority",
                 "programBinarySha256",
                 "idlSha256",
                 "idlRawSha256",
             ),
             (
                 "leverage_delegate",
+                "leverageDelegateProgramId",
+                "leverageDelegateProgramDataAddress",
                 "leverageDelegateProgramDataSlot",
+                "leverageDelegateUpgradeAuthority",
                 "leverageDelegateBinarySha256",
                 "leverageDelegateIdlSha256",
                 "leverageDelegateIdlRawSha256",
@@ -191,8 +206,15 @@ mod tests {
                 .iter()
                 .find(|program| program["name"] == name)
                 .unwrap();
-            deployment[slots] =
-                json!(program["deployment"]["deploySlot"].as_u64().unwrap().to_string());
+            deployment[program_id] = program["programId"].clone();
+            deployment[program_data] = program["deployment"]["programData"].clone();
+            deployment[slots] = json!(
+                program["deployment"]["deploySlot"]
+                    .as_u64()
+                    .unwrap()
+                    .to_string()
+            );
+            deployment[upgrade_authority] = program["deployment"]["upgradeAuthority"].clone();
             deployment[binary] = program["binary"]["sha256"].clone();
             deployment[canonical_idl] = program["idl"]["canonicalSha256"].clone();
             deployment[raw_idl] = program["idl"]["sha256"].clone();
@@ -221,13 +243,27 @@ mod tests {
             "../../api/src/tests/fixtures/payload-envelope-devnet-20260920.json"
         ))
         .unwrap();
-        assert!(!valid_payload(&captured, &selected, &pin, &history_pin, now));
+        assert!(!valid_payload(
+            &captured,
+            &selected,
+            &pin,
+            &history_pin,
+            now
+        ));
         assert!(valid_payload(&frame, &selected, &pin, &history_pin, now));
         // A historical event frame can precede the compatible program upgrade
         // while its live API envelope identifies the currently verified code.
         let mut earlier = frame.clone();
-        earlier["data"]["sourceSlot"] = json!(history_pin["programs"].as_array().unwrap().iter()
-            .filter_map(|program| program["deployment"]["deploySlot"].as_u64()).max().unwrap() + 1);
+        earlier["data"]["sourceSlot"] = json!(
+            history_pin["programs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|program| program["deployment"]["deploySlot"].as_u64())
+                .max()
+                .unwrap()
+                + 1
+        );
         assert!(valid_payload(&earlier, &selected, &pin, &history_pin, now));
         for field in [
             "selection",
@@ -241,7 +277,10 @@ mod tests {
         ] {
             let mut broken = frame.clone();
             broken["data"][field] = Value::Null;
-            assert!(!valid_payload(&broken, &selected, &pin, &history_pin, now), "{field}");
+            assert!(
+                !valid_payload(&broken, &selected, &pin, &history_pin, now),
+                "{field}"
+            );
         }
         let mut broken = frame.clone();
         broken["data"]["sourceSlot"] = json!(0);
@@ -286,9 +325,11 @@ mod tests {
             let (mut socket, _) = listener.accept().await.unwrap();
             let mut request = [0u8; 4096];
             let size = socket.read(&mut request).await.unwrap();
-            assert!(std::str::from_utf8(&request[..size])
-                .unwrap()
-                .contains("/api/dusk/v1/payloads?kind=markets"));
+            assert!(
+                std::str::from_utf8(&request[..size])
+                    .unwrap()
+                    .contains("/api/dusk/v1/payloads?kind=markets")
+            );
             socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\n\r\n", body.len()).as_bytes()).await.unwrap();
             for part in body.as_bytes().chunks(37) {
                 socket.write_all(part).await.unwrap();

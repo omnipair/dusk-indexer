@@ -6,7 +6,7 @@ use {
     std::collections::BTreeSet,
 };
 
-const DUSK_EVENTS: [&str; 56] = [
+const DUSK_EVENTS: [&str; 61] = [
     "BorrowInterestAccrued",
     "BorrowInterestPaid",
     "BorrowPositionLiquidated",
@@ -27,6 +27,9 @@ const DUSK_EVENTS: [&str; 56] = [
     "HlpRetiredReceiptBurned",
     "HlpTerminalLiquidated",
     "InsuranceDonated",
+    "JuniorCohortInitialized",
+    "JuniorSeedCompounded",
+    "JuniorSeedFunded",
     "LeverageDelegationUpdated",
     "LeveragePositionClosed",
     "LeveragePositionLiquidated",
@@ -60,7 +63,9 @@ const DUSK_EVENTS: [&str; 56] = [
     "ReferralInterestShareCapUpdated",
     "ReferralPartnerConfigured",
     "ReferralRecipientUpdated",
+    "RetiredJuniorBurned",
     "SwapExecuted",
+    "TrancheConverted",
     "YieldClaimed",
     "YieldRecipientUpdated",
 ];
@@ -88,13 +93,16 @@ const DELEGATE_INSTRUCTIONS: [&str; 18] = [
     "update_leverage_order",
 ];
 
-const DUSK_ACCOUNTS: [&str; 15] = [
+const DUSK_ACCOUNTS: [&str; 18] = [
     "BorrowPosition",
     "FutarchyAuthority",
     "GovernanceBalance",
     "GovernanceSupport",
     "HlpCohort",
     "HlpFlashSession",
+    "IncomeEpoch",
+    "JuniorCohort",
+    "JuniorExitAccount",
     "LeverageDelegation",
     "LeveragePosition",
     "LiquidationSession",
@@ -287,7 +295,7 @@ fn registry_classifies_every_pinned_event_and_instruction() {
         actual_delegate_events,
         DELEGATE_EVENTS.into_iter().collect()
     );
-    assert_eq!(decoder.instruction_names(PinnedProgram::Dusk).len(), 77);
+    assert_eq!(decoder.instruction_names(PinnedProgram::Dusk).len(), 84);
     let actual_delegate: BTreeSet<_> = decoder
         .instruction_names(PinnedProgram::LeverageDelegate)
         .into_iter()
@@ -301,8 +309,8 @@ fn anchor_tags_and_every_idl_discriminator_are_cryptographically_verified() {
     anchor_event_digest.reverse();
     assert_eq!(anchor_event_digest, ANCHOR_EVENT_CPI_TAG);
     let decoder = decoder();
-    assert_eq!(decoder.dusk.events.len(), 56);
-    assert_eq!(decoder.dusk.instructions.len(), 77);
+    assert_eq!(decoder.dusk.events.len(), 61);
+    assert_eq!(decoder.dusk.instructions.len(), 84);
     assert_eq!(decoder.delegate.events.len(), 2);
     assert_eq!(decoder.delegate.instructions.len(), 18);
 
@@ -661,7 +669,7 @@ fn registry_classifies_every_pinned_account_declaration() {
         .collect();
     assert_eq!(dusk, DUSK_ACCOUNTS.into_iter().collect());
     assert_eq!(delegate, DELEGATE_ACCOUNTS.into_iter().collect());
-    assert_eq!(decoder.dusk.accounts.len(), 15);
+    assert_eq!(decoder.dusk.accounts.len(), 18);
     assert_eq!(decoder.delegate.accounts.len(), 12);
 
     let mut idl: Value = serde_json::from_slice(DUSK_IDL).unwrap();
@@ -951,5 +959,5 @@ fn oracle_candidate_matches_sdk_wire_bytes_without_promoting_the_pin() {
             )
             .is_err()
     );
-    assert_eq!(crate::PROTOCOL_REVISION, "next-2026-10-31-layouts");
+    assert_eq!(crate::PROTOCOL_REVISION, "devnet-2026-11-01-tranches");
 }

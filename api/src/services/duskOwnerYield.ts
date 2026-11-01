@@ -143,11 +143,16 @@ export async function readOwnerYieldGroups(
   return { groups, sourceSlot: Number(stream.throughSlot) };
 }
 
-/** The deployed repair appends a zero Option to the exact pre-authority layout. */
+/** Known legacy layouts omit only zero-default trailing fields. */
 function decodeYield(dusk: Dusk, data: Buffer): YieldAccount {
+  const size = dusk.program.coder.accounts.size('yieldAccount');
+  const compatible =
+    (data.length === 234 || data.length === 235) && data.length < size
+      ? Buffer.concat([data, Buffer.alloc(size - data.length)])
+      : data;
   return dusk.program.coder.accounts.decode<YieldAccount>(
     'yieldAccount',
-    data.length === 234 ? Buffer.concat([data, Buffer.from([0])]) : data,
+    compatible,
   );
 }
 

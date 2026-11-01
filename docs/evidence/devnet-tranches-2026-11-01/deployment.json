@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "dusk-indexer-protocol-promotion.v1",
+  "cluster": "devnet",
+  "genesisHash": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+  "revision": "devnet-2026-11-01-tranches",
+  "historyFirstSlot": 517366196,
+  "source": {
+    "protocolPullRequest": "https://github.com/omnipair/dusk/pull/60",
+    "protocolMergeCommit": "91e0303c3b0ac499058e762289d6d34d70ce84ff",
+    "identityPullRequest": "https://github.com/omnipair/dusk/pull/61",
+    "identityCommit": "2820673e2d3fb7a2b259d7fe17c86e90aa9e71b8"
+  },
+  "sdk": {
+    "version": "2.15.0-next.20261031",
+    "sha256": "5b1609cb4d3a07b4d606bde0a1ac0dca476da2ff1fbf5612d45109941d325ee8"
+  },
+  "programs": [
+    {
+      "name": "dusk",
+      "programId": "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
+      "programData": "FH3oEMmx2n7YMeEsrLM8dzr7FxuZLQgMacwQF6ZHdWk",
+      "deploySlot": 517364372,
+      "deploymentSignature": "4B9bRyY2CEf89J7fJhaEHHH8z5zDeWo1X6ht8U85AQZzJeNrNDfE5CkPaBEmZeWfYZiG39gqLv4UoLk6X8gqDyKN",
+      "binarySha256": "9813fc3e8ddf9014a2707c06b056d06e3288bb9177c472fb0da413e623807992",
+      "idlRawSha256": "8b933655796f1d0004413d617573ce535bd7cbee7f97aa23a0317dd4e74a32c5",
+      "idlCanonicalSha256": "9179fe9f46331a5c5f58708cb5df9a8364a4b9d4cb98ada8f64f16f6eeec89af"
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi",
+      "programData": "9Cy5J4Y5igAPdMdTCL7DUbHE4omXgKFsnAugGfWnhTUZ",
+      "deploySlot": 517366195,
+      "deploymentSignature": "3trDFRLnXepGi9w7K6ChsyMd8UW9jXu4iaojSUyd2D43yyjBY6hDp688y9aXPk9MuxQxG8iBeoGg7gLSvRJUZT7v",
+      "binarySha256": "1bec70c490e0f68efb41e1be2b5a5cee4f5a6ec0e7c93ad5b4370badb996fe76",
+      "idlRawSha256": "1aa5843e246232632ef89d0aeabcf44a1536c2696ade95e3372cda865de51e70",
+      "idlCanonicalSha256": "b406bec1d718962ab5bc1d478f8fac104537e1699fb098b878e798118ed2da68"
+    }
+  ]
+}

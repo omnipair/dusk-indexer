@@ -13,19 +13,19 @@ import { sdkForProtocol } from '../services/virtualBook/native';
 
 const root = resolve(
   __dirname,
-  '../../../protocol/candidates/next-2026-11-01-96c1fba5',
+  '../../../protocol/candidates/next-2026-11-01-2820673e',
 );
 const candidate = JSON.parse(
   readFileSync(resolve(root, 'candidate.json'), 'utf8'),
 );
 
-test('junior tranche candidate remains immutable and inactive', async () => {
+test('junior tranche promotion bundle matches the active pin', async () => {
   assert.equal(candidate.schemaVersion, 'dusk-protocol-candidate.v1');
-  assert.equal(candidate.status, 'undeployed');
-  assert.equal(candidate.revision, 'next-2026-11-01-96c1fba5');
+  assert.equal(candidate.status, 'promoted');
+  assert.equal(candidate.revision, 'next-2026-11-01-2820673e');
   assert.equal(
     candidate.source.gitCommit,
-    '96c1fba5f803270c292a5a7821d0efa4708ae6bb',
+    '2820673e2d3fb7a2b259d7fe17c86e90aa9e71b8',
   );
 
   for (const program of candidate.programs) {
@@ -44,10 +44,14 @@ test('junior tranche candidate remains immutable and inactive', async () => {
   assert.throws(() => loadProtocolAt(root), /protocol.lock/);
 
   const active = loadPinnedProtocol();
-  assert.equal(active.revision, 'next-2026-10-31-layouts');
-  assert.notEqual(
+  assert.equal(active.revision, 'devnet-2026-11-01-tranches');
+  assert.equal(
     active.dusk.idlCanonicalSha256,
     candidate.programs[0].idl.canonicalSha256,
+  );
+  assert.equal(
+    active.leverageDelegate.idlCanonicalSha256,
+    candidate.programs[1].idl.canonicalSha256,
   );
 
   const selected = await sdkForProtocol({
