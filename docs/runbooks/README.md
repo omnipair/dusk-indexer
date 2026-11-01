@@ -15,6 +15,7 @@ public API.
 | [Program upgraded](program-upgraded.md) | A new executable is deployed; verify cursor health and review any IDL changes |
 | [Database full or unavailable](database-unavailable.md) | API 503s; ingestion cursor stops advancing |
 | [Swaps reverting](swaps-reverting.md) | Users report failed swaps; `BrokenInvariant` 6047 in logs |
+| [Futarchy authority missing](futarchy-authority-missing.md) | `/status` reports `futarchy-authority`; every market launch fails at its first step |
 
 ## The one number worth knowing
 
