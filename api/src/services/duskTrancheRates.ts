@@ -4,8 +4,18 @@ type TrancheProjection = {
   juniorMint: string;
   seniorReserveShares: string;
   juniorReserveShares: string;
+  policy?: { juniorIncomeShareBps: number | null } | null;
   rates: unknown;
 };
+
+const BPS = 10_000n;
+
+/** The governed junior share of every LP swap fee and interest credit, or
+ * `null` when the market projection carries no share the program splits by. */
+function juniorIncomeShareBps(tranches: TrancheProjection): bigint | null {
+  const bps = tranches.policy?.juniorIncomeShareBps;
+  return typeof bps === 'number' && Number.isInteger(bps) && bps >= 0 && bps < 10_000 ? BigInt(bps) : null;
+}
 
 function add(left: string | null | undefined, right: string | null | undefined) {
   if (left == null || right == null) return null;
@@ -22,9 +32,11 @@ function scale(value: string | null | undefined, numerator: bigint, denominator:
 }
 
 /** The swap stream records pool income without enlarging every swap receipt
- * with a second set of growth indexes. The senior rate is the recorded market
- * rate; junior receives the same 50% income budget over its current smaller
- * capital base, so its display estimate scales by live senior/junior shares. */
+ * with a second set of growth indexes. The program gives junior the market's
+ * governed income share of every LP swap fee and interest credit and grows the
+ * yLP indexes with the senior rest, so the recorded market rate is the senior
+ * rate. Junior earns share / (1 - share) times senior's income over its own
+ * live capital, so its display estimate scales by both ratios. */
 export async function withTrancheRates(
   payload: Record<string, unknown>,
   deploymentIdentitySha256: string,
@@ -43,8 +55,11 @@ export async function withTrancheRates(
     });
     const seniorShares = BigInt(tranches.seniorReserveShares);
     const juniorShares = BigInt(tranches.juniorReserveShares);
-    const juniorSwap = scale(rates.swapRatePct, seniorShares, juniorShares);
-    const juniorInterest = scale(rates.interestRatePct, seniorShares, juniorShares);
+    const share = juniorIncomeShareBps(tranches);
+    const numerator = share === null ? 0n : share * seniorShares;
+    const denominator = share === null ? 0n : (BPS - share) * juniorShares;
+    const juniorSwap = scale(rates.swapRatePct, numerator, denominator);
+    const juniorInterest = scale(rates.interestRatePct, numerator, denominator);
     return {
       ...payload,
       tranches: {
@@ -61,11 +76,12 @@ export async function withTrancheRates(
             totalRatePct: add(rates.swapRatePct, rates.interestRatePct),
           },
           junior:
-            juniorShares === 0n
+            juniorShares === 0n || share === null
               ? null
               : {
                   growth: rates.growth,
-                  estimate: 'fixed-50-50-income-over-live-capital',
+                  estimate: 'governed-income-share-over-live-capital',
+                  incomeShareBps: Number(share),
                   swapRatePct: juniorSwap,
                   interestRatePct: juniorInterest,
                   totalRatePct: add(juniorSwap, juniorInterest),
