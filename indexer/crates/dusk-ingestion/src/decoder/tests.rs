@@ -394,7 +394,7 @@ fn nonzero_event_fields_decode_with_lossless_integer_and_pubkey_representation()
     data.extend_from_slice(market.as_ref());
     data.extend_from_slice(&2_u32.to_le_bytes());
     data.extend_from_slice(&[4, 6]);
-    for revision in 99_u64..107 {
+    for revision in 99_u64..108 {
         data.extend_from_slice(&revision.to_le_bytes());
     }
     data.extend_from_slice(&(-7_i64).to_le_bytes());
@@ -407,7 +407,7 @@ fn nonzero_event_fields_decode_with_lossless_integer_and_pubkey_representation()
             "proposal": proposal.to_string(),
             "market": market.to_string(),
             "families": "BAY=",
-            "new_family_revisions": ["99", "100", "101", "102", "103", "104", "105", "106"],
+            "new_family_revisions": ["99", "100", "101", "102", "103", "104", "105", "106", "107"],
             "executed_at": "-7"
         }))
     );
@@ -961,5 +961,8 @@ fn oracle_candidate_matches_sdk_wire_bytes_without_promoting_the_pin() {
             )
             .is_err()
     );
-    assert_eq!(crate::PROTOCOL_REVISION, "devnet-2026-11-01-tranches-fresh");
+    assert_eq!(
+        crate::PROTOCOL_REVISION,
+        "devnet-2026-11-02-governable-tranches"
+    );
 }

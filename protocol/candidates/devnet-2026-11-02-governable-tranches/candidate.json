@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "dusk-protocol-candidate.v1",
+  "status": "promoted",
+  "revision": "devnet-2026-11-02-governable-tranches",
+  "source": {
+    "repository": "https://github.com/omnipair/dusk",
+    "branch": "main",
+    "gitCommit": "bd980852fa743be609896109307f4084732eddf7"
+  },
+  "programs": [
+    {
+      "name": "dusk",
+      "programId": "5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ",
+      "idl": {
+        "path": "idl/dusk.json",
+        "sha256": "2eabd3406d278e07ba128b678bb8e939605542012320dbe8f70ea4ebf09729a3",
+        "canonicalSha256": "65de3da39b3f57495f47f331a66b26b620f24756858404b2281f5e6268bbbe58"
+      }
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi",
+      "idl": {
+        "path": "idl/leverage_delegate.json",
+        "sha256": "d15455293a41164300f5e33cb8ba4bd00cd995aa56f3b15ac5fda9aa77eaa380",
+        "canonicalSha256": "07a0c2596174ab0af122416aefa04c425b238e237ac04e652097f09d17ff7a5e"
+      }
+    }
+  ],
+  "sdk": {
+    "version": "2.16.0-next.20261102",
+    "path": "api/vendor/dusk-sdk-2.16.0-next.20261102.tgz",
+    "sha256": "cfe0e1a0a92f27e61dcb365276c5a3e10c56cfc52d9cdc9c38e4a3c74298420e"
+  },
+  "activation": "Promoted after finalized Dusk and leverage-delegate executables plus both published IDLs matched the reviewed candidate. Existing token metadata is unchanged."
+}
