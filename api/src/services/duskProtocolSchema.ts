@@ -21,8 +21,8 @@ export function pinnedDuskIdl(): Idl {
   return idl;
 }
 
-export function marketLayoutVersion(): number {
-  const constant = pinnedDuskIdl().constants?.find(row => row.name === 'MARKET_LAYOUT_VERSION');
+export function marketLayoutVersion(idl: Idl = pinnedDuskIdl()): number {
+  const constant = idl.constants?.find(row => row.name === 'MARKET_LAYOUT_VERSION');
   const version = Number(constant?.value);
   if (!Number.isInteger(version) || version < 1 || version > 255) throw new Error('Invalid pinned market layout version');
   return version;
@@ -34,7 +34,7 @@ export function governanceFamilyCount(idl: Idl = pinnedDuskIdl()): number {
   const revisions = fields.find((row): row is IdlField => typeof row === 'object' && 'name' in row
     && (row.name === 'family_revisions' || row.name === 'familyRevisions'));
   const length = revisions && typeof revisions.type === 'object' && 'array' in revisions.type ? revisions.type.array[1] : null;
-  if (length !== 7 && length !== 8) throw new Error('Unsupported governance revision layout');
+  if (length !== 7 && length !== 8 && length !== 9) throw new Error('Unsupported governance revision layout');
   return length;
 }
 

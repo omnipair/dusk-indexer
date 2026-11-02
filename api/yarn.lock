@@ -228,6 +228,15 @@
     "@solana/spl-token" "^0.4.0"
     "@solana/web3.js" "^1.95.0"
 
+"@omnipair/dusk-sdk-tranche-governance@file:vendor/dusk-sdk-2.16.0-next.20261102.tgz":
+  version "2.16.0-next.20261102"
+  resolved "file:vendor/dusk-sdk-2.16.0-next.20261102.tgz"
+  integrity sha512-DPp/1xjHQmfmD/f9GhmuADd9AluqQGMV7a7b1KeTk2QP5ex+edgd8JYoYPKofEFqvDne5MNL7jIGooqO4nxo4A==
+  dependencies:
+    "@coral-xyz/anchor" ">=0.30.0"
+    "@solana/spl-token" "^0.4.0"
+    "@solana/web3.js" "^1.95.0"
+
 "@omnipair/dusk-sdk-tranches@file:vendor/dusk-sdk-2.15.0-next.20261031-tranches-fresh.tgz":
   version "2.15.0-next.20261031"
   resolved "file:vendor/dusk-sdk-2.15.0-next.20261031-tranches-fresh.tgz"

@@ -90,3 +90,11 @@ synthetic wire fixtures for protocol PR #58. It is retained as review history,
 not selected by the active deployment pin.
 See [the oracle projection contract and rollout](../docs/dusk-oracle-policy.md)
 for hashes, API behavior, and the required separate deployment/replay promotion.
+
+## Undeployed tranche-governance and LP-metadata candidate
+
+`candidates/next-2026-11-02-9e573ca3/` preserves the generated Dusk and
+leverage-delegate interfaces plus the matching SDK for the governable tranche
+economics, mint-scoped senior/junior governance balances, and validated junior
+metadata flow. It is review material only. The active devnet identity above is
+unchanged until a separately verified deployment and replay promotion.

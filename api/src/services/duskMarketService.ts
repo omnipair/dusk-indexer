@@ -124,6 +124,7 @@ export async function currentMarketSnapshot(market: PublicKey, discovery: unknow
   const collateral = ['base','quote'].map((side) => stringValue(field(field(discovery,`${side}Side`,`${side}_side`),'collateralVault','collateral_vault')));
   const reserves = ['base','quote'].map((side) => stringValue(field(field(discovery,`${side}Side`,`${side}_side`),'reserveVault','reserve_vault')));
   const hlpMints = ['base','quote'].map((side) => stringValue(field(field(discovery,`${side}Side`,`${side}_side`),'hlpMint','hlp_mint')));
+  const ylpMint = stringValue(field(discovery,'ylpMint','ylp_mint'));
   const juniorMint = stringValue(field(discovery,'juniorMint','junior_mint'));
   const juniorExtras = (() => {
     try {
@@ -133,7 +134,10 @@ export async function currentMarketSnapshot(market: PublicKey, discovery: unknow
       return [];
     }
   })();
-  const extras = [...mints,...collateral,...reserves,...mints.map((mint) => leverageCollateralAddress(market.toBase58(),mint)),...mints.map(tokenMetadataAddress),...hlpMints,...juniorExtras];
+  const lpMints = [ylpMint,...hlpMints,...juniorExtras];
+  const extras = [...new Set([...mints,...collateral,...reserves,
+    ...mints.map((mint) => leverageCollateralAddress(market.toBase58(),mint)),
+    ...mints.map(tokenMetadataAddress),...lpMints,...lpMints.map(tokenMetadataAddress)])];
   const snapshot = await cache.getOrSet(`${key}:floor:${minSlot}`,0,() => capture(market.toBase58(),minSlot,extras));
   if (snapshot.commitment !== 'confirmed' || snapshot.slot<minSlot || snapshot.market !== market.toBase58()
     || snapshot.deploymentIdentitySha256 !== identity) throw new Error('Live market snapshot identity or slot mismatch');
@@ -387,6 +391,7 @@ function trancheProjection(marketAccount: unknown, sourceSlot: number) {
   }
   const capital = field<Record<string, unknown>>(marketAccount, 'tranches');
   const exit = field<Record<string, unknown>>(marketAccount, 'juniorExitConfig', 'junior_exit_config');
+  const policy = field<Record<string, unknown> | undefined>(marketAccount, 'tranchePolicy', 'tranche_policy');
   const totalReserveShares = toBigInt(field(field(field(marketAccount, 'baseSide', 'base_side'), 'shares'), 'ylpSupply', 'ylp_supply'));
   const juniorReserveShares = toBigInt(field(capital, 'juniorReserveShares', 'junior_reserve_shares'));
   const juniorReceiptSupply = toBigInt(field(capital, 'juniorReceiptSupply', 'junior_receipt_supply'));
@@ -411,6 +416,10 @@ function trancheProjection(marketAccount: unknown, sourceSlot: number) {
       exerciseWindowSlots: stringValue(field(exit, 'exerciseWindowSlots', 'exercise_window_slots')),
       requestFeeBps: numberValue(field(exit, 'requestFeeBps', 'request_fee_bps')),
     },
+    policy: policy && typeof policy === 'object' ? {
+      juniorIncomeShareBps: numberValue(field(policy, 'juniorIncomeShareBps', 'junior_income_share_bps')),
+      liquidationFeeBps: numberValue(field(policy, 'liquidationFeeBps', 'liquidation_fee_bps')),
+    } : null,
     rates: null,
   };
 }
@@ -535,8 +544,12 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
     marketAddress: market.toBase58(),
     liquidityStatus: field(field(marketAccount, 'amm'), 'initialized') === true ? 'active' : 'empty',
     ...addresses,
-    tokenMetadata: { schemaVersion: 'dusk-token-labels.v1',sourceSlot,
-      base: snapshotTokenMetadata(snapshot,addresses.baseMint),quote: snapshotTokenMetadata(snapshot,addresses.quoteMint) },
+    tokenMetadata: { schemaVersion: 'dusk-token-labels.v2',sourceSlot,
+      base: snapshotTokenMetadata(snapshot,addresses.baseMint),quote: snapshotTokenMetadata(snapshot,addresses.quoteMint),
+      ylp: snapshotTokenMetadata(snapshot,addresses.ylpMint),
+      junior: addresses.juniorMint ? snapshotTokenMetadata(snapshot,addresses.juniorMint) : null,
+      baseHlp: snapshotTokenMetadata(snapshot,addresses.baseHlpMint),
+      quoteHlp: snapshotTokenMetadata(snapshot,addresses.quoteHlpMint) },
     deposits: { schemaVersion: 'dusk-market-deposits.v1',sourceSlot,basis: 'reserve-and-collateral-custody.v1',
       baseReserveAmount: snapshotCollateralAmount(snapshot,addresses.baseReserveVault,addresses.baseMint,addresses.baseTokenProgram),
       quoteReserveAmount: snapshotCollateralAmount(snapshot,addresses.quoteReserveVault,addresses.quoteMint,addresses.quoteTokenProgram),
@@ -552,6 +565,16 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
     swapFeeBps: config.swapFeeBps,
     config,
     tranches: trancheProjection(marketAccount, sourceSlot),
+    tranchePolicy: (() => {
+      const policy = field<Record<string, unknown> | undefined>(marketAccount, 'tranchePolicy', 'tranche_policy');
+      if (!policy || typeof policy !== 'object') return null;
+      const exit = field<Record<string, unknown>>(marketAccount, 'juniorExitConfig', 'junior_exit_config');
+      return {
+        juniorIncomeShareBps: numberValue(field(policy, 'juniorIncomeShareBps', 'junior_income_share_bps')),
+        requestFeeBps: numberValue(field(exit, 'requestFeeBps', 'request_fee_bps')),
+        liquidationFeeBps: numberValue(field(policy, 'liquidationFeeBps', 'liquidation_fee_bps')),
+      };
+    })(),
     oraclePolicy: projectOraclePolicy(marketAccount),
     insurance: {
       principalCoverageBps: numberValue(

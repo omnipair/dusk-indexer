@@ -49,3 +49,24 @@ test('unlabelled or malformed token metadata remains optional',() => {
     owner: 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s',executable: false,data: 'AA==' } });
   assert.equal(snapshotTokenMetadata(sample,mint.toBase58()),null);
 });
+
+test('LP labels come from recorded Metaplex metadata without indexer aliases',() => {
+  for (const [name,symbol] of [
+    ['META/USDC yLP','yME.US'],
+    ['META/USDC jrLP','jrME.US'],
+    ['META hLP','hMETA'],
+    ['USDC hLP','hUSDC'],
+  ]) {
+    const sample=snapshot(),metadata=getMetadataAccountDataSerializer().serialize({
+      mint:publicKey(mint.toBase58()),updateAuthority:publicKey(authority.toBase58()),name,symbol,uri:'',
+      sellerFeeBasisPoints:0,creators:none(),primarySaleHappened:false,isMutable:true,editionNonce:none(),
+      tokenStandard:none(),collection:none(),uses:none(),collectionDetails:none(),programmableConfig:none(),
+    });
+    sample.accounts.push({address:tokenMetadataAddress(mint.toBase58()),account:{
+      owner:'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s',executable:false,data:Buffer.from(metadata).toString('base64'),
+    }});
+    assert.deepEqual(snapshotTokenMetadata(sample,mint.toBase58()),{
+      mint:mint.toBase58(),name,symbol,source:'metaplex',address:tokenMetadataAddress(mint.toBase58()),
+    });
+  }
+});

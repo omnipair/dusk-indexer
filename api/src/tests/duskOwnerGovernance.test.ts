@@ -54,10 +54,17 @@ test('reusable capture follows current delegation and binds exact allocation acc
     assert.equal((config as {minContextSlot:number}).minContextSlot,3001);
     return {context:{slot:3005},value:keys.map(key=>key.equals(balanceKey)?encode('governanceBalance',balance):key.equals(supportKey)?encode('governanceSupport',support):null)};
   };
-  const client={query:async(sql:string)=>({rows:sql.includes("event_name='GovernanceBalanceUpdated'")?[{market:market.toBase58(),owner:holder.toBase58()}]:sql.includes("event_name='GovernanceSupportChanged'")?[{proposal:proposal.toBase58(),balance:balanceKey.toBase58()}]:[{through_slot:'3001',updated_at:new Date(),registered_at:new Date()}]})} as unknown as Pool;
+  const ylpMint=displayKey(34).toBase58();
+  const client={query:async(sql:string)=>({rows:sql.includes("event_name='GovernanceBalanceUpdated'")?[{
+    market:market.toBase58(),owner:holder.toBase58(),lp_mint:null,ylp_mint:ylpMint,
+  }]:sql.includes("event_name='GovernanceSupportChanged'")?[{proposal:proposal.toBase58(),balance:balanceKey.toBase58()}]:sql.includes('FROM dusk_ingestion.streamed_markets')?[{
+    ylp_mint:ylpMint,base_mint:displayKey(35).toBase58(),quote_mint:displayKey(36).toBase58(),
+  }]:[{through_slot:'3001',updated_at:new Date(),registered_at:new Date()}]})} as unknown as Pool;
   const read=()=>captureReusableGovernance(f.dusk,delegate.toBase58(),market.toBase58(),3000,undefined,client);
   const result=await read();
   assert.equal(result.balances[0].availableAmount,'80');
+  assert.equal(result.balances[0].kind,'senior');
+  assert.equal(result.balances[0].lpMint,displayKey(34).toBase58());
   assert.equal(result.allocations[0].amount,'20');
   assert.equal(result.allocations[0].rentRefund,delegate.toBase58());
   balance.delegate=PublicKey.default;
