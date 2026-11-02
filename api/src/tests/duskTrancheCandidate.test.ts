@@ -19,7 +19,7 @@ const candidate = JSON.parse(
   readFileSync(resolve(root, 'candidate.json'), 'utf8'),
 );
 
-test('junior tranche promotion bundle matches the active pin', async () => {
+test('prior junior tranche promotion bundle remains verifiable after the next activation', async () => {
   assert.equal(candidate.schemaVersion, 'dusk-protocol-candidate.v1');
   assert.equal(candidate.status, 'promoted');
   assert.equal(candidate.revision, 'devnet-2026-11-01-tranches-fresh');
@@ -44,12 +44,12 @@ test('junior tranche promotion bundle matches the active pin', async () => {
   assert.throws(() => loadProtocolAt(root), /protocol.lock/);
 
   const active = loadPinnedProtocol();
-  assert.equal(active.revision, 'devnet-2026-11-01-tranches-fresh');
-  assert.equal(
+  assert.notEqual(active.revision, candidate.revision);
+  assert.notEqual(
     active.dusk.idlCanonicalSha256,
     candidate.programs[0].idl.canonicalSha256,
   );
-  assert.equal(
+  assert.notEqual(
     active.leverageDelegate.idlCanonicalSha256,
     candidate.programs[1].idl.canonicalSha256,
   );

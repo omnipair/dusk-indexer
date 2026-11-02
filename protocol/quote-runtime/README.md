@@ -1,8 +1,9 @@
 # Native leverage-capacity candidate runtime
 
-`dusk.so` is the exact 4,939,992-byte finalized executable from Dusk PR #61,
-deployed under the fresh devnet program identity at slot 517399592. Its SHA-256 is
-`7604f9d3c1c061e5563dd16750c64a545b45831cc32a586d20903400d62b4df5`.
+`dusk.so` is the exact 4,953,544-byte finalized executable from Dusk PR #64,
+upgraded under the existing devnet program identity at slot 517844520. Its
+SHA-256 is
+`df07df6e5f7a19de564db019b9b93172f3e58ecb73d6ffbc896967ea3d84e2bb`.
 The manifest and `compatible-deployment.json` pin the same bytes. A future Dusk
 deployment must update these artifacts together; a mismatched runtime refuses
 quotes.
@@ -43,5 +44,5 @@ original SBF runtime accepted each selected economic grid point and rejected its
 next point under the same financial-capacity budget. These are offline financial
 parity checks, not a claim that every case fits devnet's execution budget.
 
-The previous runtime and its immutable parity fixtures remain bound to the
-archived October 26 IDL/executable. They are not relabelled as current accounts.
+Previous runtimes and their immutable parity fixtures remain bound to their
+archived IDLs and executables. They are not relabelled as current accounts.

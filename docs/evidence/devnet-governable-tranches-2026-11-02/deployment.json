@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "dusk-devnet-deployment-evidence.v1",
+  "cluster": "devnet",
+  "genesisHash": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+  "source": {
+    "pullRequest": "https://github.com/omnipair/dusk/pull/64",
+    "gitCommit": "bd980852fa743be609896109307f4084732eddf7"
+  },
+  "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+  "firstCompleteSlot": 517844521,
+  "programs": [
+    {
+      "name": "dusk",
+      "programId": "5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ",
+      "programData": "5YiNghFPTQ9rzpBJxNEgEBxwoLmVUFTn1Cxc5VLAoEFr",
+      "deploySlot": 517844520,
+      "deploymentSignature": "59rGcfjykWWzu1HwqhzKaJpG5CDk6RqBkueYpNGDJsJDiFWUoX3YnGgFmqDVmaaogtbq2Tag6V24AS5jaT79nwmp",
+      "binaryBytes": 4953544,
+      "binarySha256": "df07df6e5f7a19de564db019b9b93172f3e58ecb73d6ffbc896967ea3d84e2bb",
+      "payloadBytes": 4953544,
+      "payloadSha256": "df07df6e5f7a19de564db019b9b93172f3e58ecb73d6ffbc896967ea3d84e2bb",
+      "idlAccount": "C65xDYTppRy8W2r2fwqxY8KR8Wkdw1njXbTitAShMR2u",
+      "idlSha256": "2eabd3406d278e07ba128b678bb8e939605542012320dbe8f70ea4ebf09729a3",
+      "idlCanonicalSha256": "65de3da39b3f57495f47f331a66b26b620f24756858404b2281f5e6268bbbe58"
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi",
+      "programData": "9Cy5J4Y5igAPdMdTCL7DUbHE4omXgKFsnAugGfWnhTUZ",
+      "deploySlot": 517825628,
+      "deploymentSignature": "3dmYV5WnX4WHtyMLU7b4vHxGAz4WrXTtN7PUvuARD68dtGBjc7Ac6sBYynV3LR5hR2VZSEjg9sRkF7CEtTy3ihbh",
+      "binaryBytes": 1405328,
+      "binarySha256": "dcc8bd4c3cb9cf966c499b49de5bd20da43c62afb2387c630ada16ac9b314703",
+      "payloadBytes": 1395752,
+      "payloadSha256": "199154d74de95bfa41b946b3954010d0925464a683a61b8099fc6a089591d64f",
+      "idlAccount": "4K41o1ZxwRKGKcz2GWL9fAcdXPCKtJ6ipH6hrvgHYaax",
+      "idlSha256": "d15455293a41164300f5e33cb8ba4bd00cd995aa56f3b15ac5fda9aa77eaa380",
+      "idlCanonicalSha256": "07a0c2596174ab0af122416aefa04c425b238e237ac04e652097f09d17ff7a5e"
+    }
+  ],
+  "sdk": {
+    "version": "2.16.0-next.20261102",
+    "sha256": "cfe0e1a0a92f27e61dcb365276c5a3e10c56cfc52d9cdc9c38e4a3c74298420e"
+  }
+}

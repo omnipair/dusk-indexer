@@ -32,8 +32,8 @@ test('reviewed candidate artifacts remain immutable beside the active deployment
   const legacy = loadProtocolAt(resolve(root,'../../archive/devnet-2026-10-26-cd6f1ec'));
   assert.equal(legacy.revision,'devnet-2026-10-26-cd6f1ec');
   assert.throws(() => loadProtocolAt(root),/protocol.lock/);
-  assert.equal(marketLayoutVersion(),9);
-  assert.equal(governanceFamilyCount(),8);
+  assert.equal(marketLayoutVersion(),10);
+  assert.equal(governanceFamilyCount(),9);
   assert.equal(governanceFamilyCount(idl),8);
   const pin = loadPinnedProtocol();
   const historic = await sdkForProtocol(legacy);

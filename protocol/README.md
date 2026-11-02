@@ -1,21 +1,19 @@
 # Dusk devnet protocol pin
 
-The active revision is `devnet-2026-11-01-tranches-fresh`. It contains the
-junior-LP loss waterfall, risk-priced borrowing, tranche exits and yield
-allocation from Dusk PR #60, activated under the fresh Dusk identity from Dusk
-PR #61. The complete revision begins at slot **517399749**.
+The active revision is `devnet-2026-11-02-governable-tranches`. It adds the
+governable tranche-income split, request and renewal fee bounds, liquidation
+credit allocation, jrLP governance support and deterministic LP metadata from
+Dusk PR #64. The complete revision begins at slot **517844521**.
 
-Dusk was deployed at finalized slot **517399592** under program
-`5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ`. The delegate was upgraded at
-finalized slot **517399748** under program
-`3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi`. Finalized executable dumps and
-on-chain IDLs match the reviewed artifacts. The retired-address tranche lock,
-IDLs, price references and quote runtime are preserved under
-`archive/devnet-2026-11-01-tranches/`; historical observations keep their
-original identity.
+The leverage delegate was upgraded at finalized slot **517825628**, followed by
+Dusk at finalized slot **517844520**. Program IDs and upgrade authority are
+unchanged. Finalized executable dumps and both published Anchor IDLs match the
+reviewed candidate. The preceding lock, IDLs, price references and quote runtime
+are preserved under `archive/devnet-2026-11-01-tranches-fresh/`; historical
+observations keep their original identity.
 
-[Deployment evidence](../docs/evidence/devnet-tranches-2026-11-01/deployment.json)
-records the exact program, IDL, SDK, slot, signature and hash pins.
+[Deployment evidence](../docs/evidence/devnet-governable-tranches-2026-11-02/deployment.json)
+records the exact source, program, IDL, SDK, slot, signature and hash pins.
 
 ## Previous deployment history
 
@@ -91,10 +89,11 @@ not selected by the active deployment pin.
 See [the oracle projection contract and rollout](../docs/dusk-oracle-policy.md)
 for hashes, API behavior, and the required separate deployment/replay promotion.
 
-## Undeployed tranche-governance and LP-metadata candidate
+## Tranche-governance and LP-metadata candidate
 
 `candidates/next-2026-11-02-9e573ca3/` preserves the generated Dusk and
 leverage-delegate interfaces plus the matching SDK for the governable tranche
 economics, mint-scoped senior/junior governance balances, and validated junior
-metadata flow. It is review material only. The active devnet identity above is
-unchanged until a separately verified deployment and replay promotion.
+metadata flow as originally reviewed. The promoted release copy is
+`candidates/devnet-2026-11-02-governable-tranches/`; activation occurred only
+after finalized executable and published-IDL verification.
