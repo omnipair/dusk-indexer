@@ -27,10 +27,14 @@ export async function sdkForProtocol(pin = loadPinnedProtocol()): Promise<Sdk> {
   if (sha256(canonicalJson(layouts.IDL)) === pin.dusk.idlCanonicalSha256)
     return layouts as unknown as Sdk;
   const tranches = await (new Function("return import('@omnipair/dusk-sdk-tranches')")() as Promise<typeof import('@omnipair/dusk-sdk-tranches')>);
-  if (sha256(canonicalJson(tranches.IDL)) !== pin.dusk.idlCanonicalSha256) throw new Error('VOB SDK IDL differs from the pinned deployment');
+  if (sha256(canonicalJson(tranches.IDL)) === pin.dusk.idlCanonicalSha256)
+    return tranches as unknown as Sdk;
+  const trancheGovernance = await (new Function("return import('@omnipair/dusk-sdk-tranche-governance')")() as Promise<typeof import('@omnipair/dusk-sdk-tranche-governance')>);
+  if (sha256(canonicalJson(trancheGovernance.IDL)) !== pin.dusk.idlCanonicalSha256)
+    throw new Error('VOB SDK IDL differs from the pinned deployment');
   // Only shared API signatures are adapted here. Return-data decoding still
   // comes from the matching SDK; removed distress data is optional downstream.
-  return tranches as unknown as Sdk;
+  return trancheGovernance as unknown as Sdk;
 }
 let sdkExports: Sdk | undefined;
 // Native ESM imports are initialized once by createVirtualBookRuntime.

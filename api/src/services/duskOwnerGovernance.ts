@@ -1,6 +1,7 @@
 /**
- * One owner's governance position: the yLP it has locked behind each
- * proposal, and, for one market, whether its yLP yield accounts exist.
+ * One owner's governance position: the senior or junior LP receipts it has
+ * locked behind each proposal, and, for one market, whether its senior yLP
+ * yield accounts exist.
  *
  * Locked yLP comes from streamed events. A proposer's own sponsorship is
  * locked at creation (`ParameterProposalCreated.initial_support`) without a
@@ -130,6 +131,20 @@ export const ownerGovernanceDependencies = {
   reusable: captureReusableGovernance,
 };
 
+function mintScopedGovernance(program: Dusk['program']): boolean {
+  const types=program.idl.types as unknown as Array<{name:string;type:{kind:string;fields?:Array<{name:string}>}}> | undefined;
+  const balance = types?.find((row) => row.name === 'GovernanceBalance' || row.name === 'governanceBalance');
+  return balance?.type.kind === 'struct' && (balance.type.fields ?? []).some((entry) =>
+    entry.name === 'lp_mint' || entry.name === 'lpMint');
+}
+
+function governanceBalanceAddress(market: PublicKey, owner: PublicKey, lpMint: PublicKey,
+  program: PublicKey, mintScoped: boolean): PublicKey {
+  return mintScoped
+    ? PublicKey.findProgramAddressSync([Buffer.from('governance_balance'),market.toBuffer(),owner.toBuffer(),lpMint.toBuffer()],program)[0]
+    : deriveGovernanceBalanceAddress(market,owner,program)[0];
+}
+
 /** Discovery is event-backed; current ownership, delegation and allocations
  * come from one bank after the discovery cursor. A revoked delegate is never
  * retained merely because an older event named it. */
@@ -139,20 +154,31 @@ export async function captureReusableGovernance(
 ) {
   const pin = loadPinnedProtocol();
   const identity = [pin.cluster, pin.dusk.programId, pin.dusk.idlCanonicalSha256, pin.revision];
-  const discovered = await client.query<{ market: string; owner: string }>(
+  const mintScoped = mintScopedGovernance(dusk.program);
+  const discovered = await client.query<{ market: string; owner: string; lp_mint: string | null; ylp_mint: string }>(
     `WITH latest AS (SELECT DISTINCT ON (payload->>'governance_balance') payload
       FROM dusk_ingestion.streamed_events WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3
         AND protocol_revision=$4 AND event_name='GovernanceBalanceUpdated'
       ORDER BY payload->>'governance_balance',slot DESC,observation_id DESC)
-    SELECT payload->>'market' AS market,payload->>'owner' AS owner FROM latest
+    SELECT latest.payload->>'market' AS market,latest.payload->>'owner' AS owner,
+      latest.payload->>'lp_mint' AS lp_mint,markets.ylp_mint
+    FROM latest JOIN dusk_ingestion.streamed_markets markets
+      ON markets.cluster=$1 AND markets.program_id=$2 AND markets.idl_hash=$3 AND markets.protocol_revision=$4
+      AND markets.market=latest.payload->>'market'
     WHERE (payload->>'owner'=$5 OR payload->>'delegate'=$5) AND ($6::text IS NULL OR payload->>'market'=$6)`,
     [...identity, owner, market],
   );
   const owners = discovered.rows.slice();
-  if (market && !owners.some(row => row.market === market && row.owner === owner)) owners.push({ market, owner });
-  const balances = owners.map(row => ({ ...row, key: deriveGovernanceBalanceAddress(
-    new PublicKey(row.market), new PublicKey(row.owner), dusk.program.programId,
-  )[0] }));
+  if (market && !owners.some(row => row.market === market && row.owner === owner)) {
+    const mints = await readStreamedMarketMints(market,client);
+    if (mints) owners.push({ market,owner,lp_mint: mintScoped ? mints.ylpMint : null,ylp_mint: mints.ylpMint });
+  }
+  const balances = owners.map(row => {
+    const lpMint = new PublicKey(row.lp_mint ?? row.ylp_mint);
+    return { ...row,lpMint,key: governanceBalanceAddress(
+      new PublicKey(row.market),new PublicKey(row.owner),lpMint,dusk.program.programId,mintScoped,
+    ) };
+  });
   const allocations = balances.length ? await client.query<{ proposal: string; balance: string }>(
     `WITH latest AS (SELECT DISTINCT ON (payload->>'proposal',payload->>'governance_balance') payload
       FROM dusk_ingestion.streamed_events WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
@@ -184,11 +210,15 @@ export async function captureReusableGovernance(
   const current = balances.flatMap((row, index) => {
     const value = decode<GovernanceBalance>(index, 'governanceBalance');
     if (!value) return [];
+    const accountMint = (value as GovernanceBalance & { lpMint?: PublicKey }).lpMint ?? row.lpMint;
+    const kind = accountMint.equals(new PublicKey(row.ylp_mint)) ? 'senior' : 'junior';
     if (!value.market.equals(new PublicKey(row.market)) || !value.owner.equals(new PublicKey(row.owner)) ||
-      !deriveGovernanceBalanceAddress(value.market, value.owner, dusk.program.programId)[0].equals(row.key) ||
+      (row.lp_mint !== null && !accountMint.equals(row.lpMint)) ||
+      !governanceBalanceAddress(value.market,value.owner,accountMint,dusk.program.programId,mintScoped).equals(row.key) ||
       value.committedAmount.gt(value.totalAmount)) throw new Error('Invalid reusable governance identity');
     if (row.owner !== owner && !value.delegate.equals(new PublicKey(owner))) return [];
     return [{ address: row.key.toBase58(), market: row.market, owner: row.owner,
+      kind,lpMint: accountMint.toBase58(),
       delegate: value.delegate.equals(PublicKey.default) ? null : value.delegate.toBase58(),
       totalAmount: value.totalAmount.toString(), committedAmount: value.committedAmount.toString(),
       availableAmount: value.totalAmount.sub(value.committedAmount).toString() }];

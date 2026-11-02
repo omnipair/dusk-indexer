@@ -9,7 +9,7 @@ import { duskRawIdl, LiveMarketSimulationSnapshot } from '../services/duskMarket
 import { cache } from '../utils/cache';
 import { portfolioFixture } from './duskPortfolioFixtures';
 import { encodeFixtureAccount, encodeFixtureType, fixtureKey } from './duskYieldCheckpointFixtures';
-import { leverageCollateralAddress } from '../services/duskMarketExtras';
+import { leverageCollateralAddress, tokenMetadataAddress } from '../services/duskMarketExtras';
 
 function liveFixture() {
   const fixture = portfolioFixture(),group = fixture.source.groups[0],decoder = new BorshCoder(duskRawIdl());
@@ -111,13 +111,19 @@ test('a missing or foreign mint cannot be used as the market token program',() =
   assert.throws(() => projectMarketSnapshot(sample.snapshot,sample.references),/omits a mint/);
 });
 test('snapshot caching respects a newer discovery or confirmation floor and full identity',async () => {
-  cache.clear(); const sample = liveFixture(),market = new PublicKey(sample.snapshot.market),calls: number[] = [];
-  const capture = async (_market: string,minSlot: number) => { calls.push(minSlot); return { ...sample.snapshot,slot: minSlot }; };
+  cache.clear(); const sample = liveFixture(),market = new PublicKey(sample.snapshot.market),calls: number[] = [],requested: string[][] = [];
+  const capture = async (_market: string,minSlot: number,extras: string[] = []) => { calls.push(minSlot); requested.push(extras); return { ...sample.snapshot,slot: minSlot }; };
   const identity = sample.snapshot.deploymentIdentitySha256;
   await currentMarketSnapshot(market,sample.market,100,identity,capture);
   await currentMarketSnapshot(market,sample.market,99,identity,capture);
   const newer = await currentMarketSnapshot(market,sample.market,101,identity,capture);
   assert.equal(newer.slot,101); assert.deepEqual(calls,[100,101]);
+  const lpMints=[sample.market.ylp_mint,sample.market.base_side.hlp_mint,sample.market.quote_side.hlp_mint]
+    .map((value: PublicKey)=>value.toBase58());
+  for (const mint of lpMints) {
+    assert.ok(requested[0].includes(mint));
+    assert.ok(requested[0].includes(tokenMetadataAddress(mint)));
+  }
   await assert.rejects(currentMarketSnapshot(market,sample.market,101,'c'.repeat(64),capture),/identity or slot/);
   cache.clear();
 });
