@@ -18,7 +18,8 @@ export const LAST_ACTIVE_QUOTE_REVISION = 'devnet-2026-10-26-cd6f1ec';
 const ORACLE_V7_REVISION = 'next-2026-10-31-8fadcc31';
 const LAYOUT_V8_REVISION = 'next-2026-10-31-layouts';
 const ROTATED_PROGRAM_REVISION = 'devnet-2026-11-01-tranches';
-const ACTIVE_REVISION = 'devnet-2026-11-01-tranches-fresh';
+const PREVIOUS_ACTIVE_REVISION = 'devnet-2026-11-01-tranches-fresh';
+const ACTIVE_REVISION = 'devnet-2026-11-02-governable-tranches';
 const ARCHIVED_DUSK_PROGRAM_ID = 'JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X';
 const successors: Record<string, string> = {
   [ARCHIVED_QUOTE_REVISION]: PREVIOUS_QUOTE_REVISION,
@@ -29,7 +30,8 @@ const successors: Record<string, string> = {
   [LAST_ACTIVE_QUOTE_REVISION]: ORACLE_V7_REVISION,
   [ORACLE_V7_REVISION]: LAYOUT_V8_REVISION,
   [LAYOUT_V8_REVISION]: ROTATED_PROGRAM_REVISION,
-  [ROTATED_PROGRAM_REVISION]: ACTIVE_REVISION,
+  [ROTATED_PROGRAM_REVISION]: PREVIOUS_ACTIVE_REVISION,
+  [PREVIOUS_ACTIVE_REVISION]: ACTIVE_REVISION,
 };
 
 /** Historical display only. Each release keeps its original tuple, envelope,
@@ -48,7 +50,7 @@ export async function readArchivedQuoteHistory(client: PoolClient,query: QuoteHi
   const successor = successors[revision] === active.revision ? active
     : loadProtocolAt(resolve(root, '..', successors[revision]));
   const intentionalProgramRotation = revision === ROTATED_PROGRAM_REVISION
-    && successor.revision === ACTIVE_REVISION;
+    && successor.revision === PREVIOUS_ACTIVE_REVISION;
   if (successor.revision !== successors[revision] || successor.cluster !== pin.cluster
     || successor.genesisHash !== pin.genesisHash
     || (!intentionalProgramRotation && successor.dusk.programId !== pin.dusk.programId)
