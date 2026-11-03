@@ -1,3 +1,5 @@
+import { seniorLpFields } from '../services/duskSeniorLp';
+import { seniorLpFixtureLayout } from './duskSeniorLpFixtures';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BorshCoder, BN } from '@coral-xyz/anchor';
@@ -13,7 +15,7 @@ import { leverageCollateralAddress, tokenMetadataAddress } from '../services/dus
 
 function liveFixture() {
   const fixture = portfolioFixture(),group = fixture.source.groups[0],decoder = new BorshCoder(duskRawIdl());
-  const market = decoder.accounts.decode('Market',Buffer.from(group.marketAccount.data,'base64')) as any;
+  const market = seniorLpFields(decoder.accounts.decode('Market',Buffer.from(group.marketAccount.data,'base64'))) as any;
   const preview = decoder.types.decode('MarketPreview',Buffer.from(group.preview!,'base64')) as any;
   // The curve price differs from reserve ratio. Accrued isolated debt and
   // hLP funding debt must both survive the API/UI adapter.
@@ -118,7 +120,7 @@ test('snapshot caching respects a newer discovery or confirmation floor and full
   await currentMarketSnapshot(market,sample.market,99,identity,capture);
   const newer = await currentMarketSnapshot(market,sample.market,101,identity,capture);
   assert.equal(newer.slot,101); assert.deepEqual(calls,[100,101]);
-  const lpMints=[sample.market.ylp_mint,sample.market.base_side.hlp_mint,sample.market.quote_side.hlp_mint]
+  const lpMints=[sample.market.srlp_mint,sample.market.base_side.hlp_mint,sample.market.quote_side.hlp_mint]
     .map((value: PublicKey)=>value.toBase58());
   for (const mint of lpMints) {
     assert.ok(requested[0].includes(mint));
@@ -198,7 +200,7 @@ test('market payload exposes configured Oracle terms even when its valuation pre
   sample.market.oracle = candidate.oracle;
   sample.market.version = 7;
   sample.market.parameter_revisions = Array.from({ length: 8 },() => new BN(0));
-  const layout = IdlCoder.typeDefLayout({ typeDef: idl.types.find((row: { name: string }) => row.name === 'Market'),types: idl.types });
+  const layout = seniorLpFixtureLayout(IdlCoder.typeDefLayout({ typeDef: idl.types.find((row: { name: string }) => row.name === 'Market'),types: idl.types }));
   const bytes = Buffer.alloc(32768),length = layout.encode(sample.market,bytes);
   const encoded = Buffer.concat([Buffer.from(idl.accounts.find((row: { name: string }) => row.name === 'Market').discriminator),bytes.subarray(0,length)]);
   const pinned = mock.method(schema,'pinnedDuskIdl',() => idl);

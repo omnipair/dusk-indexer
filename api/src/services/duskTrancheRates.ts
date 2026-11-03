@@ -1,4 +1,4 @@
-import { HLP_RATE_WINDOW_MS, trailingYlpRate } from './duskHlpRates';
+import { HLP_RATE_WINDOW_MS, trailingSrlpRate } from './duskHlpRates';
 
 type TrancheProjection = {
   juniorMint: string;
@@ -34,20 +34,20 @@ function scale(value: string | null | undefined, numerator: bigint, denominator:
 /** The swap stream records pool income without enlarging every swap receipt
  * with a second set of growth indexes. The program gives junior the market's
  * governed income share of every LP swap fee and interest credit and grows the
- * yLP indexes with the senior rest, so the recorded market rate is the senior
+ * srLP indexes with the senior rest, so the recorded market rate is the senior
  * rate. Junior earns share / (1 - share) times senior's income over its own
  * live capital, so its display estimate scales by both ratios. */
 export async function withTrancheRates(
   payload: Record<string, unknown>,
   deploymentIdentitySha256: string,
-  read: typeof trailingYlpRate = trailingYlpRate,
+  read: typeof trailingSrlpRate = trailingSrlpRate,
 ): Promise<Record<string, unknown>> {
   const tranches = payload.tranches as TrancheProjection | null | undefined;
   if (!tranches) return payload;
   try {
     const rates = await read(deploymentIdentitySha256, {
       market: String(payload.marketAddress),
-      ylpMint: String(payload.ylpMint),
+      srlpMint: String(payload.srlpMint),
       baseMint: String(payload.baseMint),
       quoteMint: String(payload.quoteMint),
       baseDecimals: Number(payload.baseDecimals),

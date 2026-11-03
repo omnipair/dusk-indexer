@@ -11,7 +11,7 @@ export function priceFixture(options: { price?: string; quoteNad?: bigint; inver
   const source = (slot = 900000001): PriceCaptureSource => {
     const rawPreview = encodeFixtureType('MarketPreview',{ slot: new BN(slot),
       base: { live_reserve: new BN(0),cash_reserve: new BN(0),base_hlp_backing_inventory: new BN(0),quote_hlp_backing_inventory: new BN(0),
-        ylp_supply: new BN(0),ylp_exchange_rate_nad: new BN(0),spot_price_nad: new BN((options.quoteNad ?? 2_500_000_000n).toString()),
+        srlp_supply: new BN(0),srlp_exchange_rate_nad: new BN(0),spot_price_nad: new BN((options.quoteNad ?? 2_500_000_000n).toString()),
         price_ema_nad: new BN((options.oracleNad ?? 0n).toString()),directional_price_ema_nad: new BN(0),conservative_depth_nad: new BN(0),borrow_index_nad: new BN(0),
         rate_at_target_nad: new BN(0),borrow_apr_nad: new BN(0),utilization_bps: new BN(0),fixed_debt: new BN(0),isolated_debt: new BN(0),
         hlp_funding_debt: new BN(0),total_debt: new BN(0),daily_borrow_limit: new BN(0),daily_borrow_remaining: new BN(0) },

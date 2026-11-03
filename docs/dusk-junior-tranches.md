@@ -12,9 +12,9 @@ adds `tranches` with:
 - senior, junior, permanent and queued receipt balances;
 - the current jrLP-to-reserve-share exchange rate;
 - governed notice, exercise-window and request-fee settings;
-- the recorded senior yLP rate and a transparent junior jrLP estimate.
+- the recorded senior srLP rate and a transparent junior jrLP estimate.
 
-The senior rate is a simple annualization of committed yLP growth over the
+The senior rate is a simple annualization of committed srLP growth over the
 trailing seven-day window. The junior estimate applies the fixed 50/50 income
 split to the live senior and junior capital bases. For example, equal income
 over 80 senior shares and 20 junior shares makes the junior rate four times the
@@ -26,7 +26,7 @@ can explain the estimate.
 
 `lpBalances` accepts a fourth kind, `junior`. A separate `juniorExits`
 lane reports burned jrLP that is still first-loss capital while waiting for its
-notice and exercise window. Cash withdrawal remains a different yLP action.
+notice and exercise window. Cash withdrawal remains a different srLP action.
 
 Every balance and exit is scoped to a `JuniorCohortInitialized` event. A new
 generation after a wipe is therefore never netted against the retired mint.

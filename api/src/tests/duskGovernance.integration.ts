@@ -54,8 +54,8 @@ test('a proposal carries its creation terms, latest totals and lifecycle times',
   await streamedRelease(client,{ slot: 900_400_000,time: new Date(Date.now()-1000) });
   await streamedMarket(client);
   const { market } = fixtureMarket,proposal = key(240),[proposer,alice,bob] = [241,242,243].map(key);
-  await streamedEvent(client,'LiquidityAdded',{ market,owner: proposer,ylp_amount: '1000' });
-  await streamedEvent(client,'LpTransferred',{ market,lp_mint: fixtureMarket.ylp,
+  await streamedEvent(client,'LiquidityAdded',{ market,owner: proposer,srlp_amount: '1000' });
+  await streamedEvent(client,'LpTransferred',{ market,lp_mint: fixtureMarket.srlp,
     source_owner: proposer,destination_owner: market,amount: '200' });
   await streamedEvent(client,'ParameterProposalCreated',{ proposal,market,proposer,nonce: '7',
     family_revisions: ['3',...Array(governanceFamilyCount()-1).fill('0')],
@@ -82,7 +82,7 @@ test('a proposal carries its creation terms, latest totals and lifecycle times',
   const result = await readGovernanceProposals(client,market);
   [row] = result.proposals;
   assert.equal(row.status,2); assert.equal(row.executedAt,1790090000); assert.equal(row.totalLocked,'135');
-  assert.deepEqual(result.markets,[{ address: market,eligibleYlp: '800',governanceLockedYlp: '135',
+  assert.deepEqual(result.markets,[{ address: market,eligibleSrlp: '800',governanceLockedSrlp: '135',
     observedSlot: result.markets[0].observedSlot,observedAt: result.markets[0].observedAt }]);
   assert.equal(result.sourceSlot,900_400_000);
   const supports = (await client.query(`SELECT supporter,locked_amount FROM dusk_ingestion.streamed_governance_supports
@@ -94,5 +94,5 @@ test('a selected market without proposals or observations is still described',()
   await streamedRelease(client,{ slot: 900_400_001,time: new Date(Date.now()-1000) });
   const market = key(250),result = await readGovernanceProposals(client,market);
   assert.deepEqual(result.proposals,[]);
-  assert.deepEqual(result.markets,[{ address: market,eligibleYlp: null,governanceLockedYlp: null,observedSlot: null,observedAt: null }]);
+  assert.deepEqual(result.markets,[{ address: market,eligibleSrlp: null,governanceLockedSrlp: null,observedSlot: null,observedAt: null }]);
 }));

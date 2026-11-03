@@ -28,7 +28,7 @@ test('portfolio discovery comes from streamed positions and LP holders and keeps
   const time = new Date(Math.floor(Date.now()/1000)*1000-5000);
   await streamedRelease(client,{ slot: 900_200_000,time });
   await streamedMarket(client);
-  const { market,ylp } = fixtureMarket,[borrower,trader,closer,holder,leaver] = [211,212,213,214,215].map(key);
+  const { market,srlp } = fixtureMarket,[borrower,trader,closer,holder,leaver] = [211,212,213,214,215].map(key);
   const borrow = key(216),open = key(217),closed = key(218);
   await streamedEvent(client,'MarketCollateralDeposited',{ market,position: borrow,owner: borrower,base_collateral: '1',quote_collateral: '0',
     auction_debt_asset: '255' });
@@ -37,14 +37,14 @@ test('portfolio discovery comes from streamed positions and LP holders and keeps
   await streamedEvent(client,'LeveragePositionOpened',leverage(open,trader));
   await streamedEvent(client,'LeveragePositionOpened',leverage(closed,closer));
   await streamedEvent(client,'LeveragePositionClosed',leverage(closed,closer));
-  await streamedEvent(client,'LiquidityAdded',{ market,owner: holder,ylp_amount: '10' });
-  await streamedEvent(client,'LiquidityAdded',{ market,owner: leaver,ylp_amount: '4' });
-  await streamedEvent(client,'LpTransferred',{ market,lp_mint: ylp,source_owner: leaver,destination_owner: holder,amount: '4' });
+  await streamedEvent(client,'LiquidityAdded',{ market,owner: holder,srlp_amount: '10' });
+  await streamedEvent(client,'LiquidityAdded',{ market,owner: leaver,srlp_amount: '4' });
+  await streamedEvent(client,'LpTransferred',{ market,lp_mint: srlp,source_owner: leaver,destination_owner: holder,amount: '4' });
   const catalog = await readPortfolioCatalog(client);
-  const ata = getAssociatedTokenAddressSync(new PublicKey(ylp),new PublicKey(holder),true,TOKEN_2022_PROGRAM_ID).toBase58();
+  const ata = getAssociatedTokenAddressSync(new PublicKey(srlp),new PublicKey(holder),true,TOKEN_2022_PROGRAM_ID).toBase58();
   assert.deepEqual(catalog.markets,[market]);
   assert.deepEqual(catalog.items.map(item => [item.kind,item.address,item.owner]).sort(),
-    [['borrow',borrow,borrower],['leverage',open,trader],['ylp',ata,holder]].sort());
+    [['borrow',borrow,borrower],['leverage',open,trader],['srlp',ata,holder]].sort());
   for (const owner of [borrower,trader,closer,holder,leaver]) assert.ok(catalog.knownOwners.includes(owner),owner);
   assert.equal(catalog.basis,'streamed-events.v1'); assert.equal(catalog.throughSlot,900_200_000);
   assert.equal(catalog.sourceFloor,900_200_000); assert.equal(catalog.streamTime,time.toISOString());
@@ -57,7 +57,7 @@ test('retired devnet releases never enter current portfolio discovery',() => tra
   const archived = [pin.cluster,pin.dusk.programId,'1'.repeat(64),`${pin.revision}-archive`];
   await client.query(`INSERT INTO dusk_ingestion.protocol_identities(cluster,program_id,idl_hash,protocol_revision)
     VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,archived);
-  const oldMarket = { market: key(219),baseMint: key(220),quoteMint: key(221),ylp: key(222),baseHlp: key(223),quoteHlp: key(224) };
+  const oldMarket = { market: key(219),baseMint: key(220),quoteMint: key(221),srlp: key(222),baseHlp: key(223),quoteHlp: key(224) };
   await streamedMarket(client,oldMarket,900_100_000,archived);
   const owner = key(225),position = key(226);
   await streamedEvent(client,'LeveragePositionOpened',{ market: oldMarket.market,position,owner,

@@ -59,7 +59,7 @@ empty sources, and unpinned owner programs.
 The account projection layer is separate from decoded JSON and never maps into
 legacy `Pair`, `token0/token1`, or `UserPosition` models.
 
-- Market discovery exposes the market pubkey, yLP and per-side asset/hLP/vault
+- Market discovery exposes the market pubkey, srLP and per-side asset/hLP/vault
   topology, reserves/supply, curve and risk revisions, freshness slots, prices,
   reduce-only state, and all eight per-side protocol-auction lanes.
 - Executable AMM kind comes from `amm.applied_curve_parameters`. The separate
@@ -88,7 +88,7 @@ revalidate immediately before submitting.
 3. The delegate declares zero events. Order create/update/cancel/after-close and
    account deletion are its lifecycle, so TP/SL replay requires canonical account
    tombstones or persisted canonical instructions.
-4. `YieldAccount` stores entitlement checkpoints/accruals, not wallet yLP/hLP
+4. `YieldAccount` stores entitlement checkpoints/accruals, not wallet srLP/hLP
    balances. Portfolio balances require SPL and Token-2022 account/mint ingestion.
 5. The API contract must decide how cross-program portfolios represent identity.
    A Dusk identity cannot silently contain delegate-order state; use separate

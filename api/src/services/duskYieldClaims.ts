@@ -40,7 +40,7 @@ export function parseYieldClaim(value: unknown, sourceSlot: string) {
     throw new Error('Yield claim metadata differs from its containing event');
   const caller = publicKey(metadata.signer);
   return { owner, market, lpMint, assetMint, recipient, caller,
-    tokenKind: fields.token_kind === '0' ? 'ylp' as const : fields.token_kind === '1' ? 'hlp' as const : 'junior' as const,
+    tokenKind: fields.token_kind === '0' ? 'srlp' as const : fields.token_kind === '1' ? 'hlp' as const : 'junior' as const,
     swapFeeAmount: swapFeeAmount.toString(), interestAmount: interestAmount.toString(),
     grossAmount: grossAmount.toString(), recipientCredit: recipientCredit.toString() };
 }
@@ -84,7 +84,7 @@ export async function projectYieldClaimBatch(client: PoolClient, limit = 500): P
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
       [...active,row.event_key,row.observation_id,row.signature,row.slot,row.blockhash,row.block_time_exact,
         claim.owner,claim.market,claim.lpMint,claim.assetMint,claim.recipient,
-        claim.tokenKind === 'ylp' ? 0 : claim.tokenKind === 'hlp' ? 1 : 2,
+        claim.tokenKind === 'srlp' ? 0 : claim.tokenKind === 'hlp' ? 1 : 2,
         claim.swapFeeAmount,claim.interestAmount,claim.recipientCredit,JSON.stringify(row.payload)]);
   }
   return sources.rows.length;

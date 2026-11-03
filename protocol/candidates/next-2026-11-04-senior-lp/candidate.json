@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "dusk-protocol-candidate.v1",
+  "status": "undeployed",
+  "revision": "next-2026-11-04-senior-lp",
+  "source": {
+    "repository": "https://github.com/omnipair/dusk",
+    "branch": "feat/rename-senior-lp",
+    "baseCommit": "c7db9013b9d751da5a734914e3efae203ccdf59b",
+    "gitCommit": "1b3cfbefbb39dc7355af07238ab823d4ec667244"
+  },
+  "programs": [
+    {
+      "name": "dusk",
+      "programId": "5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ",
+      "idl": {
+        "path": "idl/dusk.json",
+        "sha256": "9be681d852e8ad063cd1b5c745134e29dc73659bb6725f4025f0b8b5fb24c977",
+        "canonicalSha256": "d0de5b57a79f84a6c5dd7968228d86fca3d7d109406c343603ed8b2a67b1ec89"
+      }
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi",
+      "idl": {
+        "path": "idl/leverage_delegate.json",
+        "sha256": "08502797ef46ffef7048932daeef1b98fceec772d785a9752fcc01df92a71df6",
+        "canonicalSha256": "263738a2e71046e4bff27baf5c2e20b1e0190a1a8965817a8668360bd69db1b9"
+      }
+    }
+  ],
+  "sdk": {
+    "version": "2.17.0-next.20261104-srlp.1",
+    "path": "api/vendor/dusk-sdk-2.17.0-next.20261104-srlp.1.tgz",
+    "sha256": "645c39c70dc74d3df7bb08fc7929ffd49b261a06ebb4d24a83c7fdcccb578c82"
+  },
+  "activation": "Requires reviewed source commit, verified program/delegate deployment, replay compatibility review and active-pin promotion; this candidate does not assert deployment or rewrite historical observations."
+}

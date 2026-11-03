@@ -97,3 +97,11 @@ economics, mint-scoped senior/junior governance balances, and validated junior
 metadata flow as originally reviewed. The promoted release copy is
 `candidates/devnet-2026-11-02-governable-tranches/`; activation occurred only
 after finalized executable and published-IDL verification.
+
+## srLP candidate
+
+`candidates/next-2026-11-04-senior-lp/` contains the Anchor-generated srLP
+interfaces and the shared SDK archive hash. It is undeployed and does not
+replace the active lock or historical observation identities. See
+[senior LP naming](../docs/senior-lp-naming.md) for projection and activation
+contracts.

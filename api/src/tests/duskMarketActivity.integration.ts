@@ -251,7 +251,7 @@ test('a market\'s first trade needs no earlier snapshot, and a stablecoin leg va
   await source(client,{ slot: opened,time: openedAt,fields: { market,trader,slot: String(opened),
     asset_in_side: '1',fee_asset_side: '1',amount_in: '912000000',amount_out: '902294590000',gross_amount_out: '902294590000',
     amount_in_after_fee: '909712799',base_fee: '2280000',divergence_fee: '7201',volatility_fee: '0',retained_fee: '0',compounded_fee: '1143600',
-    ylp_supply: '20000000000',base_live_reserve: '19097705410000',quote_live_reserve: '20910856399',base: side('1019035720'),quote: side('981319869') } });
+    srlp_supply: '20000000000',base_live_reserve: '19097705410000',quote_live_reserve: '20910856399',base: side('1019035720'),quote: side('981319869') } });
   await source(client,{ slot: opened,time: openedAt,name: 'LeveragePositionOpened',fields: { ...activityPayload('LeveragePositionOpened',opened),
     market,metadata: { market,slot: String(opened),signer: trader },collateral_asset_mint: fixtureMarket.baseMint,
     debt_asset_mint: fixtureMarket.quoteMint,collateral_amount: '902294590000' } });

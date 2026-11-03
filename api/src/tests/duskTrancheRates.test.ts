@@ -4,7 +4,7 @@ import { withTrancheRates } from '../services/duskTrancheRates';
 
 const market = {
   marketAddress: 'market',
-  ylpMint: 'senior',
+  srlpMint: 'senior',
   baseMint: 'base',
   quoteMint: 'quote',
   baseDecimals: 6,

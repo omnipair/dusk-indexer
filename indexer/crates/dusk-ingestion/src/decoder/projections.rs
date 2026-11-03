@@ -69,7 +69,7 @@ pub struct MarketAssetProjection {
     pub interest_vault: String,
     pub live_reserve: UnsignedInteger,
     pub cash_reserve: UnsignedInteger,
-    pub ylp_supply: UnsignedInteger,
+    pub srlp_supply: UnsignedInteger,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -89,7 +89,7 @@ pub struct ProtocolAuctionLaneProjection {
 pub struct MarketProjection {
     pub market: String,
     pub version: u8,
-    pub ylp_mint: String,
+    pub srlp_mint: String,
     pub base: MarketAssetProjection,
     pub quote: MarketAssetProjection,
     /// Curve currently admitted by the protected-profit gate and executable by
@@ -368,7 +368,7 @@ fn project_market(account: &str, fields: &Value) -> Result<AccountProjections, S
     let market = MarketProjection {
         market: account.to_owned(),
         version: small_u8(fields, &["version"])?,
-        ylp_mint: pubkey(fields, &["ylp_mint"])?,
+        srlp_mint: pubkey(fields, &["srlp_mint"])?,
         base,
         quote,
         amm_kind,
@@ -406,7 +406,7 @@ fn market_asset(fields: &Value, side: &str) -> Result<MarketAssetProjection, Str
         interest_vault: pubkey(fields, &[side, "interest_vault"])?,
         live_reserve: unsigned(fields, &[side, "reserves", "live_reserve"])?,
         cash_reserve: unsigned(fields, &[side, "reserves", "cash_reserve"])?,
-        ylp_supply: unsigned(fields, &[side, "shares", "ylp_supply"])?,
+        srlp_supply: unsigned(fields, &[side, "shares", "srlp_supply"])?,
     })
 }
 
@@ -742,6 +742,7 @@ fn at<'a>(value: &'a Value, path: &[&str]) -> Result<&'a Value, String> {
     for component in path {
         current = current
             .get(*component)
+            .or_else(|| current.get(component.replace("srlp", "ylp")))
             .ok_or_else(|| format!("projection field {} is missing", path.join(".")))?;
     }
     Ok(current)

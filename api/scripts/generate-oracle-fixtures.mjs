@@ -17,7 +17,7 @@ const encoder=new (require('@coral-xyz/anchor').BorshCoder)(dusk.program.idl);
 const update=encoder.types.encode('marketParameterUpdate',anchorParameterUpdate(oracleParameterUpdate(p)));
 const layout=IdlCoder.typeDefLayout({typeDef:dusk.program.idl.types.find(t=>t.name==='market'),types:dusk.program.idl.types});
 const market=layout.decode(Buffer.alloc(32768));
-market.version=MARKET_LAYOUT_VERSION;market.oracle.policy=p;market.baseSide.assetMint=key(4);market.quoteSide.assetMint=key(5);market.ylpMint=key(6);
+market.version=MARKET_LAYOUT_VERSION;market.oracle.policy=p;market.baseSide.assetMint=key(4);market.quoteSide.assetMint=key(5);market.srlpMint=key(6);
 const [marketAddress,bump]=deriveMarketAddress(key(4),key(5),market.paramsHash);market.bump=bump;
 const bytes=Buffer.alloc(32768),length=layout.encode(market,bytes);
 const discriminator=dusk.program.idl.accounts.find(a=>a.name==='market').discriminator;

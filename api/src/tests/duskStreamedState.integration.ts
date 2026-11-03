@@ -11,7 +11,7 @@ import { readOwnerYieldGroups } from '../services/duskOwnerYield';
 if (process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS !== 'true' || !process.env.DATABASE_URL)
   throw new Error('Set DUSK_ALLOW_DISPOSABLE_DB_TESTS=true and a disposable DATABASE_URL');
 after(() => pool.end());
-const active = streamedIdentity,{ market,ylp,baseHlp,quoteHlp } = fixtureMarket,owner = key(201),other = key(202);
+const active = streamedIdentity,{ market,srlp,baseHlp,quoteHlp } = fixtureMarket,owner = key(201),other = key(202);
 const streamed = streamedEvent,createdMarket = streamedMarket;
 async function transaction(work: (client: PoolClient) => Promise<void>) {
   const client = await pool.connect();
@@ -28,19 +28,19 @@ const rows = async (client: PoolClient,view: string,where = '') => (await client
 test('markets and their three LP mints come from MarketCreated',() => transaction(async client => {
   await createdMarket(client);
   const [created] = await rows(client,'streamed_markets');
-  assert.equal(created.market,market); assert.equal(created.ylp_mint,ylp);
+  assert.equal(created.market,market); assert.equal(created.srlp_mint,srlp);
   assert.equal(created.base_decimals,9); assert.equal(created.quote_decimals,6);
   const mints = (await rows(client,'streamed_lp_mints','ORDER BY kind')).map(row => [row.kind,row.lp_mint]);
-  assert.deepEqual(mints,[['base_hlp',baseHlp],['quote_hlp',quoteHlp],['ylp',ylp]]);
+  assert.deepEqual(mints,[['base_hlp',baseHlp],['quote_hlp',quoteHlp],['srlp',srlp]]);
 }));
 
 test('wallet discovery separates retired and active hLP and yield retains both mint groups',() => transaction(async client => {
   await streamedRelease(client,{ slot: 900_300_000,time: new Date(Date.now()-1000) });
   await createdMarket(client);
   const next = key(208);
-  await streamed(client,'HlpOpened',{ market,owner,asset_side: '0',hlp_amount: '50',ylp_amount: '50' });
+  await streamed(client,'HlpOpened',{ market,owner,asset_side: '0',hlp_amount: '50',srlp_amount: '50' });
   await streamed(client,'HlpCohortRotated',{ market,target_asset: '0',retired_mint: baseHlp,new_mint: next,retired_supply: '50' });
-  await streamed(client,'HlpOpened',{ market,owner,asset_side: '0',hlp_amount: '20',ylp_amount: '20' });
+  await streamed(client,'HlpOpened',{ market,owner,asset_side: '0',hlp_amount: '20',srlp_amount: '20' });
   const balances = (await readStreamedHlpBalances(owner,client)).balances;
   assert.equal(balances.find((row) => row.hlpMint === baseHlp)?.retired,true);
   assert.equal(balances.find((row) => row.hlpMint === next)?.retired,undefined);
@@ -126,23 +126,23 @@ test('PR45 liquidation settlement events update borrow post-state',() => transac
 
 test('LP balances follow mints, burns and hook transfers per owner and mint',() => transaction(async client => {
   await createdMarket(client);
-  await streamed(client,'LiquidityAdded',{ market,owner,ylp_amount: '1000' });
-  await streamed(client,'LpTransferred',{ market,lp_mint: ylp,source_owner: owner,destination_owner: other,amount: '300' });
-  await streamed(client,'LiquidityRemoved',{ market,owner: other,ylp_amount: '100' });
-  await streamed(client,'HlpOpened',{ market,owner,asset_side: '1',hlp_amount: '50',ylp_amount: '999' });
-  await streamed(client,'HlpClosed',{ market,owner,asset_side: '1',hlp_amount: '20',ylp_amount: '1' });
+  await streamed(client,'LiquidityAdded',{ market,owner,srlp_amount: '1000' });
+  await streamed(client,'LpTransferred',{ market,lp_mint: srlp,source_owner: owner,destination_owner: other,amount: '300' });
+  await streamed(client,'LiquidityRemoved',{ market,owner: other,srlp_amount: '100' });
+  await streamed(client,'HlpOpened',{ market,owner,asset_side: '1',hlp_amount: '50',srlp_amount: '999' });
+  await streamed(client,'HlpClosed',{ market,owner,asset_side: '1',hlp_amount: '20',srlp_amount: '1' });
   await streamed(client,'LpTransferred',{ market,lp_mint: quoteHlp,source_owner: owner,destination_owner: owner,amount: '5' });
   const balances = (await rows(client,'streamed_lp_balances','ORDER BY kind,owner'))
     .map(row => [row.kind,row.owner === owner ? 'owner' : 'other',row.amount]);
-  assert.deepEqual(balances,[['quote_hlp','owner','30'],['ylp','owner','700'],['ylp','other','200']]);
+  assert.deepEqual(balances,[['quote_hlp','owner','30'],['srlp','owner','700'],['srlp','other','200']]);
 }));
 
 test('hLP cohort rotation assigns deposits and burns to the correct receipt mint',() => transaction(async client => {
   await createdMarket(client);
   const next = key(209);
-  await streamed(client,'HlpOpened',{ market,owner,asset_side: '0',hlp_amount: '50',ylp_amount: '50' });
+  await streamed(client,'HlpOpened',{ market,owner,asset_side: '0',hlp_amount: '50',srlp_amount: '50' });
   await streamed(client,'HlpCohortRotated',{ market,target_asset: '0',retired_mint: baseHlp,new_mint: next,retired_supply: '50' });
-  await streamed(client,'HlpOpened',{ market,owner: other,asset_side: '0',hlp_amount: '20',ylp_amount: '20' });
+  await streamed(client,'HlpOpened',{ market,owner: other,asset_side: '0',hlp_amount: '20',srlp_amount: '20' });
   await streamed(client,'LpTransferred',{ market,lp_mint: next,source_owner: other,destination_owner: owner,amount: '5' });
   await streamed(client,'HlpRetiredReceiptBurned',{ market,owner,mint: baseHlp,amount: '10',remaining_supply: '40' });
   const balances = (await rows(client,'streamed_lp_balances',"AND kind='base_hlp' ORDER BY lp_mint,owner"))
@@ -154,9 +154,9 @@ test('swap snapshots join the created market decimals and latest state',() => tr
   await createdMarket(client);
   const side = { spot_price_nad: '1000000000',price_ema_nad: '990000000',
     swap_fee_growth_index_q64: '18446744073709551616',interest_growth_index_q64: '0' };
-  await streamed(client,'SwapExecuted',{ market,slot: '1',ylp_supply: '42',base_live_reserve: '5',quote_live_reserve: '6',base: side,quote: side });
+  await streamed(client,'SwapExecuted',{ market,slot: '1',srlp_supply: '42',base_live_reserve: '5',quote_live_reserve: '6',base: side,quote: side });
   const [row] = await rows(client,'streamed_market_snapshots');
-  assert.equal(row.market,market); assert.equal(row.payload.ylp_supply,'42');
+  assert.equal(row.market,market); assert.equal(row.payload.srlp_supply,'42');
   assert.equal(row.payload.base.asset_mint,fixtureMarket.baseMint);
   assert.equal(row.payload.base.asset_decimals,'9');
   assert.equal(row.payload.base.live_reserve,'5');

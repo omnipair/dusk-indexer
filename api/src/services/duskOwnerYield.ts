@@ -1,3 +1,4 @@
+import { seniorLpFields } from './duskSeniorLp';
 import { marketLayoutVersion } from './duskProtocolSchema';
 /**
  * An owner's claimable LP yield: every (holder, market, LP mint) it has held,
@@ -51,7 +52,7 @@ export interface YieldGroup {
   holder: string;
   market: string;
   lpMint: string;
-  kind: 'ylp' | 'hlp' | 'junior';
+  kind: 'srlp' | 'hlp' | 'junior';
   baseMint: string;
   quoteMint: string;
 }
@@ -62,7 +63,7 @@ export interface YieldStream {
   market: string;
   lpMint: string;
   assetMint: string;
-  kind: 'ylp' | 'hlp' | 'junior';
+  kind: 'srlp' | 'hlp' | 'junior';
   retired: boolean;
   recipient: string;
   initialized: boolean;
@@ -128,7 +129,7 @@ export async function readOwnerYieldGroups(
     holder: owner,
     market: row.market,
     lpMint: row.lp_mint,
-    kind: row.kind === 'ylp' ? 'ylp' : row.kind === 'junior' ? 'junior' : 'hlp',
+    kind: row.kind === 'srlp' ? 'srlp' : row.kind === 'junior' ? 'junior' : 'hlp',
     baseMint: row.base_mint,
     quoteMint: row.quote_mint,
   }));
@@ -224,7 +225,7 @@ export async function captureYieldGroup(
     if (!info || !info.owner.equals(owner)) throw new Error('Invalid yield source account');
     return info;
   };
-  const state = dusk.program.coder.accounts.decode<Market>('market', owned(infos[0], program).data);
+  const state = seniorLpFields(dusk.program.coder.accounts.decode<Market>('market', owned(infos[0], program).data));
   const clock = infos[7];
   if (
     !clock ||
@@ -234,7 +235,7 @@ export async function captureYieldGroup(
     state.version !== marketLayoutVersion() ||
     !state.baseSide.assetMint.equals(assets[0]) ||
     !state.quoteSide.assetMint.equals(assets[1]) ||
-    (group.kind === 'ylp' && !state.ylpMint.equals(lpMint))
+    (group.kind === 'srlp' && !state.srlpMint.equals(lpMint))
   )
     throw new Error('Yield market, LP mint or bank changed');
   const juniorMint = (state as any).juniorMint as PublicKey | undefined;
@@ -266,7 +267,7 @@ export async function captureYieldGroup(
     if (
       account &&
       (!account.owner.equals(holder) || !account.market.equals(market) || !account.lpMint.equals(lpMint) ||
-        !account.assetMint.equals(assetMint) || account.tokenKind !== (group.kind === 'ylp' ? 0 : group.kind === 'hlp' ? 1 : 2) ||
+        !account.assetMint.equals(assetMint) || account.tokenKind !== (group.kind === 'srlp' ? 0 : group.kind === 'hlp' ? 1 : 2) ||
         account.recipient.equals(PublicKey.default))
     )
       throw new Error('Yield account identity changed');

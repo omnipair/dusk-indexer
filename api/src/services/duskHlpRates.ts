@@ -1,5 +1,5 @@
 import { cache } from '../utils/cache';
-import { listTrailingYlpRate, TrailingYlpMarket, TrailingYlpRate } from './duskYieldRates';
+import { listTrailingSrlpRate, TrailingSrlpMarket, TrailingSrlpRate } from './duskYieldRates';
 
 /** v1 annualizes LP APR over a fixed seven-day window and caches it for five
  * minutes (omnipair-indexer `calculateAPR`); hLP rates follow the same cadence. */
@@ -21,23 +21,23 @@ export interface HlpVaultRateInput {
   /** The market preview's post-update state; `null` values are unknown. */
   state: Partial<Record<'baseHlpFundingDebt' | 'quoteHlpFundingDebt' | 'baseSpotPriceNad' | 'quoteSpotPriceNad'
     | 'baseBorrowAprNad' | 'quoteBorrowAprNad', Amount>>;
-  /** The market's recorded yLP rates; `undefined` when they could not be read. */
-  ylp: TrailingYlpRate | undefined;
+  /** The market's recorded srLP rates; `undefined` when they could not be read. */
+  srlp: TrailingSrlpRate | undefined;
   windowMs: number;
 }
 
 export interface HlpVaultRates {
   schemaVersion: 'dusk-hlp-rates.v1';
-  basis: 'leveraged-recorded-ylp-net-of-funding.v1';
+  basis: 'leveraged-recorded-srlp-net-of-funding.v1';
   windowSeconds: number;
-  /** Gross yLP exposure per unit of equity. `vault` is the vault's own
+  /** Gross srLP exposure per unit of equity. `vault` is the vault's own
    * inventory; `target` is the configured leverage a first deposit opens at. */
   leverageBps: string;
   leverageBasis: 'vault' | 'target';
   /** `ema` is the vault's twelve-hour funding average; `current` is the
    * borrowed asset's borrow rate for a vault that has not paid funding yet. */
   fundingBasis: 'ema' | 'current';
-  ylpGrowth: 'recorded' | 'none' | 'unknown';
+  srlpGrowth: 'recorded' | 'none' | 'unknown';
   swapRatePct: string | null;
   interestRatePct: string | null;
   fundingRatePct: string | null;
@@ -56,10 +56,10 @@ function percent(value: number | null): string | null {
 
 /**
  * One hLP vault's net rate, from its live composition and the market's
- * recorded yLP growth. The vault holds ordinary yLP worth `L` times its
- * equity, so it earns `L` times the yLP swap and interest rates, and pays the
+ * recorded srLP growth. The vault holds ordinary srLP worth `L` times its
+ * equity, so it earns `L` times the srLP swap and interest rates, and pays the
  * funding rate on debt worth `L - 1` times its equity (earn-hlp docs: "the net
- * yield subtracts it from the fee yield the vault's yLP has earned").
+ * yield subtracts it from the fee yield the vault's srLP has earned").
  * Debt is valued with the preview's spot price, the price the program uses
  * for the vault's NAV.
  */
@@ -83,21 +83,21 @@ export function projectHlpVaultRates(input: HlpVaultRateInput): HlpVaultRates {
   const fundingAprNad = fundingBasis === 'ema'
     ? amount(input.vault.fundingAprEmaNad) : amount(input.state[`${opposite}BorrowAprNad`]);
   const leverage = leverageBps === null ? null : Number(leverageBps) / Number(BPS);
-  const ylpRate = (value: string | null | undefined) => {
+  const srlpRate = (value: string | null | undefined) => {
     if (leverage === null || value === null || value === undefined) return null;
     return Number(value) * leverage;
   };
-  const swap = ylpRate(input.ylp?.swapRatePct), interest = ylpRate(input.ylp?.interestRatePct);
+  const swap = srlpRate(input.srlp?.swapRatePct), interest = srlpRate(input.srlp?.interestRatePct);
   const funding = leverage === null || fundingAprNad === null
     ? null : -(leverage - 1) * (Number(fundingAprNad) / Number(NAD)) * 100;
   return {
     schemaVersion: 'dusk-hlp-rates.v1',
-    basis: 'leveraged-recorded-ylp-net-of-funding.v1',
+    basis: 'leveraged-recorded-srlp-net-of-funding.v1',
     windowSeconds: input.windowMs / 1000,
     leverageBps: leverageBps === null ? '0' : leverageBps.toString(),
     leverageBasis,
     fundingBasis,
-    ylpGrowth: input.ylp?.growth ?? 'unknown',
+    srlpGrowth: input.srlp?.growth ?? 'unknown',
     swapRatePct: percent(swap),
     interestRatePct: percent(interest),
     fundingRatePct: percent(funding),
@@ -105,34 +105,34 @@ export function projectHlpVaultRates(input: HlpVaultRateInput): HlpVaultRates {
   };
 }
 
-/** One market's recorded yLP rates, shared by every payload of that market. */
-export function trailingYlpRate(deploymentIdentitySha256: string, market: TrailingYlpMarket): Promise<TrailingYlpRate> {
-  return cache.getOrSet(`dusk:trailing_ylp_rate:${deploymentIdentitySha256}:${market.market}`, HLP_RATE_CACHE_MS,
-    () => listTrailingYlpRate({ deploymentIdentitySha256, until: Date.now(), windowMs: HLP_RATE_WINDOW_MS, market }));
+/** One market's recorded srLP rates, shared by every payload of that market. */
+export function trailingSrlpRate(deploymentIdentitySha256: string, market: TrailingSrlpMarket): Promise<TrailingSrlpRate> {
+  return cache.getOrSet(`dusk:trailing_srlp_rate:${deploymentIdentitySha256}:${market.market}`, HLP_RATE_CACHE_MS,
+    () => listTrailingSrlpRate({ deploymentIdentitySha256, until: Date.now(), windowMs: HLP_RATE_WINDOW_MS, market }));
 }
 
 /** Adds `rates` to both hLP vaults of a projected market payload. A failed
  * rate read leaves the rates `null`; it never withholds the vault state. */
 export async function withHlpRates(payload: Record<string, unknown>, deploymentIdentitySha256: string,
-  read: typeof trailingYlpRate = trailingYlpRate): Promise<Record<string, unknown>> {
+  read: typeof trailingSrlpRate = trailingSrlpRate): Promise<Record<string, unknown>> {
   const hlp = payload.hlp as Record<Side, HlpVaultRateInput['vault'] & Record<string, unknown>> | null | undefined;
   if (!hlp) return payload;
-  let ylp: TrailingYlpRate | null = null;
+  let srlp: TrailingSrlpRate | null = null;
   try {
-    ylp = await read(deploymentIdentitySha256, {
-      market: String(payload.marketAddress), ylpMint: String(payload.ylpMint),
+    srlp = await read(deploymentIdentitySha256, {
+      market: String(payload.marketAddress), srlpMint: String(payload.srlpMint),
       baseMint: String(payload.baseMint), quoteMint: String(payload.quoteMint),
       baseDecimals: Number(payload.baseDecimals), quoteDecimals: Number(payload.quoteDecimals),
     });
   } catch (error) { console.warn('hLP rate read failed', error instanceof Error ? error.message : error); }
-  const rates = (side: Side) => ylp === null ? null : projectHlpVaultRates({
+  const rates = (side: Side) => srlp === null ? null : projectHlpVaultRates({
     side,
     baseDecimals: Number(payload.baseDecimals),
     quoteDecimals: Number(payload.quoteDecimals),
     targetLeverageBps: Number(payload.targetHlpLeverageBps),
     vault: hlp[side],
     state: payload.state as HlpVaultRateInput['state'],
-    ylp,
+    srlp,
     windowMs: HLP_RATE_WINDOW_MS,
   });
   return { ...payload, hlp: { ...hlp, base: { ...hlp.base, rates: rates('base') }, quote: { ...hlp.quote, rates: rates('quote') } } };

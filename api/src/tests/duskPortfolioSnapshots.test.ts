@@ -61,7 +61,7 @@ test('closed accounts preserve the known owner as an observed empty portfolio',(
   assert.equal(result.owners[0].valuations.netPositionValueUsd,'0'); assert.equal(result.coverage.closedAccounts.length,2);
 });
 test('empty system accounts replay as closed positions and LP accounts without changing saved evidence',() => {
-  for (const kind of ['borrow','leverage','ylp','base_hlp','quote_hlp'] as const) {
+  for (const kind of ['borrow','leverage','srlp','base_hlp','quote_hlp'] as const) {
     const source = portfolioFixture({ closed: true }).source;
     source.catalog.items[0].kind = kind;
     for (const entry of source.groups[0].accounts)

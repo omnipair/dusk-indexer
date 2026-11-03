@@ -1,9 +1,9 @@
 /**
  * One owner's governance position: the senior or junior LP receipts it has
- * locked behind each proposal, and, for one market, whether its senior yLP
+ * locked behind each proposal, and, for one market, whether its senior srLP
  * yield accounts exist.
  *
- * Locked yLP comes from streamed events. A proposer's own sponsorship is
+ * Locked srLP comes from streamed events. A proposer's own sponsorship is
  * locked at creation (`ParameterProposalCreated.initial_support`) without a
  * support event; `ParameterProposalSupported` reports the supporter's locked
  * total after it, and `ParameterProposalSupportWithdrawn` the amount
@@ -46,7 +46,7 @@ function amount(value: unknown): bigint {
   return BigInt(value);
 }
 
-/** The owner's locked yLP per proposal, folded in stream order. The stream's
+/** The owner's locked srLP per proposal, folded in stream order. The stream's
  * slot is read after the events and covers them. */
 export async function readOwnerGovernanceSupports(
   owner: string,
@@ -114,15 +114,15 @@ export async function readOwnerGovernanceSupports(
 export async function readStreamedMarketMints(
   market: string,
   client: Pool | PoolClient = pool,
-): Promise<{ ylpMint: string; baseMint: string; quoteMint: string } | null> {
+): Promise<{ srlpMint: string; baseMint: string; quoteMint: string } | null> {
   const pin = loadPinnedProtocol();
-  const result = await client.query<{ ylp_mint: string; base_mint: string; quote_mint: string }>(
-    `SELECT ylp_mint,base_mint,quote_mint FROM dusk_ingestion.streamed_markets
+  const result = await client.query<{ srlp_mint: string; base_mint: string; quote_mint: string }>(
+    `SELECT srlp_mint,base_mint,quote_mint FROM dusk_ingestion.streamed_markets
     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND market=$5`,
     [pin.cluster, pin.dusk.programId, pin.dusk.idlCanonicalSha256, pin.revision, market],
   );
   const row = result.rows[0];
-  return row ? { ylpMint: row.ylp_mint, baseMint: row.base_mint, quoteMint: row.quote_mint } : null;
+  return row ? { srlpMint: row.srlp_mint, baseMint: row.base_mint, quoteMint: row.quote_mint } : null;
 }
 
 export const ownerGovernanceDependencies = {
@@ -155,13 +155,13 @@ export async function captureReusableGovernance(
   const pin = loadPinnedProtocol();
   const identity = [pin.cluster, pin.dusk.programId, pin.dusk.idlCanonicalSha256, pin.revision];
   const mintScoped = mintScopedGovernance(dusk.program);
-  const discovered = await client.query<{ market: string; owner: string; lp_mint: string | null; ylp_mint: string }>(
+  const discovered = await client.query<{ market: string; owner: string; lp_mint: string | null; srlp_mint: string }>(
     `WITH latest AS (SELECT DISTINCT ON (payload->>'governance_balance') payload
       FROM dusk_ingestion.streamed_events WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3
         AND protocol_revision=$4 AND event_name='GovernanceBalanceUpdated'
       ORDER BY payload->>'governance_balance',slot DESC,observation_id DESC)
     SELECT latest.payload->>'market' AS market,latest.payload->>'owner' AS owner,
-      latest.payload->>'lp_mint' AS lp_mint,markets.ylp_mint
+      latest.payload->>'lp_mint' AS lp_mint,markets.srlp_mint
     FROM latest JOIN dusk_ingestion.streamed_markets markets
       ON markets.cluster=$1 AND markets.program_id=$2 AND markets.idl_hash=$3 AND markets.protocol_revision=$4
       AND markets.market=latest.payload->>'market'
@@ -171,10 +171,10 @@ export async function captureReusableGovernance(
   const owners = discovered.rows.slice();
   if (market && !owners.some(row => row.market === market && row.owner === owner)) {
     const mints = await readStreamedMarketMints(market,client);
-    if (mints) owners.push({ market,owner,lp_mint: mintScoped ? mints.ylpMint : null,ylp_mint: mints.ylpMint });
+    if (mints) owners.push({ market,owner,lp_mint: mintScoped ? mints.srlpMint : null,srlp_mint: mints.srlpMint });
   }
   const balances = owners.map(row => {
-    const lpMint = new PublicKey(row.lp_mint ?? row.ylp_mint);
+    const lpMint = new PublicKey(row.lp_mint ?? row.srlp_mint);
     return { ...row,lpMint,key: governanceBalanceAddress(
       new PublicKey(row.market),new PublicKey(row.owner),lpMint,dusk.program.programId,mintScoped,
     ) };
@@ -211,7 +211,7 @@ export async function captureReusableGovernance(
     const value = decode<GovernanceBalance>(index, 'governanceBalance');
     if (!value) return [];
     const accountMint = (value as GovernanceBalance & { lpMint?: PublicKey }).lpMint ?? row.lpMint;
-    const kind = accountMint.equals(new PublicKey(row.ylp_mint)) ? 'senior' : 'junior';
+    const kind = accountMint.equals(new PublicKey(row.srlp_mint)) ? 'senior' : 'junior';
     if (!value.market.equals(new PublicKey(row.market)) || !value.owner.equals(new PublicKey(row.owner)) ||
       (row.lp_mint !== null && !accountMint.equals(row.lpMint)) ||
       !governanceBalanceAddress(value.market,value.owner,accountMint,dusk.program.programId,mintScoped).equals(row.key) ||
@@ -261,9 +261,9 @@ export async function captureOwnerGovernance(
         deriveYieldAccountAddress(
           new PublicKey(selection.market!),
           new PublicKey(selection.owner),
-          new PublicKey(mints.ylpMint),
+          new PublicKey(mints.srlpMint),
           new PublicKey(asset),
-          'ylp',
+          'srlp',
           dusk.program.programId,
         )[0],
     );

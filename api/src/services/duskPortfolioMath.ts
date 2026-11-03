@@ -1,13 +1,14 @@
+import { seniorLpFields } from './duskSeniorLp';
 import { PublicKey } from '@solana/web3.js';
 import { DuskPinnedProtocol } from '../config/duskProtocol';
 import { priceMarketBindings, projectMarketPrices } from './duskPriceMath';
 import { unsigned } from './duskYieldAccounting';
 
 const NAD = 1_000_000_000n,U64 = (1n<<64n)-1n,U128 = (1n<<128n)-1n,USD_SCALE = 10n**36n;
-export type PortfolioKind = 'borrow'|'leverage'|'ylp'|'base_hlp'|'quote_hlp';
+export type PortfolioKind = 'borrow'|'leverage'|'srlp'|'base_hlp'|'quote_hlp';
 export const nativeFields = (value: unknown): Record<string,unknown> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Missing native portfolio fields');
-  return value as Record<string,unknown>;
+  return seniorLpFields(value) as Record<string,unknown>;
 };
 export const nativeKey = (value: unknown): string => {
   const text = value instanceof PublicKey ? value.toBase58() : value;
@@ -63,8 +64,8 @@ export function valuePortfolioBalances(balances: PortfolioBalance[], prices: { m
 function sideOf(market: Record<string,unknown>,side: 'base'|'quote') { return nativeFields(market[`${side}_side`]); }
 function indexOf(market: Record<string,unknown>,side: 'base'|'quote') { return unsigned(nativeFields(market.debt)[`${side}_borrow_index_nad`]); }
 function shareSupply(market: Record<string,unknown>): bigint {
-  const base = unsigned(nativeFields(sideOf(market,'base').shares).ylp_supply,U64);
-  if (base !== unsigned(nativeFields(sideOf(market,'quote').shares).ylp_supply,U64)) throw new Error('Inconsistent yLP share ledgers');
+  const base = unsigned(nativeFields(sideOf(market,'base').shares).srlp_supply,U64);
+  if (base !== unsigned(nativeFields(sideOf(market,'quote').shares).srlp_supply,U64)) throw new Error('Inconsistent srLP share ledgers');
   return base;
 }
 /** PreviewMarket mutates only the simulated account; it must agree with its return data. */
@@ -74,7 +75,7 @@ export function assertPortfolioPreviewState(market: Record<string,unknown>,previ
     const raw = sideOf(market,side),observed = nativeFields(preview[side]),reserves = nativeFields(raw.reserves);
     for (const name of ['live_reserve','cash_reserve'] as const)
       if (unsigned(reserves[name],U64) !== unsigned(observed[name],U64)) throw new Error('Simulated portfolio reserves differ from the preview');
-    if (unsigned(nativeFields(raw.shares).ylp_supply,U64) !== unsigned(observed.ylp_supply,U64) || indexOf(market,side) !== unsigned(observed.borrow_index_nad))
+    if (unsigned(nativeFields(raw.shares).srlp_supply,U64) !== unsigned(observed.srlp_supply,U64) || indexOf(market,side) !== unsigned(observed.borrow_index_nad))
       throw new Error('Simulated portfolio shares/index differ from the preview');
   }
 }
@@ -91,12 +92,12 @@ function curveReserve(market: Record<string,unknown>,side: 'base'|'quote'): bigi
 /** Dusk's current hLP principal NAV in the target-asset quantity scale, not an exit quote. */
 export function hlpPortfolioPrincipal(market: Record<string,unknown>,preview: Record<string,unknown>,target: 'base'|'quote',holding: bigint) {
   const opposite = target === 'base' ? 'quote' : 'base',vault = nativeFields(market[`${target}_hlp_vault`]);
-  const supply = unsigned(vault.hlp_supply,U64),ylp = unsigned(vault.ylp_shares,U64),ylpSupply = shareSupply(market);
-  if (holding>supply || ylp>ylpSupply) throw new Error('hLP holding exceeds its share backing');
+  const supply = unsigned(vault.hlp_supply,U64),srlp = unsigned(vault.srlp_shares,U64),srlpSupply = shareSupply(market);
+  if (holding>supply || srlp>srlpSupply) throw new Error('hLP holding exceeds its share backing');
   const targetDecimals = Number(unsigned(sideOf(market,target).asset_decimals,255n));
   const oppositeDecimals = Number(unsigned(sideOf(market,opposite).asset_decimals,255n));
   const scale = Math.max(9,targetDecimals,oppositeDecimals);
-  const underlying = (side: 'base'|'quote') => ylp === 0n ? 0n : unsigned(multiplyDivide(ylp,curveReserve(market,side),ylpSupply),U64);
+  const underlying = (side: 'base'|'quote') => srlp === 0n ? 0n : unsigned(multiplyDivide(srlp,curveReserve(market,side),srlpSupply),U64);
   const borrowed = unsigned(indexedPortfolioDebt(vault.debt_shares,indexOf(market,opposite)),U64);
   const basePrice = unsigned(nativeFields(preview.base).spot_price_nad,U64);
   if (basePrice === 0n) throw new Error('hLP valuation has no executable price');
@@ -149,13 +150,13 @@ export function projectPortfolioComponent(input: {
     // margin_amount and open_notional are cost-basis fields, not extra assets.
   } else {
     const holding = unsigned(state.amount,U64),mint = nativeKey(state.mint);
-    const expected = input.kind === 'ylp' ? nativeKey(market.ylp_mint) : nativeKey(sideOf(market,input.kind === 'base_hlp' ? 'base' : 'quote').hlp_mint);
+    const expected = input.kind === 'srlp' ? nativeKey(market.srlp_mint) : nativeKey(sideOf(market,input.kind === 'base_hlp' ? 'base' : 'quote').hlp_mint);
     if (mint !== expected && !input.retiredHlp) throw new Error('Portfolio LP account has the wrong mint');
     if (input.retiredHlp) {
       if (!input.kind.includes('hlp') || mint === expected) throw new Error('Invalid retired portfolio receipt');
       add(input.kind === 'base_hlp' ? 'base' : 'quote',0n,'asset');
       issues.push('hlp-retired');
-    } else if (preview && input.kind === 'ylp') {
+    } else if (preview && input.kind === 'srlp') {
       const supply = shareSupply(market);
       if (holding>supply) throw new Error('LP holding exceeds market supply');
       for (const side of ['base','quote'] as const)
@@ -173,7 +174,7 @@ export function projectPortfolioComponent(input: {
     : { assetsUsd: null,debtUsd: null,netUsd: null,missingMints: [],priceQualities: [],rounding: 'down-36-decimals' };
   if (valuation.missingMints.length) issues.push('missing-price-reference');
   return { address: input.address,owner,market: input.marketAddress,kind: input.kind,balances,valuation,issues,
-    lpHolding: ['ylp','base_hlp','quote_hlp'].includes(input.kind) ? unsigned(state.amount,U64).toString() : null,
+    lpHolding: ['srlp','base_hlp','quote_hlp'].includes(input.kind) ? unsigned(state.amount,U64).toString() : null,
     hlpNav: hlpNav ? { signedVaultNav: hlpNav.signedVaultNav,quantityDecimals: hlpNav.quantityDecimals,underwater: hlpNav.underwater } : null,
     sourceSlot: input.slot.toString(),sourceTime: input.blockTime,basis: input.kind.includes('hlp') ? 'hlp-principal-nav.v1' : 'program-position-value.v1' };
 }

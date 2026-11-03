@@ -360,12 +360,12 @@ export class PairStateService {
         lp_mint: string;
         reserve0: string | null;
         reserve1: string | null;
-        ylp_supply: string | null;
+        srlp_supply: string | null;
         decimals0: number | null;
         decimals1: number | null;
       }>(
         `SELECT p.token0, p.token1, p.lp_mint,
-                latest.reserve0, latest.reserve1, latest.ylp_supply,
+                latest.reserve0, latest.reserve1, latest.srlp_supply,
                 t0.decimals AS decimals0, t1.decimals AS decimals1
            FROM pools p
            LEFT JOIN dusk_ingestion.token_metadata t0 ON t0.mint = p.token0
@@ -373,7 +373,7 @@ export class PairStateService {
            LEFT JOIN LATERAL (
                SELECT (e.payload->>'base_live_reserve')::numeric  AS reserve0,
                       (e.payload->>'quote_live_reserve')::numeric AS reserve1,
-                      (e.payload->>'ylp_supply')::numeric         AS ylp_supply
+                      COALESCE(e.payload->>'srlp_supply',e.payload->>'ylp_supply')::numeric         AS srlp_supply
                  FROM dusk_ingestion.event_stream e
                 WHERE e.market = p.pair_address
                   AND e.payload ? 'base_live_reserve'
@@ -426,7 +426,7 @@ export class PairStateService {
         totalDebts: { ...zeroPair },
         totalCollaterals: { ...zeroPair },
         utilization: { token0: 0, token1: 0 },
-        totalSupply: row.ylp_supply ?? '0',
+        totalSupply: row.srlp_supply ?? '0',
         lpTokenDecimals: decimals0,
       } as PairState;
     } catch (error) {

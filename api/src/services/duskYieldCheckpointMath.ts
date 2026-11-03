@@ -1,3 +1,4 @@
+import { seniorLpFields } from './duskSeniorLp';
 import { PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { settleRecordedGrowth, unsigned } from './duskYieldAccounting';
@@ -6,7 +7,7 @@ const U64_MAX = (1n << 64n)-1n;
 type Fields = Record<string, unknown>;
 const fields = (value: unknown): Fields => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Missing native yield fields');
-  return value as Fields;
+  return seniorLpFields(value) as Fields;
 };
 export const keyString = (value: unknown): string => {
   const text = value instanceof PublicKey ? value.toBase58() : value;
@@ -47,7 +48,7 @@ export function projectRecordedYield(input: {
   const side = revenueSide === 'base' ? base : quote;
   let swapIndex: unknown, interestIndex: unknown;
   if (bound.tokenKind === 0) {
-    if (keyString(market.ylp_mint) !== bound.lpMint) throw new Error('yLP mint differs from the market');
+    if (keyString(market.srlp_mint) !== bound.lpMint) throw new Error('srLP mint differs from the market');
     const fees = fields(side.fees);
     swapIndex = fees.swap_fee_growth_index_q64; interestIndex = fees.interest_growth_index_q64;
   } else {

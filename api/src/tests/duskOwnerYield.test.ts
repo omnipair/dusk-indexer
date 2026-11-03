@@ -1,3 +1,4 @@
+import { seniorLpFixtureLayout } from './duskSeniorLpFixtures';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BN } from '@coral-xyz/anchor';
@@ -34,10 +35,10 @@ async function fixture(hlp = false, taxed = false) {
     marketAddress = key(52),
     base = key(53),
     quote = key(54),
-    ylp = key(55),
+    srlp = key(55),
     hlpMint = key(56);
-  const lpMint = hlp ? hlpMint : ylp,
-    kind = hlp ? ('hlp' as const) : ('ylp' as const);
+  const lpMint = hlp ? hlpMint : srlp,
+    kind = hlp ? ('hlp' as const) : ('srlp' as const);
   const response = {
     context: { slot: 1010 },
     value: {
@@ -60,7 +61,7 @@ async function fixture(hlp = false, taxed = false) {
   const { dusk } = await createSdkTestRuntime(connection as unknown as Connection);
   response.value.returnData.programId = dusk.program.programId.toBase58();
   const layout = (name: string) =>
-    IdlCoder.typeDefLayout({ typeDef: dusk.program.idl.types!.find((type) => type.name === name)!, types: dusk.program.idl.types! });
+    seniorLpFixtureLayout(IdlCoder.typeDefLayout({ typeDef: dusk.program.idl.types!.find((type) => type.name === name)!, types: dusk.program.idl.types! }));
   const encodeType = (name: string, value: unknown) => {
     const bytes = Buffer.alloc(32768),
       length = layout(name).encode(value, bytes);
@@ -75,17 +76,17 @@ async function fixture(hlp = false, taxed = false) {
   };
   const market = blank<Market>('market');
   market.version = MARKET_LAYOUT_VERSION;
-  market.ylpMint = ylp;
+  market.srlpMint = srlp;
   market.baseSide.assetMint = base;
   market.quoteSide.assetMint = quote;
   market.baseSide.hlpMint = hlpMint;
   market.quoteSide.hlpMint = key(57);
   market.baseSide.assetDecimals = market.quoteSide.assetDecimals = 9;
-  market.baseSide.shares.ylpSupply = market.quoteSide.shares.ylpSupply = new BN(100);
+  market.baseSide.shares.srlpSupply = market.quoteSide.shares.srlpSupply = new BN(100);
   market.baseSide.fees.swapFeeGrowthIndexQ64 = new BN((Q / 2n).toString());
   market.baseSide.fees.unallocatedSwapFeeLiability = new BN(50);
   market.baseSide.fees.interestGrowthIndexQ64 = new BN(Q.toString());
-  market.baseHlpVault.ylpShares = new BN(20);
+  market.baseHlpVault.srlpShares = new BN(20);
   market.baseHlpVault.hlpSupply = new BN(10);
   const cohort = blank<HlpCohort>('hlpCohort');
   Object.assign(cohort, { market: marketAddress, mint: lpMint, targetAsset: 0, retired: true,
@@ -157,7 +158,7 @@ test('live yield carries undistributed growth forward and checkpoints both hLP l
   assert.deepEqual(projectLiveYield(hedged.market, hedged.yields[0].account, 3n),
     { side: 'base', swapFeeAmount: 8n, interestAmount: 7n, totalAmount: 15n });
   hedged.yields[0].account.tokenKind = 0;
-  assert.throws(() => projectLiveYield(hedged.market, hedged.yields[0].account, 3n), /yLP/);
+  assert.throws(() => projectLiveYield(hedged.market, hedged.yields[0].account, 3n), /srLP/);
 });
 
 test('a group is valued in one updated bank with transfer fees applied to fees and interest separately', async () => {
@@ -165,7 +166,7 @@ test('a group is valued in one updated bank with transfer fees applied to fees a
   const streams = (await captureYieldGroup(f.dusk, f.group, f.payer, 1005))!;
   assert.deepEqual(streams[0], {
     address: f.yields[0].address.toBase58(), holder: f.group.holder, market: f.group.market, lpMint: f.group.lpMint,
-    assetMint: f.group.baseMint, kind: 'ylp', retired: false, recipient: f.group.holder, initialized: true, needsGrowth: false,
+    assetMint: f.group.baseMint, kind: 'srlp', retired: false, recipient: f.group.holder, initialized: true, needsGrowth: false,
     lpBalance: '3', lpDecimals: 9, assetDecimals: 9, swapFeeAmount: '5', interestAmount: '4', recipientCredit: '7', sourceSlot: 1010,
   });
   assert.equal(streams[1].recipientCredit, '0');

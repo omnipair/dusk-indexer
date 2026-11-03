@@ -4,7 +4,7 @@ import pool from '../config/database';
 import { loadPinnedProtocol, sha256, canonicalJson } from '../config/duskProtocol';
 import { HistoryDeploymentQuery } from './duskHistoryDeployment';
 import { activePriceReferences, projectObservedPrices } from './duskPriceMath';
-import { MarketGrowthPoint, observedGrowthPoint, recordedYlpRates, YieldRatePrice } from './duskYieldRateMath';
+import { MarketGrowthPoint, observedGrowthPoint, recordedSrlpRates, YieldRatePrice } from './duskYieldRateMath';
 
 export interface YieldRatesQuery extends HistoryDeploymentQuery { since: string; until: string; market?: string }
 interface Observation { market: string; slot: string; time: Date; payload: unknown; payload_hash: string }
@@ -30,7 +30,7 @@ async function observedPricesAt(client: PoolClient,pin: ReturnType<typeof loadPi
     deploymentIdentitySha256,contentHash: row.payload_hash,referenceHash: projected.referenceHash } };
 }
 
-/** Recorded claimable yLP earnings only. Compounding, unpaid debt interest and
+/** Recorded claimable srLP earnings only. Compounding, unpaid debt interest and
  * protocol revenue remain separate; these rates are never a full APY. Growth
  * points and their prices come from post-swap market snapshots. */
 export async function readYieldRates(client: PoolClient,options: YieldRatesQuery) {
@@ -70,7 +70,7 @@ export async function readYieldRates(client: PoolClient,options: YieldRatesQuery
   for (const [market,{start,end}] of byMarket) {
     if (!start || !end || start.point.slot>=end.point.slot) continue; // Missing brackets remain explicitly unmeasured.
     const initialPrice = await priceAt(start.point),finalPrice = await priceAt(end.point);
-    const rates = recordedYlpRates({start:start.point,end:end.point,startPrices:initialPrice.prices,endPrices:finalPrice.prices});
+    const rates = recordedSrlpRates({start:start.point,end:end.point,startPrices:initialPrice.prices,endPrices:finalPrice.prices});
     markets.push({ market,lpMint: start.point.lpMint,rates,
       window: { since: start.point.blockTime,until: end.point.blockTime },
       provenance: { startSlot: String(start.point.slot),endSlot: String(end.point.slot),
@@ -88,7 +88,7 @@ export async function readYieldRates(client: PoolClient,options: YieldRatesQuery
       selectionHash: sha256(canonicalJson([active,options.deploymentIdentitySha256,window,markets])) } };
 }
 
-export interface TrailingYlpRate {
+export interface TrailingSrlpRate {
   market: string;
   swapRatePct: string | null;
   interestRatePct: string | null;
@@ -97,13 +97,13 @@ export interface TrailingYlpRate {
 }
 
 /** A market's identity as its live account states it. */
-export interface TrailingYlpMarket {
-  market: string; ylpMint: string;
+export interface TrailingSrlpMarket {
+  market: string; srlpMint: string;
   baseMint: string; quoteMint: string; baseDecimals: number; quoteDecimals: number;
 }
 
 /**
- * One market's recorded yLP rates over a trailing window, annualized over the
+ * One market's recorded srLP rates over a trailing window, annualized over the
  * whole window the way v1 annualizes LP APR over its fixed seven days.
  *
  * Growth points are the market's streamed SwapExecuted events, bound to the
@@ -114,9 +114,9 @@ export interface TrailingYlpMarket {
  * inside the window starts at that swap, and a market with no swap in the
  * window has zero recorded growth.
  */
-export async function readTrailingYlpRate(client: PoolClient,options: {
-  deploymentIdentitySha256: string; until: number; windowMs: number; market: TrailingYlpMarket;
-}): Promise<TrailingYlpRate> {
+export async function readTrailingSrlpRate(client: PoolClient,options: {
+  deploymentIdentitySha256: string; until: number; windowMs: number; market: TrailingSrlpMarket;
+}): Promise<TrailingSrlpRate> {
   const pin = loadPinnedProtocol(),active = activeProtocol(pin),meta = options.market;
   const until = options.until,since = until-options.windowMs;
   if (!/^[0-9a-f]{64}$/.test(options.deploymentIdentitySha256) || !Number.isSafeInteger(until)
@@ -127,7 +127,7 @@ export async function readTrailingYlpRate(client: PoolClient,options: {
     SELECT '${boundary}' AS boundary,slot::text,time,payload,payload_hash FROM (
       SELECT slot,time,payload,payload_hash,observation_id FROM dusk_ingestion.streamed_events
       WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
-        AND event_name='SwapExecuted' AND payload->>'market'=$5 AND payload ?& ARRAY['ylp_supply','base','quote']
+        AND event_name='SwapExecuted' AND payload->>'market'=$5 AND payload ?& ARRAY['srlp_supply','base','quote']
         AND ${where}
       ORDER BY slot ${order},observation_id ${order} LIMIT 1) o`;
   const sources = await client.query<Omit<Observation,'market'> & { boundary: 'before' | 'first' | 'end' }>(
@@ -142,7 +142,7 @@ export async function readTrailingYlpRate(client: PoolClient,options: {
     const side = (name: 'base' | 'quote',mint: string,decimals: number) => ({
       ...(event[name] as Record<string,unknown>),asset_mint: mint,asset_decimals: String(decimals),
       live_reserve: event[`${name}_live_reserve`] });
-    const observation = { market: meta.market,ylp_mint: meta.ylpMint,slot: event.slot,ylp_supply: event.ylp_supply,
+    const observation = { market: meta.market,srlp_mint: meta.srlpMint,slot: event.slot,srlp_supply: event.srlp_supply,
       base: side('base',meta.baseMint,meta.baseDecimals),quote: side('quote',meta.quoteMint,meta.quoteDecimals) };
     const blockTime = row.time.toISOString();
     if (points[row.boundary]) throw new Error('FINALIZED_INVARIANT: duplicate yield growth boundary');
@@ -155,19 +155,19 @@ export async function readTrailingYlpRate(client: PoolClient,options: {
   const start = points.before ?? points.first,end = points.end;
   if (!start || !end || start.point.slot>=end.point.slot)
     return { market: meta.market,swapRatePct: '0',interestRatePct: '0',growth: 'none' };
-  const recorded = recordedYlpRates({ start: start.point,end: end.point,startPrices: start.prices,endPrices: end.prices });
-  // recordedYlpRates annualizes over start..end; spread that growth over the window.
+  const recorded = recordedSrlpRates({ start: start.point,end: end.point,startPrices: start.prices,endPrices: end.prices });
+  // recordedSrlpRates annualizes over start..end; spread that growth over the window.
   const share = (Date.parse(end.point.blockTime)-Date.parse(start.point.blockTime))/options.windowMs;
   const spread = (value: string | null) => value === null ? null : String(Number(value)*share);
   return { market: meta.market,swapRatePct: spread(recorded.swapRatePct),interestRatePct: spread(recorded.interestRatePct),
     growth: 'recorded' };
 }
 
-export async function listTrailingYlpRate(options: Parameters<typeof readTrailingYlpRate>[1]) {
+export async function listTrailingSrlpRate(options: Parameters<typeof readTrailingSrlpRate>[1]) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-    const result = await readTrailingYlpRate(client,options);
+    const result = await readTrailingSrlpRate(client,options);
     await client.query('COMMIT');
     return result;
   } catch (error) { await client.query('ROLLBACK'); throw error; }
