@@ -53,7 +53,7 @@ test('unlabelled or malformed token metadata remains optional',() => {
 test('LP labels come from recorded Metaplex metadata without indexer aliases',() => {
   for (const [name,symbol] of [
     ['META/USDC srLP','yME.US'],
-    ['META/USDC jrLP','jrME.US'],
+    ['META/USDC jrLP','jrME/US'],
     ['META hLP','hMETA'],
     ['USDC hLP','hUSDC'],
   ]) {

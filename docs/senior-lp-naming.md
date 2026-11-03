@@ -5,7 +5,7 @@ LP kinds, `srlpMint`, `baseSideSrlpSupply`, `quoteSideSrlpSupply`,
 `baseHlpSrlpVault`, `quoteHlpSrlpVault`, `governanceLockedSrlp`, and `eligibleSrlp`.
 The hLP rate basis is `leveraged-recorded-srlp-net-of-funding.v1` with
 `srlpGrowth`. Portfolio, ownership, yield, governance and streamed projections
-use the same naming. SDK types come from `2.17.0-next.20261104-srlp`.
+use the same naming. SDK types come from `2.17.0-next.20261104-srlp.1`.
 
 Migration `052_dusk_senior_lp_names.sql` normalizes payload field names in
 read projections and updates all dependent LP balances, governance, yield and

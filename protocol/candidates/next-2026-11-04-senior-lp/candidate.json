@@ -6,7 +6,7 @@
     "repository": "https://github.com/omnipair/dusk",
     "branch": "feat/rename-senior-lp",
     "baseCommit": "c7db9013b9d751da5a734914e3efae203ccdf59b",
-    "gitCommit": "06a2ed60a4edbef22c735c1c0e262448cc566920"
+    "gitCommit": "1b3cfbefbb39dc7355af07238ab823d4ec667244"
   },
   "programs": [
     {
@@ -29,9 +29,9 @@
     }
   ],
   "sdk": {
-    "version": "2.17.0-next.20261104-srlp",
-    "path": "api/vendor/dusk-sdk-2.17.0-next.20261104-srlp.tgz",
-    "sha256": "311906ebea0ddfcb980ab8603e6e74dc99aa65bc1902c087a04a2e78b93144ee"
+    "version": "2.17.0-next.20261104-srlp.1",
+    "path": "api/vendor/dusk-sdk-2.17.0-next.20261104-srlp.1.tgz",
+    "sha256": "645c39c70dc74d3df7bb08fc7929ffd49b261a06ebb4d24a83c7fdcccb578c82"
   },
   "activation": "Requires reviewed source commit, verified program/delegate deployment, replay compatibility review and active-pin promotion; this candidate does not assert deployment or rewrite historical observations."
 }
