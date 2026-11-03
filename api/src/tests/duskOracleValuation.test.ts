@@ -56,7 +56,7 @@ test('a market batch captures one evaluated oracle for all rows, refuses changed
   for (const side of ['base', 'quote']) {
     preview[side].cash_reserve = market[side+'_side'].reserves.cash_reserve;
     preview[side].live_reserve = market[side+'_side'].reserves.live_reserve;
-    preview[side].ylp_supply = market[side+'_side'].shares.ylp_supply;
+    preview[side].srlp_supply = market[side+'_side'].shares.srlp_supply;
     preview[side].borrow_index_nad = market.debt[side+'_borrow_index_nad'];
   }
   preview.base.price_ema_nad = new BN('750000000');

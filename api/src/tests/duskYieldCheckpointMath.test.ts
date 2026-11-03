@@ -3,7 +3,7 @@ import test from 'node:test';
 import { projectRecordedYield } from '../services/duskYieldCheckpointMath';
 import { checkpointFixture, fixtureKey, Q64 } from './duskYieldCheckpointFixtures';
 
-test('recorded yLP growth preserves prior entitlement and fractional carry', () => {
+test('recorded srLP growth preserves prior entitlement and fractional carry', () => {
   const result = projectRecordedYield(checkpointFixture());
   assert.equal(result.swapFeeAmount,'11');
   assert.equal(result.interestAmount,'10');
@@ -12,7 +12,7 @@ test('recorded yLP growth preserves prior entitlement and fractional carry', () 
   assert.equal(result.basis,'recorded-growth.v1');
 });
 
-test('hLP uses its own vault and revenue-asset indexes instead of yLP growth', () => {
+test('hLP uses its own vault and revenue-asset indexes instead of srLP growth', () => {
   for (const lpSide of ['base','quote'] as const) {
     const base = projectRecordedYield(checkpointFixture({ kind: 1,lpSide,revenue: 'base' }));
     const quote = projectRecordedYield(checkpointFixture({ kind: 1,lpSide,revenue: 'quote' }));

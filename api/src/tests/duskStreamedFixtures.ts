@@ -10,7 +10,7 @@ import { checkpointFixture, fixtureKey, Q64 } from './duskYieldCheckpointFixture
 const pin = loadPinnedProtocol();
 export const streamedIdentity = [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
 export const key = (index: number) => fixtureKey(index).toBase58();
-export const fixtureMarket = { market: key(200),baseMint: key(206),quoteMint: key(207),ylp: key(203),baseHlp: key(204),quoteHlp: key(205) };
+export const fixtureMarket = { market: key(200),baseMint: key(206),quoteMint: key(207),srlp: key(203),baseHlp: key(204),quoteHlp: key(205) };
 
 let nextSlot = 900_100_000;
 /** One canonical streamed event, as the daemon writes it. */
@@ -34,7 +34,7 @@ export async function streamedEvent(client: PoolClient,name: string,payload: Rec
 }
 export async function streamedMarket(client: PoolClient,market = fixtureMarket,slot?: number,identity: readonly string[] = streamedIdentity) {
   return streamedEvent(client,'MarketCreated',{ market: market.market,base_mint: market.baseMint,quote_mint: market.quoteMint,
-    ylp_mint: market.ylp,base_hlp_mint: market.baseHlp,quote_hlp_mint: market.quoteHlp,
+    srlp_mint: market.srlp,base_hlp_mint: market.baseHlp,quote_hlp_mint: market.quoteHlp,
     base_decimals: '9',quote_decimals: '6',config: {} },slot,undefined,identity);
 }
 
@@ -51,15 +51,15 @@ export async function streamedRelease(client: PoolClient,cursor: { slot: number 
 }
 
 /** The price fixture's market: base fixtureKey(112) with 9 decimals, quote
- * fixtureKey(113) with 6, yLP fixtureKey(114). */
-export const observedMarket = { market: checkpointFixture().source().market,baseMint: key(112),quoteMint: key(113),ylp: key(114) };
+ * fixtureKey(113) with 6, srLP fixtureKey(114). */
+export const observedMarket = { market: checkpointFixture().source().market,baseMint: key(112),quoteMint: key(113),srlp: key(114) };
 
 /** A created market and one canonical post-swap market snapshot. The payload
  * carries `start_price_nad` only when `startPriceNad` is given. */
 export async function streamedSwapSnapshot(client: PoolClient,options: {
-  time: string; slot?: number; market?: string; baseMint?: string; quoteMint?: string; ylp?: string;
+  time: string; slot?: number; market?: string; baseMint?: string; quoteMint?: string; srlp?: string;
   baseSpotNad?: bigint; quoteSpotNad?: bigint; baseEmaNad?: bigint; quoteEmaNad?: bigint; startPriceNad?: bigint;
-  ylpSupply?: bigint; baseReserve?: bigint; quoteReserve?: bigint;
+  srlpSupply?: bigint; baseReserve?: bigint; quoteReserve?: bigint;
   baseSwapIndex?: bigint; baseInterestIndex?: bigint; quoteSwapIndex?: bigint; quoteInterestIndex?: bigint;
 }) {
   const side = (spot: bigint,ema: bigint,swap: bigint,interest: bigint) => ({
@@ -69,12 +69,12 @@ export async function streamedSwapSnapshot(client: PoolClient,options: {
   const exists = await client.query(`SELECT 1 FROM dusk_ingestion.streamed_markets
     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND market=$5`,[...streamedIdentity,market]);
   if (!exists.rowCount) await streamedMarket(client,{ market,baseMint: options.baseMint ?? observedMarket.baseMint,
-    quoteMint: options.quoteMint ?? observedMarket.quoteMint,ylp: options.ylp ?? observedMarket.ylp,
+    quoteMint: options.quoteMint ?? observedMarket.quoteMint,srlp: options.srlp ?? observedMarket.srlp,
     baseHlp: key(115),quoteHlp: key(116) },options.slot === undefined ? undefined : options.slot-1);
   return streamedEvent(client,'SwapExecuted',{ market,slot: String(options.slot ?? 0),trader: key(117),
     asset_in_side: '0',fee_asset_side: '0',amount_in: '1',amount_out: '0',gross_amount_out: '0',
     amount_in_after_fee: '1',base_fee: '0',divergence_fee: '0',volatility_fee: '0',retained_fee: '0',compounded_fee: '0',
-    ylp_supply: (options.ylpSupply ?? 1_000_000n).toString(),
+    srlp_supply: (options.srlpSupply ?? 1_000_000n).toString(),
     base_live_reserve: (options.baseReserve ?? 0n).toString(),quote_live_reserve: (options.quoteReserve ?? 0n).toString(),
     ...(options.startPriceNad === undefined ? {} : { start_price_nad: options.startPriceNad.toString() }),
     base: side(options.baseSpotNad ?? 2_500_000_000n,options.baseEmaNad ?? 0n,

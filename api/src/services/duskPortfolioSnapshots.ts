@@ -141,7 +141,7 @@ export function projectPortfolioSource(source: PortfolioCaptureSource) {
   for (const owner of catalog.knownOwners) owners.set(nativeKey(owner),[]);
   for (const item of catalog.items) {
     if (!catalog.markets.includes(item.market) || item.sourceSlot>catalog.sourceFloor || !owners.has(item.owner)
-      || !['borrow','leverage','ylp','base_hlp','quote_hlp'].includes(item.kind)) throw new Error('Portfolio catalog bindings are incomplete');
+      || !['borrow','leverage','srlp','base_hlp','quote_hlp'].includes(item.kind)) throw new Error('Portfolio catalog bindings are incomplete');
     checkedSlot(item.sourceSlot);
   }
   const closed: string[] = [],moved: { address: string; previousOwner: string; owner: string }[] = [];

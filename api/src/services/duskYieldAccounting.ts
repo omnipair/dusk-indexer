@@ -30,10 +30,10 @@ interface GrowthFees {
   swapFeeGrowthRemainderScaled: unknown; interestGrowthRemainderScaled: unknown;
   junior?: { swapGrowthQ64: unknown; interestGrowthQ64: unknown };
 }
-interface GrowthSide { assetMint: { equals(other: unknown): boolean }; hlpMint: { equals(other: unknown): boolean }; fees: GrowthFees; shares: { ylpSupply: unknown } }
+interface GrowthSide { assetMint: { equals(other: unknown): boolean }; hlpMint: { equals(other: unknown): boolean }; fees: GrowthFees; shares: { srlpSupply: unknown } }
 /** The camelCase market and yield account the pinned SDK decodes. */
 export interface LiveYieldMarket {
-  ylpMint: { equals(other: unknown): boolean };
+  srlpMint: { equals(other: unknown): boolean };
   juniorMint?: { equals(other: unknown): boolean };
   baseSide: GrowthSide; quoteSide: GrowthSide;
   baseHlpVault: Record<string, unknown>; quoteHlpVault: Record<string, unknown>;
@@ -54,7 +54,7 @@ function publishedIndex(index: unknown, amount: unknown, supply: unknown, carry:
 }
 
 /** The amount Harvest would pay now: the market's undistributed growth is
- * carried forward and, for hLP, the vault's yLP entitlement is checkpointed
+ * carried forward and, for hLP, the vault's srLP entitlement is checkpointed
  * into hLP growth first, exactly as the program's lazy update does. The
  * market must already be the preview's updated post-state. */
 export function projectLiveYield(market: LiveYieldMarket, account: LiveYieldAccount, balance: bigint, retiredVault?: Record<string, unknown>) {
@@ -73,19 +73,19 @@ export function projectLiveYield(market: LiveYieldMarket, account: LiveYieldAcco
     balance = unsigned(balance + unsigned(account.escrowBalance ?? 0,U64_MAX),U64_MAX);
   } else {
     swap = retiredVault ? unsigned(retiredVault[`${side}SwapFeeGrowthIndexQ64`]) : publishedIndex(state.fees.swapFeeGrowthIndexQ64, state.fees.unallocatedSwapFeeLiability,
-      state.shares.ylpSupply, state.fees.swapFeeGrowthRemainderScaled);
+      state.shares.srlpSupply, state.fees.swapFeeGrowthRemainderScaled);
     interest = retiredVault ? unsigned(retiredVault[`${side}InterestGrowthIndexQ64`]) : publishedIndex(state.fees.interestGrowthIndexQ64, state.fees.unallocatedInterestLiability,
-      state.shares.ylpSupply, state.fees.interestGrowthRemainderScaled);
+      state.shares.srlpSupply, state.fees.interestGrowthRemainderScaled);
   }
   if (account.tokenKind === 0) {
     if (retiredVault) throw new Error('Retired yield requires an hLP receipt');
-    if (!market.ylpMint.equals(account.lpMint)) throw new Error('Invalid yLP mint');
+    if (!market.srlpMint.equals(account.lpMint)) throw new Error('Invalid srLP mint');
   } else if (account.tokenKind === 1 && !retiredVault) {
     const vault = market.baseSide.hlpMint.equals(account.lpMint) ? market.baseHlpVault
       : market.quoteSide.hlpMint.equals(account.lpMint) ? market.quoteHlpVault : null;
     if (!vault) throw new Error('Invalid hLP mint');
     const prefix = side === 'base' ? 'Base' : 'Quote';
-    const credit = (index: bigint, name: 'SwapFee' | 'Interest') => BigInt(settleRecordedGrowth({ balance: vault.ylpShares,
+    const credit = (index: bigint, name: 'SwapFee' | 'Interest') => BigInt(settleRecordedGrowth({ balance: vault.srlpShares,
       index, checkpoint: vault[`${side}${name}CheckpointQ64`], remainder: vault[`${side}${name}RemainderQ64`], accrued: 0 }).amount);
     const swapCredit = credit(swap, 'SwapFee'), interestCredit = credit(interest, 'Interest');
     swap = publishedIndex(vault[`${side}SwapFeeGrowthIndexQ64`], unsigned(vault[`unallocated${prefix}SwapFeeAmount`], U64_MAX) + swapCredit,

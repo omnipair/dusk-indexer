@@ -1,3 +1,4 @@
+import { seniorLpFixtureLayout } from './duskSeniorLpFixtures';
 import { BN, Idl } from '@coral-xyz/anchor';
 import type { IdlType, IdlTypeDef } from '@coral-xyz/anchor/dist/cjs/idl';
 import { IdlCoder } from '@coral-xyz/anchor/dist/cjs/coder/borsh/idl';
@@ -36,7 +37,7 @@ function zeroType(type: IdlType): unknown {
 function zeroDefinition(definition: IdlTypeDef): Record<string, unknown> {
   if (definition.type.kind === 'struct') return Object.fromEntries((definition.type.fields ?? []).map((field) => {
     if (typeof field !== 'object' || !('name' in field)) throw new Error('Unexpected fixture tuple');
-    return [field.name,zeroType(field.type)];
+    return [field.name.replace(/ylp/g,'srlp').replace(/Ylp/g,'Srlp'),zeroType(field.type)];
   }));
   if (definition.type.kind === 'enum') return { [definition.type.variants[0].name]: {} };
   throw new Error('Unsupported fixture definition');
@@ -45,12 +46,12 @@ export function encodeFixtureType(name: string, changes: Record<string,unknown> 
   const definition = idl.types!.find((type) => type.name === name)!;
   const value = { ...zeroDefinition(definition),...changes };
   const buffer = Buffer.alloc(32_768);
-  const length = IdlCoder.typeDefLayout({ typeDef: definition,types: idl.types! }).encode(value,buffer);
+  const length = seniorLpFixtureLayout(IdlCoder.typeDefLayout({ typeDef: definition,types: idl.types! })).encode(value,buffer);
   return buffer.subarray(0,length);
 }
 function encode(name: string, value: object): Buffer {
   const buffer = Buffer.alloc(32_768);
-  const layout = IdlCoder.typeDefLayout({ typeDef: idl.types!.find((type) => type.name === name)!,types: idl.types! });
+  const layout = seniorLpFixtureLayout(IdlCoder.typeDefLayout({ typeDef: idl.types!.find((type) => type.name === name)!,types: idl.types! }));
   const length = layout.encode(value,buffer);
   return Buffer.concat([Buffer.from(idl.accounts!.find((account) => account.name === name)!.discriminator),buffer.subarray(0,length)]);
 }
@@ -60,14 +61,14 @@ export function encodeFixtureAccount(name: string,changes: Record<string,unknown
 
 export function checkpointFixture(options: { kind?: number; revenue?: 'base'|'quote'; lpSide?: 'base'|'quote' } = {}) {
   const pin = loadPinnedProtocol(), program = new PublicKey(pin.dusk.programId), kind = options.kind ?? 0;
-  const owner = fixtureKey(111), base = fixtureKey(112), quote = fixtureKey(113), ylp = fixtureKey(114), baseHlp = fixtureKey(115), quoteHlp = fixtureKey(116);
+  const owner = fixtureKey(111), base = fixtureKey(112), quote = fixtureKey(113), srlp = fixtureKey(114), baseHlp = fixtureKey(115), quoteHlp = fixtureKey(116);
   const paramsHash = Array.from({ length: 32 },(_,index) => index);
   const [marketAddress,marketBump] = PublicKey.findProgramAddressSync([Buffer.from('market_v2'),base.toBuffer(),quote.toBuffer(),Buffer.from(paramsHash)],program);
-  const lpMint = kind === 0 ? ylp : options.lpSide === 'quote' ? quoteHlp : baseHlp;
+  const lpMint = kind === 0 ? srlp : options.lpSide === 'quote' ? quoteHlp : baseHlp;
   const assetMint = options.revenue === 'quote' ? quote : base;
   const [yieldAddress,yieldBump] = PublicKey.findProgramAddressSync([Buffer.from('yield'),marketAddress.toBuffer(),owner.toBuffer(),lpMint.toBuffer(),assetMint.toBuffer(),Buffer.from([kind])],program);
   const market = zeroDefinition(idl.types!.find((type) => type.name === 'Market')!);
-  Object.assign(market,{ version: 2,ylp_mint: ylp,params_hash: paramsHash,bump: marketBump });
+  Object.assign(market,{ version: 2,srlp_mint: srlp,params_hash: paramsHash,bump: marketBump });
   for (const [side,mint,hlp,decimals] of [['base',base,baseHlp,9],['quote',quote,quoteHlp,6]] as const) {
     const state = market[`${side}_side`] as Record<string,unknown>;
     Object.assign(state,{ asset_mint: mint,hlp_mint: hlp,asset_decimals: decimals });

@@ -41,14 +41,14 @@ async function chain(accounts: Map<string, AccountInfo<Buffer> | null>, slot = 3
   return { ...f, requests };
 }
 
-test('owner governance reports streamed supports and, for one market, its yLP yield accounts', async () => {
+test('owner governance reports streamed supports and, for one market, its srLP yield accounts', async () => {
   const owner = displayKey(61).toBase58(),
     market = displayKey(62).toBase58();
-  const mints = { ylpMint: displayKey(66).toBase58(), baseMint: displayKey(64).toBase58(), quoteMint: displayKey(65).toBase58() };
+  const mints = { srlpMint: displayKey(66).toBase58(), baseMint: displayKey(64).toBase58(), quoteMint: displayKey(65).toBase58() };
   const accounts = new Map<string, AccountInfo<Buffer> | null>();
   const f = await chain(accounts);
   const [baseYield, quoteYield] = [mints.baseMint, mints.quoteMint].map((asset) =>
-    deriveYieldAccountAddress(new PublicKey(market), new PublicKey(owner), new PublicKey(mints.ylpMint), new PublicKey(asset), 'ylp', f.dusk.program.programId)[0].toBase58());
+    deriveYieldAccountAddress(new PublicKey(market), new PublicKey(owner), new PublicKey(mints.srlpMint), new PublicKey(asset), 'srlp', f.dusk.program.programId)[0].toBase58());
   // A yield account created at the old, shorter layout must be grown first.
   accounts.set(baseYield, { owner: f.dusk.program.programId, executable: false, lamports: 1, data: Buffer.alloc(234) });
   const supports = [{ proposal: displayKey(70).toBase58(), market, lockedAmount: '25', directAmount: '25', reusableAmount: '0' }];

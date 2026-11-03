@@ -13,7 +13,7 @@ export interface MarketGrowthPoint {
   assets: Array<{ mint: string; decimals: number; reserve: string; swapIndexQ64: string; interestIndexQ64: string }>;
 }
 /** Decode committed account bytes, never PreviewMarket's hypothetical post-state.
- * A growth index is an entitlement per raw yLP share, independent of a holder's
+ * A growth index is an entitlement per raw srLP share, independent of a holder's
  * balance, claims, deposits or transfers during the observation interval. */
 export function marketGrowthPoint(input: {
   pin: DuskPinnedProtocol; marketAddress: string; market: unknown;
@@ -27,7 +27,7 @@ export function marketGrowthPoint(input: {
   let supply: bigint | null = null;
   const assets = ['base','quote'].map((name) => {
     const side = nativeFields(market[`${name}_side`]),fees = nativeFields(side.fees);
-    const currentSupply = unsigned(nativeFields(side.shares).ylp_supply,U64);
+    const currentSupply = unsigned(nativeFields(side.shares).srlp_supply,U64);
     if (supply !== null && supply !== currentSupply) throw new Error('Market growth share ledgers disagree');
     supply = currentSupply;
     return { mint: nativeKey(side.asset_mint),decimals: Number(unsigned(side.asset_decimals,255n)),
@@ -35,13 +35,13 @@ export function marketGrowthPoint(input: {
       swapIndexQ64: unsigned(fees.swap_fee_growth_index_q64,U128).toString(),
       interestIndexQ64: unsigned(fees.interest_growth_index_q64,U128).toString() };
   });
-  return { market: input.marketAddress,lpMint: nativeKey(market.ylp_mint),slot: input.slot,
+  return { market: input.marketAddress,lpMint: nativeKey(market.srlp_mint),slot: input.slot,
     blockTime: new Date(input.blockTime).toISOString(),deploymentIdentitySha256: input.deploymentIdentitySha256,
     basis: 'committed-market-growth.v1',supply: supply!.toString(),assets };
 }
 
 /** A canonical post-swap snapshot as a committed growth point. Its growth
- * indexes, reserves and yLP supply are post-transaction state. */
+ * indexes, reserves and srLP supply are post-transaction state. */
 export function observedGrowthPoint(input: {
   pin: DuskPinnedProtocol; marketAddress: string; observation: unknown;
   slot: number; blockTime: string; deploymentIdentitySha256: string;
@@ -58,15 +58,15 @@ export function observedGrowthPoint(input: {
       interestIndexQ64: unsigned(side.interest_growth_index_q64,U128).toString() };
   });
   if (assets[0].mint === assets[1].mint) throw new Error('Observed market sides share a mint');
-  return { market: input.marketAddress,lpMint: nativeKey(observation.ylp_mint),slot: input.slot,
+  return { market: input.marketAddress,lpMint: nativeKey(observation.srlp_mint),slot: input.slot,
     blockTime: new Date(input.blockTime).toISOString(),deploymentIdentitySha256: input.deploymentIdentitySha256,
-    basis: 'committed-market-growth.v1',supply: unsigned(observation.ylp_supply,U64).toString(),assets };
+    basis: 'committed-market-growth.v1',supply: unsigned(observation.srlp_supply,U64).toString(),assets };
 }
 
 /** Simple annualization of recorded, claimable LP earnings, valued at the end
  * prices against starting native share value. Unpaid interest and compounded
  * principal are separate lanes and are never inferred from these indexes. */
-export function recordedYlpRates(input: {
+export function recordedSrlpRates(input: {
   start: MarketGrowthPoint; end: MarketGrowthPoint;
   startPrices: YieldRatePrice[]; endPrices: YieldRatePrice[];
 }) {
@@ -110,7 +110,7 @@ export function recordedYlpRates(input: {
   const annualize = (value: bigint) => available
     ? formatUsd(value*supply*YEAR_SECONDS*100_000n/(Q64*capital*BigInt(elapsedMilliseconds))) : null;
   return {
-    basis: 'recorded-claimable-ylp-rate.v1' as const,
+    basis: 'recorded-claimable-srlp-rate.v1' as const,
     annualization: 'simple-365-day' as const,valuation: 'end-price-over-start-share-value' as const,
     swapRatePct: annualize(swap),interestRatePct: annualize(interest),claimableRatePct: annualize(swap+interest),
     startingCapitalUsd: missing.size ? null : formatUsd(capital),startingSupply: supply.toString(),

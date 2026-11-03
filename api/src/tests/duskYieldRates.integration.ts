@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
-import { readTrailingYlpRate, readYieldRates } from '../services/duskYieldRates';
+import { readTrailingSrlpRate, readYieldRates } from '../services/duskYieldRates';
 import { Q64 } from './duskYieldCheckpointFixtures';
 import { key, observedMarket, streamedEvent, streamedIdentity, streamedSwapSnapshot, useFixtureReferences } from './duskStreamedFixtures';
 
@@ -26,7 +26,7 @@ async function transaction(work: (client: PoolClient) => Promise<void>) {
 /** Swap snapshots at both boundaries: one quote per base, the quote mint
  * referenced at $1, and a day of swap and interest growth. */
 async function seed(client: PoolClient,options: { start?: boolean; startTime?: string; mints?: { baseMint: string; quoteMint: string } } = {}) {
-  const common = { baseReserve: 100_000_000_000n,quoteReserve: 100_000_000n,ylpSupply: 1_000_000n,baseSpotNad: 1_000_000_000n,...options.mints };
+  const common = { baseReserve: 100_000_000_000n,quoteReserve: 100_000_000n,srlpSupply: 1_000_000n,baseSpotNad: 1_000_000_000n,...options.mints };
   if (options.start !== false) await streamedSwapSnapshot(client,{ ...common,slot: 900_000_010,time: options.startTime ?? query.since });
   await streamedSwapSnapshot(client,{ ...common,slot: 900_200_010,time: query.until,baseSwapIndex: 4n*Q64,quoteInterestIndex: 2n*Q64+Q64/2n });
 }
@@ -36,7 +36,7 @@ test('yield rates come from swap snapshots at each boundary and their own quotes
   const data = await readYieldRates(client,query);
   assert.equal(data.markets.length,1);
   const row = data.markets[0];
-  assert.equal(row.market,observedMarket.market); assert.equal(row.lpMint,observedMarket.ylp);
+  assert.equal(row.market,observedMarket.market); assert.equal(row.lpMint,observedMarket.srlp);
   assert.equal(row.rates.swapRatePct,'0.1825');
   assert.equal(row.rates.interestRatePct,'91.25');
   assert.equal(row.rates.claimableRatePct,'91.4325');
@@ -78,10 +78,10 @@ test('zero-length, too-short, excessive and malformed windows are rejected',() =
 }));
 
 const DAY = 86400_000;
-const live = { market: observedMarket.market,ylpMint: observedMarket.ylp,baseMint: observedMarket.baseMint,
+const live = { market: observedMarket.market,srlpMint: observedMarket.srlp,baseMint: observedMarket.baseMint,
   quoteMint: observedMarket.quoteMint,baseDecimals: 9,quoteDecimals: 6 };
 const trailing = (client: PoolClient,windowMs: number,until = query.until,market = live) =>
-  readTrailingYlpRate(client,{ deploymentIdentitySha256: query.deploymentIdentitySha256,until: Date.parse(until),windowMs,market });
+  readTrailingSrlpRate(client,{ deploymentIdentitySha256: query.deploymentIdentitySha256,until: Date.parse(until),windowMs,market });
 
 test('trailing rates match the bracketed rate over the same window and spread it over a longer one',() => transaction(async client => {
   await seed(client);
@@ -96,7 +96,7 @@ test('trailing rates match the bracketed rate over the same window and spread it
 test('a market created before the stream is measured from the swaps the stream holds',() => transaction(async client => {
   const swap = (slot: number,time: string,baseSwapIndex: bigint,quoteInterestIndex: bigint) =>
     streamedEvent(client,'SwapExecuted',{ market: observedMarket.market,slot: String(slot),trader: key(117),
-      ylp_supply: '1000000',base_live_reserve: '100000000000',quote_live_reserve: '100000000',
+      srlp_supply: '1000000',base_live_reserve: '100000000000',quote_live_reserve: '100000000',
       base: { spot_price_nad: '1000000000',price_ema_nad: '0',swap_fee_growth_index_q64: baseSwapIndex.toString(),
         interest_growth_index_q64: (2n*Q64).toString() },
       quote: { spot_price_nad: '0',price_ema_nad: '0',swap_fee_growth_index_q64: (3n*Q64).toString(),

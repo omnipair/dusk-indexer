@@ -54,7 +54,9 @@ function field<T = unknown>(
   snake?: string,
 ): T {
   const record = (source ?? {}) as Record<string, unknown>;
-  const value = record[camel] ?? (snake ? record[snake] : undefined);
+  const legacy = (name: string) => name.replace(/srlp/g, 'ylp').replace(/Srlp/g, 'Ylp');
+  const value = record[camel] ?? (snake ? record[snake] : undefined)
+    ?? record[legacy(camel)] ?? (snake ? record[legacy(snake)] : undefined);
   return value as T;
 }
 
@@ -124,7 +126,7 @@ export async function currentMarketSnapshot(market: PublicKey, discovery: unknow
   const collateral = ['base','quote'].map((side) => stringValue(field(field(discovery,`${side}Side`,`${side}_side`),'collateralVault','collateral_vault')));
   const reserves = ['base','quote'].map((side) => stringValue(field(field(discovery,`${side}Side`,`${side}_side`),'reserveVault','reserve_vault')));
   const hlpMints = ['base','quote'].map((side) => stringValue(field(field(discovery,`${side}Side`,`${side}_side`),'hlpMint','hlp_mint')));
-  const ylpMint = stringValue(field(discovery,'ylpMint','ylp_mint'));
+  const srlpMint = stringValue(field(discovery,'srlpMint','srlp_mint'));
   const juniorMint = stringValue(field(discovery,'juniorMint','junior_mint'));
   const juniorExtras = (() => {
     try {
@@ -134,7 +136,7 @@ export async function currentMarketSnapshot(market: PublicKey, discovery: unknow
       return [];
     }
   })();
-  const lpMints = [ylpMint,...hlpMints,...juniorExtras];
+  const lpMints = [srlpMint,...hlpMints,...juniorExtras];
   const extras = [...new Set([...mints,...collateral,...reserves,
     ...mints.map((mint) => leverageCollateralAddress(market.toBase58(),mint)),
     ...mints.map(tokenMetadataAddress),...lpMints,...lpMints.map(tokenMetadataAddress)])];
@@ -276,7 +278,7 @@ export interface DuskMarketAssociatedAddresses {
   quoteDecimals: number;
   baseTokenProgram: string;
   quoteTokenProgram: string;
-  ylpMint: string;
+  srlpMint: string;
   juniorMint: string | null;
   baseHlpMint: string;
   quoteHlpMint: string;
@@ -288,8 +290,8 @@ export interface DuskMarketAssociatedAddresses {
   quoteInsuranceVault: string;
   baseInterestVault: string;
   quoteInterestVault: string;
-  baseHlpYlpVault: string;
-  quoteHlpYlpVault: string;
+  baseHlpSrlpVault: string;
+  quoteHlpSrlpVault: string;
 }
 
 function pda(seeds: (Buffer | Uint8Array)[], programId: PublicKey): string {
@@ -301,7 +303,7 @@ function pda(seeds: (Buffer | Uint8Array)[], programId: PublicKey): string {
  *
  * The account already stores its mints, decimals, HLP mints and the reserve,
  * collateral and interest vaults, so almost nothing needs deriving — only the
- * insurance and HLP/YLP vaults, whose seeds come from the IDL. The token
+ * insurance and HLP/SRLP vaults, whose seeds come from the IDL. The token
  * programs are the mints' owners, which is the one thing that has to be read.
  */
 function associatedAddresses(
@@ -317,7 +319,7 @@ function associatedAddresses(
   const quoteMint = new PublicKey(stringValue(field(quoteSide, 'assetMint', 'asset_mint')));
   const baseHlpMint = stringValue(field(baseSide, 'hlpMint', 'hlp_mint'));
   const quoteHlpMint = stringValue(field(quoteSide, 'hlpMint', 'hlp_mint'));
-  const ylpMint = stringValue(field(marketAccount, 'ylpMint', 'ylp_mint'));
+  const srlpMint = stringValue(field(marketAccount, 'srlpMint', 'srlp_mint'));
   const juniorMintRaw = field(marketAccount, 'juniorMint', 'junior_mint');
   let juniorMint: string | null = null;
   try {
@@ -342,13 +344,13 @@ function associatedAddresses(
 
   const marketBytes = market.toBuffer();
   const seed = (text: string) => Buffer.from(text, 'utf8');
-  const hlpYlpVault = (hlpMint: string) =>
+  const hlpSrlpVault = (hlpMint: string) =>
     pda(
       [
         seed('hlp_ylp_vault'),
         marketBytes,
         new PublicKey(hlpMint).toBuffer(),
-        new PublicKey(ylpMint).toBuffer(),
+        new PublicKey(srlpMint).toBuffer(),
       ],
       programId,
     );
@@ -360,7 +362,7 @@ function associatedAddresses(
     quoteDecimals,
     baseTokenProgram: baseMintInfo.owner.toBase58(),
     quoteTokenProgram: quoteMintInfo.owner.toBase58(),
-    ylpMint,
+    srlpMint,
     juniorMint,
     baseHlpMint,
     quoteHlpMint,
@@ -372,8 +374,8 @@ function associatedAddresses(
     quoteInsuranceVault: pda([seed('insurance'), marketBytes, quoteMint.toBuffer()], programId),
     baseInterestVault: stringValue(field(baseSide, 'interestVault', 'interest_vault')),
     quoteInterestVault: stringValue(field(quoteSide, 'interestVault', 'interest_vault')),
-    baseHlpYlpVault: hlpYlpVault(baseHlpMint),
-    quoteHlpYlpVault: hlpYlpVault(quoteHlpMint),
+    baseHlpSrlpVault: hlpSrlpVault(baseHlpMint),
+    quoteHlpSrlpVault: hlpSrlpVault(quoteHlpMint),
   };
 }
 
@@ -392,7 +394,7 @@ function trancheProjection(marketAccount: unknown, sourceSlot: number) {
   const capital = field<Record<string, unknown>>(marketAccount, 'tranches');
   const exit = field<Record<string, unknown>>(marketAccount, 'juniorExitConfig', 'junior_exit_config');
   const policy = field<Record<string, unknown> | undefined>(marketAccount, 'tranchePolicy', 'tranche_policy');
-  const totalReserveShares = toBigInt(field(field(field(marketAccount, 'baseSide', 'base_side'), 'shares'), 'ylpSupply', 'ylp_supply'));
+  const totalReserveShares = toBigInt(field(field(field(marketAccount, 'baseSide', 'base_side'), 'shares'), 'srlpSupply', 'srlp_supply'));
   const juniorReserveShares = toBigInt(field(capital, 'juniorReserveShares', 'junior_reserve_shares'));
   const juniorReceiptSupply = toBigInt(field(capital, 'juniorReceiptSupply', 'junior_receipt_supply'));
   if (juniorReserveShares > totalReserveShares) throw new Error('Junior reserve shares exceed market supply');
@@ -546,7 +548,7 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
     ...addresses,
     tokenMetadata: { schemaVersion: 'dusk-token-labels.v2',sourceSlot,
       base: snapshotTokenMetadata(snapshot,addresses.baseMint),quote: snapshotTokenMetadata(snapshot,addresses.quoteMint),
-      ylp: snapshotTokenMetadata(snapshot,addresses.ylpMint),
+      srlp: snapshotTokenMetadata(snapshot,addresses.srlpMint),
       junior: addresses.juniorMint ? snapshotTokenMetadata(snapshot,addresses.juniorMint) : null,
       baseHlp: snapshotTokenMetadata(snapshot,addresses.baseHlpMint),
       quoteHlp: snapshotTokenMetadata(snapshot,addresses.quoteHlpMint) },
@@ -584,8 +586,8 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
       baseWindow: insuranceWindow('base'),
       quoteWindow: insuranceWindow('quote'),
     },
-    governanceLockedYlp: stringValue(
-      field(marketAccount, 'governanceLockedYlp', 'governance_locked_ylp'),
+    governanceLockedSrlp: stringValue(
+      field(marketAccount, 'governanceLockedSrlp', 'governance_locked_srlp'),
     ),
     parameterRevisions: Array.from(
       (field<unknown[]>(marketAccount, 'parameterRevisions', 'parameter_revisions') ??
@@ -611,11 +613,11 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
       quoteLiveReserve: stringValue(field(quoteReserves, 'liveReserve', 'live_reserve')),
       baseCashReserve: stringValue(field(baseReserves, 'cashReserve', 'cash_reserve')),
       quoteCashReserve: stringValue(field(quoteReserves, 'cashReserve', 'cash_reserve')),
-      baseSideYlpSupply: stringValue(
-        field(field(baseSide, 'shares'), 'ylpSupply', 'ylp_supply'),
+      baseSideSrlpSupply: stringValue(
+        field(field(baseSide, 'shares'), 'srlpSupply', 'srlp_supply'),
       ),
-      quoteSideYlpSupply: stringValue(
-        field(field(quoteSide, 'shares'), 'ylpSupply', 'ylp_supply'),
+      quoteSideSrlpSupply: stringValue(
+        field(field(quoteSide, 'shares'), 'srlpSupply', 'srlp_supply'),
       ),
       fixedBaseShares: fixedBaseShares.toString(),
       fixedQuoteShares: fixedQuoteShares.toString(),

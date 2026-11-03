@@ -20,7 +20,7 @@ after(() => pool.end());
 
 const pin = loadPinnedProtocol();
 const delegateIdentity = [pin.cluster, pin.leverageDelegate.programId, pin.leverageDelegate.idlCanonicalSha256, pin.revision];
-const { market, baseMint, quoteMint, ylp, baseHlp, quoteHlp } = fixtureMarket;
+const { market, baseMint, quoteMint, srlp, baseHlp, quoteHlp } = fixtureMarket;
 const owner = key(201),
   other = key(202);
 
@@ -79,13 +79,13 @@ test('borrow discovery keeps open positions, per owner or with debt, dated by th
 
 test('hLP holdings are the owner\'s non-zero hLP balances by vault side', () => transaction(async (client) => {
   await streamedMarket(client);
-  await streamedEvent(client, 'LiquidityAdded', { market, owner, ylp_amount: '1000' });
-  await streamedEvent(client, 'HlpOpened', { market, owner, asset_side: '0', hlp_amount: '40', ylp_amount: '1' });
-  await streamedEvent(client, 'HlpOpened', { market, owner, asset_side: '1', hlp_amount: '15', ylp_amount: '1' });
-  await streamedEvent(client, 'HlpClosed', { market, owner, asset_side: '1', hlp_amount: '15', ylp_amount: '1' });
+  await streamedEvent(client, 'LiquidityAdded', { market, owner, srlp_amount: '1000' });
+  await streamedEvent(client, 'HlpOpened', { market, owner, asset_side: '0', hlp_amount: '40', srlp_amount: '1' });
+  await streamedEvent(client, 'HlpOpened', { market, owner, asset_side: '1', hlp_amount: '15', srlp_amount: '1' });
+  await streamedEvent(client, 'HlpClosed', { market, owner, asset_side: '1', hlp_amount: '15', srlp_amount: '1' });
   const { balances, lpBalances, sourceSlot } = await readStreamedHlpBalances(owner, client);
   assert.deepEqual(balances, [{ market, side: 'base', hlpMint: baseHlp, amount: '40' }]);
-  assert.deepEqual(lpBalances.map(({ kind, lpMint }) => [kind, lpMint]), [['base_hlp', baseHlp], ['ylp', ylp]]);
+  assert.deepEqual(lpBalances.map(({ kind, lpMint }) => [kind, lpMint]), [['base_hlp', baseHlp], ['srlp', srlp]]);
   assert.equal(sourceSlot, 900_500_000);
 }));
 
@@ -129,7 +129,7 @@ test('governance supports fold a proposer\'s sponsorship, later supports and wit
   result = await readOwnerGovernanceSupports(owner, market, client);
   assert.deepEqual(result.supports, [{ proposal: reusable, market, lockedAmount: '45', directAmount: '25', reusableAmount: '20' }]);
   assert.deepEqual((await readOwnerGovernanceSupports(other, market, client)).supports, [{ proposal, market, lockedAmount: '60', directAmount: '60', reusableAmount: '0' }]);
-  assert.deepEqual(await readStreamedMarketMints(market, client), { ylpMint: ylp, baseMint, quoteMint });
+  assert.deepEqual(await readStreamedMarketMints(market, client), { srlpMint: srlp, baseMint, quoteMint });
   assert.equal(await readStreamedMarketMints(key(242), client), null);
 }));
 
@@ -158,9 +158,9 @@ test('a referral partner\'s terms and accruals come from its own events', () => 
 
 test('yield discovery covers every held LP, including emptied holdings, and escrows until their yield settles', () => transaction(async (client) => {
   await streamedMarket(client);
-  await streamedEvent(client, 'LiquidityAdded', { market, owner, ylp_amount: '10' });
-  await streamedEvent(client, 'LiquidityRemoved', { market, owner, ylp_amount: '10' });
-  await streamedEvent(client, 'HlpOpened', { market, owner, asset_side: '1', hlp_amount: '4', ylp_amount: '1' });
+  await streamedEvent(client, 'LiquidityAdded', { market, owner, srlp_amount: '10' });
+  await streamedEvent(client, 'LiquidityRemoved', { market, owner, srlp_amount: '10' });
+  await streamedEvent(client, 'HlpOpened', { market, owner, asset_side: '1', hlp_amount: '4', srlp_amount: '1' });
   const hlpOrder = (order: string, target: string) =>
     instruction(client, 'create_hlp_order', { market, target_hlp_mint: target, order, owner });
   await hlpOrder(key(261), baseHlp);
@@ -171,7 +171,7 @@ test('yield discovery covers every held LP, including emptied holdings, and escr
   await instruction(client, 'settle_hlp_order_yield', { order: key(263), market, owner });
   const { groups, sourceSlot } = await readOwnerYieldGroups(owner, client);
   assert.deepEqual(groups.map((group) => `${group.holder}:${group.lpMint}:${group.kind}`).sort(), [
-    `${owner}:${quoteHlp}:hlp`, `${owner}:${ylp}:ylp`, `${key(261)}:${baseHlp}:hlp`, `${key(262)}:${quoteHlp}:hlp`,
+    `${owner}:${quoteHlp}:hlp`, `${owner}:${srlp}:srlp`, `${key(261)}:${baseHlp}:hlp`, `${key(262)}:${quoteHlp}:hlp`,
   ].sort());
   assert.ok(groups.every((group) => group.market === market && group.baseMint === baseMint && group.quoteMint === quoteMint));
   assert.equal(sourceSlot, 900_500_000);

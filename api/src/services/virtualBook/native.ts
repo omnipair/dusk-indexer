@@ -21,6 +21,8 @@ const importSdk = new Function(
 export async function sdkForProtocol(pin = loadPinnedProtocol()): Promise<Sdk> {
   const current = await importSdk();
   if (sha256(canonicalJson(current.IDL)) === pin.dusk.idlCanonicalSha256) return current;
+  const legacy = await (new Function("return import('@omnipair/dusk-sdk-legacy')")() as Promise<Sdk>);
+  if (sha256(canonicalJson(legacy.IDL)) === pin.dusk.idlCanonicalSha256) return legacy;
   const oracle = await (new Function("return import('@omnipair/dusk-sdk-oracle')")() as Promise<typeof import('@omnipair/dusk-sdk-oracle')>);
   if (sha256(canonicalJson(oracle.IDL)) === pin.dusk.idlCanonicalSha256) return oracle as unknown as Sdk;
   const layouts = await (new Function("return import('@omnipair/dusk-sdk-layouts')")() as Promise<typeof import('@omnipair/dusk-sdk-layouts')>);
@@ -78,7 +80,11 @@ export const deriveBorrowPositionAddress: Sdk['deriveBorrowPositionAddress'] = (
 ) => sdkExports!.deriveBorrowPositionAddress(...args);
 export const deriveYieldAccountAddress: Sdk['deriveYieldAccountAddress'] = (
   ...args
-) => sdkExports!.deriveYieldAccountAddress(...args);
+) => {
+  // Enum code zero is stable across the historical and renamed interfaces.
+  const [market, owner, lpMint, assetMint, kind, programId] = args;
+  return sdkExports!.deriveYieldAccountAddress(market, owner, lpMint, assetMint, kind === 'srlp' ? 0 : kind, programId);
+};
 export const deriveGovernanceBalanceAddress: Sdk['deriveGovernanceBalanceAddress'] = (...args) =>
   sdkExports!.deriveGovernanceBalanceAddress(...args);
 export const deriveGovernanceSupportAddress: Sdk['deriveGovernanceSupportAddress'] = (...args) =>

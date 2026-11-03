@@ -10,8 +10,8 @@ Proposals come from their streamed lifecycle events (migration 047):
 `ParameterProposalCreated` carries the proposal's terms, update and metadata;
 `ParameterProposalSupported`, `ParameterProposalSupportWithdrawn`,
 `GovernanceSupportChanged` and `ParameterProposalQueued` carry totals;
-`Queued` and `Executed` set status 1 and 2. Each market's eligible yLP is the sum of streamed yLP balances outside
-the market-owned hLP vaults. Locked yLP is the sum of proposal totals. Direct
+`Queued` and `Executed` set status 1 and 2. Each market's eligible srLP is the sum of streamed srLP balances outside
+the market-owned hLP vaults. Locked srLP is the sum of proposal totals. Direct
 Token-2022 burns outside protocol events can overstate eligibility; that is
 conservative for the API display.
 
@@ -22,8 +22,8 @@ conservative for the API display.
   sourceSlot: number,             // the stream's slot; covers every event included
   markets: Array<{                // every market with a proposal, plus the selected market
     address: string,
-    eligibleYlp: string | null,   // null when MarketCreated has not been streamed
-    governanceLockedYlp: string | null,
+    eligibleSrlp: string | null,   // null when MarketCreated has not been streamed
+    governanceLockedSrlp: string | null,
     observedSlot: number | null,
     observedAt: string | null,
   }>,
@@ -45,7 +45,7 @@ conservative for the API display.
 ```
 
 Time-based expiry is not an event; clients derive it from `executionDeadline`.
-Integers are decimal strings; pubkeys are base58. Per-supporter locked yLP is
+Integers are decimal strings; pubkeys are base58. Per-supporter locked srLP is
 in the `streamed_governance_supports` view.
 
 Fixed `[u8; N]` fields inside update variants are `0x`-prefixed hex strings,

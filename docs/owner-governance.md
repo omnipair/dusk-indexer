@@ -4,7 +4,7 @@
 
 Event history discovers candidate balances and allocations. One current RPC bank, at or after the stream cursor, verifies their native PDAs, market, owner, current delegate, available amount and original rent-refund recipient. Revoking a delegate removes its access even before discovery events catch up. Missing allocations make the capture unavailable rather than inventing an available allowance. The webapp consumes this API; it does not poll governance program accounts for display.
 
-Governance balances remain owned by the depositor. Delegates may create/support proposals and release unlocked support; only owners may withdraw yLP or change a delegate. Reusable and direct support both permit exact partial withdrawal before queueing. Queued support retains the existing execution lock. Yield checkpoints feed normal yLP yield accounts.
+Governance balances remain owned by the depositor. Delegates may create/support proposals and release unlocked support; only owners may withdraw srLP or change a delegate. Reusable and direct support both permit exact partial withdrawal before queueing. Queued support retains the existing execution lock. Yield checkpoints feed normal srLP yield accounts.
 
 Market snapshots add `liquidityStatus` (`active` or `empty`). A drained market retains minimum locked shares and actual reserve dust, while the native preview reports zero executable depth. Its configured reference prices and history are preserved.
 

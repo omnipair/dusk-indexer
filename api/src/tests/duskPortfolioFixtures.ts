@@ -16,8 +16,8 @@ export function portfolioFixture(options: { slot?: number; lpOwner?: string; lpA
   debt.base_borrow_index_nad = new BN(1_100_000_000); debt.quote_borrow_index_nad = new BN(1_000_000_000);
   for (const side of ['base','quote']) {
     const raw = market[`${side}_side`] as any,reserve = new BN(side === 'base' ? '100000000000' : '250000000');
-    raw.reserves.live_reserve = reserve; raw.reserves.cash_reserve = reserve; raw.shares.ylp_supply = new BN(1000);
-    Object.assign(preview[side],{ live_reserve: reserve,cash_reserve: reserve,ylp_supply: new BN(1000),
+    raw.reserves.live_reserve = reserve; raw.reserves.cash_reserve = reserve; raw.shares.srlp_supply = new BN(1000);
+    Object.assign(preview[side],{ live_reserve: reserve,cash_reserve: reserve,srlp_supply: new BN(1000),
       borrow_index_nad: debt[`${side}_borrow_index_nad`],spot_price_nad: new BN(side === 'base' ? '2500000000' : '400000000') });
   }
   const positionId = fixtureKey(172),[position,bump] = PublicKey.findProgramAddressSync([Buffer.from('borrow_position_v2'),new PublicKey(marketAddress).toBuffer(),
@@ -26,14 +26,14 @@ export function portfolioFixture(options: { slot?: number; lpOwner?: string; lpA
     base_collateral: new BN(1_000_000_000),quote_collateral: new BN(0),fixed_base_shares: new BN(200_000_000),fixed_quote_shares: new BN(0) };
   // Deliberately not an ATA: all LP token accounts participate in ownership.
   const tokenAddress = fixtureKey(173).toBase58(),token = Buffer.alloc(AccountLayout.span);
-  AccountLayout.encode({ mint: market.ylp_mint as PublicKey,owner: new PublicKey(options.lpOwner ?? owner),amount: options.lpAmount ?? 100n,
+  AccountLayout.encode({ mint: market.srlp_mint as PublicKey,owner: new PublicKey(options.lpOwner ?? owner),amount: options.lpAmount ?? 100n,
     delegateOption: 0,delegate: fixtureKey(0),state: AccountState.Initialized,isNativeOption: 0,isNative: 0n,
     delegatedAmount: 0n,closeAuthorityOption: 0,closeAuthority: fixtureKey(0) },token);
   const source: PortfolioCaptureSource = { schemaVersion: 'dusk-portfolio-capture.v2',maxCatalogAgeSeconds: 60,
     catalog: { basis: 'streamed-events.v1',throughSlot: slot-1,streamTime: '2026-09-02T00:00:00.000Z',sourceFloor: slot-1,
       markets: [marketAddress],knownOwners: [owner],items: [
         { address: position.toBase58(),market: marketAddress,owner,kind: 'borrow',sourceSlot: slot-1 },
-        { address: tokenAddress,market: marketAddress,owner,kind: 'ylp',sourceSlot: slot-1 }] },
+        { address: tokenAddress,market: marketAddress,owner,kind: 'srlp',sourceSlot: slot-1 }] },
     groups: [{ market: marketAddress,slot,blockhash: fixtureKey(174).toBase58(),blockTime: '2026-09-02T00:00:00.000Z',
       observedAt: '2026-09-02T00:00:05.000Z',deploymentIdentitySha256: 'b'.repeat(64),
       marketAccount: { owner: pin.dusk.programId,executable: false,data: encodeFixtureAccount('Market',market).toString('base64') },

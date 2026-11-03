@@ -49,7 +49,7 @@
     "@metaplex-foundation/umi": "^1.4.1",
     "@metaplex-foundation/umi-bundle-defaults": "^1.4.1",
     "@metaplex-foundation/umi-web3js-adapters": "^1.4.1",
-    "@omnipair/dusk-sdk": "file:vendor/dusk-sdk-2.14.2-devnet.20261025.tgz",
+    "@omnipair/dusk-sdk": "file:vendor/dusk-sdk-2.17.0-next.20261104-srlp.tgz",
     "@omnipair/program-interface": "^0.10.0",
     "@solana/kit": "8.5.0",
     "@solana/spl-token": "^0.4.14",
@@ -67,7 +67,8 @@
     "@omnipair/dusk-sdk-oracle": "file:vendor/dusk-sdk-2.15.0-next.20261030-8fadcc31.tgz",
     "@omnipair/dusk-sdk-layouts": "file:vendor/dusk-sdk-2.15.0-next.20261031-layout8.tgz",
     "@omnipair/dusk-sdk-tranches": "file:vendor/dusk-sdk-2.15.0-next.20261031-tranches-fresh.tgz",
-    "@omnipair/dusk-sdk-tranche-governance": "file:vendor/dusk-sdk-2.16.0-next.20261102.tgz"
+    "@omnipair/dusk-sdk-tranche-governance": "file:vendor/dusk-sdk-2.16.0-next.20261102.tgz",
+    "@omnipair/dusk-sdk-legacy": "file:vendor/dusk-sdk-2.14.2-devnet.20261025.tgz"
   },
   "devDependencies": {
     "@types/compression": "^1.8.1",

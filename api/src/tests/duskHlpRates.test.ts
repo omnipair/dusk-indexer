@@ -15,13 +15,13 @@ function metaVault(overrides: Partial<HlpVaultRateInput> = {}): HlpVaultRateInpu
     state: { baseHlpFundingDebt: '0', quoteHlpFundingDebt: '174426578',
       baseSpotPriceNad: '872438227', quoteSpotPriceNad: '1146212957',
       baseBorrowAprNad: '639336', quoteBorrowAprNad: '1886803' },
-    ylp: { market: 'M', swapRatePct: '1', interestRatePct: '0.5', growth: 'recorded' },
+    srlp: { market: 'M', swapRatePct: '1', interestRatePct: '0.5', growth: 'recorded' },
     windowMs: HLP_RATE_WINDOW_MS,
     ...overrides,
   };
 }
 
-test('a held vault earns its own leverage on yLP rates and pays funding on its debt', () => {
+test('a held vault earns its own leverage on srLP rates and pays funding on its debt', () => {
   const rates = projectHlpVaultRates(metaVault());
   // Debt worth 174.426578 × 1.146212957 = 199.93 META against 199.915 META of equity.
   assert.equal(rates.leverageBasis, 'vault');
@@ -49,25 +49,25 @@ test('an empty vault quotes the target leverage and the borrowed asset\'s curren
 
 test('a streamed market with no swap in the window earns nothing and pays its funding', () => {
   const rates = projectHlpVaultRates(metaVault({
-    ylp: { market: 'M', swapRatePct: '0', interestRatePct: '0', growth: 'none' },
+    srlp: { market: 'M', swapRatePct: '0', interestRatePct: '0', growth: 'none' },
   }));
-  assert.equal(rates.ylpGrowth, 'none');
+  assert.equal(rates.srlpGrowth, 'none');
   assert.equal(rates.swapRatePct, '0');
   assert.equal(rates.interestRatePct, '0');
   assert.equal(rates.netRatePct, '-0.2457112');
 });
 
-test('unread yLP growth is unknown, not zero', () => {
-  const rates = projectHlpVaultRates(metaVault({ ylp: undefined }));
-  assert.equal(rates.ylpGrowth, 'unknown');
+test('unread srLP growth is unknown, not zero', () => {
+  const rates = projectHlpVaultRates(metaVault({ srlp: undefined }));
+  assert.equal(rates.srlpGrowth, 'unknown');
   assert.equal(rates.swapRatePct, null);
   assert.equal(rates.fundingRatePct, '-0.2457112');
   assert.equal(rates.netRatePct, null);
 });
 
-test('unpriced yLP growth leaves the net rate unknown but keeps the funding cost', () => {
+test('unpriced srLP growth leaves the net rate unknown but keeps the funding cost', () => {
   const rates = projectHlpVaultRates(metaVault({
-    ylp: { market: 'M', swapRatePct: null, interestRatePct: null, growth: 'recorded' },
+    srlp: { market: 'M', swapRatePct: null, interestRatePct: null, growth: 'recorded' },
   }));
   assert.equal(rates.swapRatePct, null);
   assert.equal(rates.fundingRatePct, '-0.2457112');

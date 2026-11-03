@@ -1,3 +1,4 @@
+import { marketLayoutVersion } from '../services/duskProtocolSchema';
 import { createSdkTestRuntime } from './duskSdkTestRuntime';
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,7 +17,6 @@ import { computeExhausted, decodeDuskVirtualBookBatch, recoverExecutableVirtualB
 import { projectDuskVirtualBook } from '../services/virtualBook/virtual-book-view-model';
 import { DuskVirtualBookSnapshot, readDuskVirtualBook } from '../services/virtualBook/virtual-book-read';
 import {
-  MARKET_LAYOUT_VERSION,
   type Dusk,
 } from '@omnipair/dusk-sdk';
 import { resolve } from 'node:path';
@@ -85,7 +85,7 @@ const adaptFixture = (program: Dusk['program']) =>
     'market',
     layout3,
   ) as any;
-  oldAccount.version = MARKET_LAYOUT_VERSION;
+  oldAccount.version = marketLayoutVersion();
   oldAccount.baseSide.reserves.flashReceivable = new BN(0);
   oldAccount.quoteSide.reserves.flashReceivable = new BN(0);
   oldAccount.baseHlpVault.flashCollateralDebit = new BN(0);

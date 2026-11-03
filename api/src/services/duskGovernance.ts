@@ -46,7 +46,7 @@ interface ProposalRow {
   execution_deadline: string | null; executed_at: string | null; created_slot: string; last_slot: string;
 }
 
-/** Proposals and each market's eligible and locked yLP, from streamed events:
+/** Proposals and each market's eligible and locked srLP, from streamed events:
  * LP deltas and proposal totals. The stream's slot is read last, so it covers
  * every event included. */
 export async function readGovernanceProposals(client: PoolClient,market: string | null) {
@@ -59,8 +59,8 @@ export async function readGovernanceProposals(client: PoolClient,market: string 
     ORDER BY market,proposal`,[...identity,market]);
   if (proposals.rows.length>5000) throw new Error('Governance proposals exceed the bounded response');
   const addresses = [...new Set([...proposals.rows.map((row) => row.market),...(market ? [market] : [])])].sort();
-  const governed = await client.query<{ market: string; eligible_ylp: string; governance_locked_ylp: string }>(`SELECT market,
-      eligible_ylp::text,governance_locked_ylp::text FROM dusk_ingestion.streamed_governance_markets
+  const governed = await client.query<{ market: string; eligible_srlp: string; governance_locked_srlp: string }>(`SELECT market,
+      eligible_srlp::text,governance_locked_srlp::text FROM dusk_ingestion.streamed_governance_markets
     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND market=ANY($5::text[])`,[...identity,addresses]);
   const stream = await readStreamCursor(client);
   if (!stream) throw Object.assign(new Error('The Dusk stream has not started'),{ status: 503 });
@@ -73,9 +73,9 @@ export async function readGovernanceProposals(client: PoolClient,market: string 
     // every event, so they are complete through the stream's cursor.
     markets: addresses.map((address) => {
       const row = known.get(address);
-      if (!row) return { address,eligibleYlp: null,governanceLockedYlp: null,observedSlot: null,observedAt: null };
-      return { address,eligibleYlp: integer(row.eligible_ylp,'eligible yLP'),
-        governanceLockedYlp: integer(row.governance_locked_ylp,'locked yLP'),
+      if (!row) return { address,eligibleSrlp: null,governanceLockedSrlp: null,observedSlot: null,observedAt: null };
+      return { address,eligibleSrlp: integer(row.eligible_srlp,'eligible srLP'),
+        governanceLockedSrlp: integer(row.governance_locked_srlp,'locked srLP'),
         observedSlot: Number(stream.throughSlot),observedAt: stream.time.toISOString() };
     }),
     proposals: proposals.rows.map((row) => {

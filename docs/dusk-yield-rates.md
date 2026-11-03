@@ -1,12 +1,12 @@
-# Recorded yLP earnings rates
+# Recorded srLP earnings rates
 
 `GET /api/dusk/v1/analytics/yield-rates?since=<ISO>&until=<ISO>` returns recorded
-claimable swap-fee and interest rates for native Dusk yLP shares. `market` is an
+claimable swap-fee and interest rates for native Dusk srLP shares. `market` is an
 optional public market address. The interval must be 1 hour to 90 days.
 
 The response uses `dusk-yield-rates.v1` inside the standard freshly verified
 `dusk-deployment.v1` envelope. The rate basis is
-`recorded-claimable-ylp-rate.v1`, with simple 365-day annualization. These values
+`recorded-claimable-srlp-rate.v1`, with simple 365-day annualization. These values
 are **APR components, not total APY**. `fullApyAvailable` is false. Unpaid debt
 interest, compounded principal and protocol revenue are not included.
 
@@ -19,7 +19,7 @@ Market accounts returned by unsigned preview simulations are never earnings
 snapshots: their hypothetical accrual is not a committed entitlement.
 
 The difference in each swap/interest Q64 growth index is the earned raw token
-amount per raw yLP share. The reader values this difference using the latest
+amount per raw srLP share. The reader values this difference using the latest
 verified prior-slot USD reference capture within one hour of the end snapshot.
 It divides by the starting share value (starting live reserves, starting prices
 and starting supply) and by the actual elapsed snapshot time. Token decimals

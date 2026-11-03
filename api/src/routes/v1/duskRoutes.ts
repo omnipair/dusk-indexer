@@ -384,7 +384,7 @@ router.get(
 );
 
 /** Saved native position values, with catalog and per-bank coverage. */
-/** Governance proposals and each market's eligible yLP, from streamed events. */
+/** Governance proposals and each market's eligible srLP, from streamed events. */
 router.get('/governance/proposals',asyncRoute(async (req,res) => {
   const market = governanceSelection(req.query.market);
   res.set('Cache-Control','no-store').json(await withDeploymentRead(async () => {

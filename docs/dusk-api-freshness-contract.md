@@ -130,7 +130,7 @@ arbitrage transaction by itself.
 - `GET /v1/health`: identity, cursors, tip/lag, backfill, reconciliation.
 - `GET /v1/events`: canonical event stream with commitment and cursor bounds.
 - `GET /v1/markets/:market`: a Dusk projection with its as-of slot.
-- `GET /v1/owners/:owner/positions`: yLP, hLP, lending, leverage, orders, locks,
+- `GET /v1/owners/:owner/positions`: srLP, hLP, lending, leverage, orders, locks,
   and referrals as separate revisioned projection families.
 - `GET /v1/keeper/candidates`: discovery hints with freshness metadata; direct RPC
   revalidation remains mandatory.

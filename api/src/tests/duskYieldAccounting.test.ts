@@ -16,13 +16,13 @@ test('jrLP uses its own growth ledger and includes burned exit escrow', () => {
   const mint = { equals: (other: unknown) => other === 'junior' };
   const asset = { equals: (other: unknown) => other === 'asset' };
   const result = projectLiveYield({
-    ylpMint: { equals: () => false },
+    srlpMint: { equals: () => false },
     juniorMint: mint,
-    baseSide: { assetMint: asset,hlpMint: { equals: () => false },shares: { ylpSupply: '100' },
+    baseSide: { assetMint: asset,hlpMint: { equals: () => false },shares: { srlpSupply: '100' },
       fees: { swapFeeGrowthIndexQ64: '0',interestGrowthIndexQ64: '0',unallocatedSwapFeeLiability: '0',
         unallocatedInterestLiability: '0',swapFeeGrowthRemainderScaled: '0',interestGrowthRemainderScaled: '0',
         junior: { swapGrowthQ64: q64,interestGrowthQ64: q64*2n } } },
-    quoteSide: { assetMint: { equals: () => false },hlpMint: { equals: () => false },shares: { ylpSupply: '100' },
+    quoteSide: { assetMint: { equals: () => false },hlpMint: { equals: () => false },shares: { srlpSupply: '100' },
       fees: {} as any },
     baseHlpVault: {},quoteHlpVault: {},
   }, {
