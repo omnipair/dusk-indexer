@@ -37,7 +37,8 @@ export function redactRpcSecrets(text: string, rpcUrl: string): string {
 
 /** Names why a refresh failed. Program logs are public chain data; everything else is redacted. */
 export function describeRefreshFailure(error: unknown, rpcUrl: string): { reason: RefreshFailureReason; detail: string } {
-  const message = error instanceof Error ? error.message : String(error);
+  // SendTransactionError.message repeats its logs with boilerplate; the short message and the last logs say enough.
+  const message = error instanceof SendTransactionError ? error.transactionError.message : error instanceof Error ? error.message : String(error);
   const logs = error instanceof SendTransactionError ? error.logs ?? [] : [];
   const text = [message, ...logs].join('\n');
   const reason: RefreshFailureReason = error instanceof PublisherOutOfFundsError

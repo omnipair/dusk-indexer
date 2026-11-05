@@ -43,6 +43,7 @@ test('failures name their cause without exposing the RPC key', () => {
     logs: ['Program 8aaF invoke [1]', 'Program log: report invalidated', 'Program 8aaF failed: custom program error: 0x1'] });
   const described = describeRefreshFailure(rejected, RPC);
   assert.equal(described.reason, 'transaction-rejected');
-  assert.ok(described.detail.includes('Program log: report invalidated'));
+  assert.equal(described.detail, 'Transaction simulation failed: Error processing Instruction 0: custom program error: 0x1'
+    + ' | Program 8aaF invoke [1] | Program log: report invalidated | Program 8aaF failed: custom program error: 0x1');
   assert.equal(describeRefreshFailure('boom', RPC).reason, 'unexpected');
 });
