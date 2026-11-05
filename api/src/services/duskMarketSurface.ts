@@ -114,3 +114,39 @@ export async function deploymentSnapshot(
     () => deploymentPayload(deployment),
   );
 }
+
+export interface MarketPreviewStatus {
+  /** Markets the surface carries. */
+  total: number;
+  /** Each market whose `previewMarket` failed, with the reason it reports. */
+  failing: { market: string; label: string; reason: string | null; errorName: string | null }[];
+  /** Why the surface itself could not be read, if it could not. */
+  error: string | null;
+}
+
+/** The markets whose preview failed, from projected market payloads. */
+export function failingMarketPreviews(projected: Record<string, unknown>[]): MarketPreviewStatus['failing'] {
+  return projected.flatMap((market) => {
+    const state = market.state as { previewStatus?: unknown; previewFailure?: { reason?: unknown; errorName?: unknown } | null } | undefined;
+    if (state?.previewStatus !== 'unavailable') return [];
+    const failure = state.previewFailure;
+    return [{
+      market: String(market.marketAddress),
+      label: String(market.label),
+      reason: typeof failure?.reason === 'string' ? failure.reason : null,
+      errorName: typeof failure?.errorName === 'string' ? failure.errorName : null,
+    }];
+  });
+}
+
+/** What `/status` reports about market previews, read from the same surface
+ * `/markets/state` serves. A failed read is reported, never thrown. */
+export async function marketPreviewStatus(deployment: DuskDeploymentEnvelope,
+  read: typeof deploymentSnapshot = deploymentSnapshot): Promise<MarketPreviewStatus> {
+  try {
+    const { projected } = await read(deployment);
+    return { total: projected.length,failing: failingMarketPreviews(projected),error: null };
+  } catch (error) {
+    return { total: 0,failing: [],error: error instanceof Error ? error.message : String(error) };
+  }
+}

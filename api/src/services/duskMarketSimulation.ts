@@ -15,6 +15,43 @@ export interface MarketSimulationSnapshot {
   deploymentIdentitySha256: string; marketAccount: SnapshotAccount;
   preview: string | null; accounts: { address: string; account: SnapshotAccount | null }[];
   basis: 'simulation-post-state' | 'rpc-account'; previewUnavailable: boolean;
+  /** Why the preview failed. Present only when it did, so a successful capture
+   * is unchanged; absent on captures that predate it. */
+  previewFailure?: MarketPreviewFailure;
+}
+/**
+ * Why `previewMarket` failed. `oracle-stale` is the program's OracleStale:
+ * every price-sensitive instruction fails with it until the feed refreshes.
+ * Any other program error is `program-error`, named from the pinned IDL when
+ * it is the program's own; a failure outside the program's code (an account
+ * or runtime error) is `simulation-error`.
+ */
+export interface MarketPreviewFailure {
+  reason: 'oracle-stale' | 'program-error' | 'simulation-error';
+  /** The IDL error name (`OracleStale`), or the runtime's own error name. */
+  errorName: string | null;
+  /** The program's custom error code, when there is one. */
+  errorCode: number | null;
+}
+/** Instruction index of `previewMarket` in the capture transaction, after the
+ * heap-frame and compute-limit instructions. */
+const PREVIEW_INSTRUCTION_INDEX = 2;
+const RUNTIME_ERROR_NAME = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+
+/** Names a failed preview from the simulation's error, by the pinned IDL. */
+export function previewFailureFrom(error: unknown, idl: Idl = duskRawIdl()): MarketPreviewFailure {
+  const runtimeName = (value: unknown) => typeof value === 'string' && RUNTIME_ERROR_NAME.test(value) ? value : null;
+  const instructionError = error && typeof error === 'object' && 'InstructionError' in error
+    ? (error as { InstructionError: unknown }).InstructionError : null;
+  if (!Array.isArray(instructionError) || instructionError.length !== 2)
+    return { reason: 'simulation-error',errorName: runtimeName(error),errorCode: null };
+  const [index,detail] = instructionError;
+  const custom = detail && typeof detail === 'object' && 'Custom' in detail ? (detail as { Custom: unknown }).Custom : null;
+  if (index !== PREVIEW_INSTRUCTION_INDEX || typeof custom !== 'number' || !Number.isSafeInteger(custom) || custom<0)
+    return { reason: index === PREVIEW_INSTRUCTION_INDEX && custom === null ? 'program-error' : 'simulation-error',
+      errorName: runtimeName(detail),errorCode: null };
+  const errorName = idl.errors?.find((entry) => entry.code === custom)?.name ?? null;
+  return { reason: errorName === 'OracleStale' ? 'oracle-stale' : 'program-error',errorName,errorCode: custom };
 }
 export type LiveMarketSimulationSnapshot = Omit<MarketSimulationSnapshot,'commitment'> & { commitment: 'confirmed' };
 interface SimulationDependencies {
@@ -79,7 +116,9 @@ async function captureAtCommitment<C extends 'finalized' | 'confirmed'>(market: 
   let slot = simulation.context.slot,preview: string | null = null,basis: MarketSimulationSnapshot['basis'] = 'simulation-post-state';
   if (!Number.isSafeInteger(slot) || slot<captureFloor) throw new Error('Regressed market simulation slot');
   let accounts: (SnapshotAccount | null)[];
+  let previewFailure: MarketPreviewFailure | undefined;
   if (simulation.value.err) {
+    previewFailure = previewFailureFrom(simulation.value.err,rawIdl);
     // Preserve ownership/position visibility when this market cannot preview.
     // Its valuation stays unavailable; no failed simulation state is accepted.
     const fallbackFloor = Math.max(captureFloor,slot);
@@ -107,5 +146,6 @@ async function captureAtCommitment<C extends 'finalized' | 'confirmed'>(market: 
   if (before.deploymentIdentitySha256 !== after.deploymentIdentitySha256) throw new Error('Deployment changed during market snapshot');
   return { commitment,market,slot,blockhash: block.blockhash,blockTime: new Date(block.blockTime*1000).toISOString(),observedAt: new Date().toISOString(),
     deploymentIdentitySha256: after.deploymentIdentitySha256,marketAccount,preview,basis,previewUnavailable: preview === null,
+    ...(previewFailure ? { previewFailure } : {}),
     accounts: remaining.map((address,index) => ({ address,account: accounts[index+1] })) };
 }

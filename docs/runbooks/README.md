@@ -16,6 +16,7 @@ public API.
 | [Database full or unavailable](database-unavailable.md) | API 503s; ingestion cursor stops advancing |
 | [Swaps reverting](swaps-reverting.md) | Users report failed swaps; `BrokenInvariant` 6047 in logs |
 | [Futarchy authority missing](futarchy-authority-missing.md) | `/status` reports `futarchy-authority`; every market launch fails at its first step |
+| [Market preview failing](market-preview-failing.md) | `/status` reports `market-preview` (a market's `previewMarket` fails; `oracle-stale` pauses its price-sensitive actions) or `market-state` |
 
 ## The one number worth knowing
 
