@@ -735,6 +735,12 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
       quoteHlpFundingDebt: previewValue('quote','hlpFundingDebt','hlp_funding_debt'),
       stateBasis: snapshot.basis,
       previewStatus: preview === null ? 'unavailable' : 'available',
+      // Why the preview failed, beside the status it explains. Null while it
+      // runs, and when a capture made before this field cannot say.
+      previewFailure: preview === null && snapshot.previewFailure
+        ? { reason: snapshot.previewFailure.reason,errorName: snapshot.previewFailure.errorName,
+          errorCode: snapshot.previewFailure.errorCode }
+        : null,
       healthSourceSlot: preview === null ? null : sourceSlot,
       healthObservedAt: preview === null ? null : snapshot.blockTime,
       sourceTxSig: null,

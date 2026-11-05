@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Connection, PublicKey, SimulateTransactionConfig, VersionedTransaction } from '@solana/web3.js';
-import { captureLiveMarketSimulation, captureMarketSimulation } from '../services/duskMarketSimulation';
+import { captureLiveMarketSimulation, captureMarketSimulation, duskRawIdl, previewFailureFrom } from '../services/duskMarketSimulation';
 import { DuskDeploymentEnvelope } from '../services/duskDeploymentService';
 import { loadPinnedProtocol } from '../config/duskProtocol';
 import { priceFixture } from './duskPriceFixtures';
 import { fixtureKey } from './duskYieldCheckpointFixtures';
 
-function fixture(options: { failed?: boolean; identityChanged?: boolean; slot?: number; shortAccounts?: boolean; wrongProgram?: boolean;
+function fixture(options: { failed?: boolean; failure?: unknown; identityChanged?: boolean; slot?: number; shortAccounts?: boolean; wrongProgram?: boolean;
   badEncoding?: boolean; noPreview?: boolean; regressedFallback?: boolean; transientFailures?: number; live?: boolean } = {}) {
   const pin = loadPinnedProtocol(),source = priceFixture().source(),requestedSlots: number[] = [],extra = fixtureKey(145).toBase58();
   let envelopeCalls = 0,fallbackCalls = 0,simulationCalls = 0;
@@ -24,7 +24,7 @@ function fixture(options: { failed?: boolean; identityChanged?: boolean; slot?: 
         data: [options.badEncoding ? source.rawPreview+'?' : source.rawPreview,'base64'] };
       const accounts = config.accounts!.addresses.map((_,index) => index === 0
         ? { owner: pin.dusk.programId,executable: false,data: [source.rawMarket,'base64'] } : null);
-      return { context: { slot: options.slot ?? source.slot },value: { err: options.failed ? { InstructionError: [2,'InvalidArgument'] } : null,
+      return { context: { slot: options.slot ?? source.slot },value: { err: options.failed ? (options.failure ?? { InstructionError: [2,'InvalidArgument'] }) : null,
         returnData: options.noPreview ? null : returned,accounts: options.shortAccounts ? accounts.slice(0,-1) : accounts } };
     },
     getMultipleAccountsInfoAndContext: async (keys: PublicKey[],config: { commitment: string; minContextSlot: number }) => {
@@ -69,6 +69,30 @@ test('failed market previews preserve fresh raw account visibility with no usabl
   assert.equal(snapshot.basis,'rpc-account'); assert.equal(snapshot.previewUnavailable,true); assert.equal(snapshot.preview,null);
   assert.equal(snapshot.slot,sample.source.slot+1); assert.equal(sample.fallbackCalls(),1);
   assert.deepEqual(sample.requestedSlots,[sample.source.slot,sample.source.slot+1]);
+});
+test('a failed preview keeps its reason, named from the pinned IDL, and a working one carries none',async () => {
+  const stale = fixture({ live: true,failed: true,failure: { InstructionError: [2,{ Custom: 6148 }] } });
+  const snapshot = await captureLiveMarketSimulation(stale.source.market,stale.source.slot,[stale.extra],stale.dependencies);
+  assert.equal(snapshot.previewUnavailable,true);
+  assert.deepEqual(snapshot.previewFailure,{ reason: 'oracle-stale',errorName: 'OracleStale',errorCode: 6148 });
+  const working = fixture({ live: true });
+  const ok = await captureLiveMarketSimulation(working.source.market,working.source.slot,[working.extra],working.dependencies);
+  // A successful capture is unchanged, so saved evidence hashes the same.
+  assert.equal('previewFailure' in ok,false);
+});
+test('preview failures map to oracle-stale, other program errors, or simulation errors',() => {
+  const idl = duskRawIdl();
+  assert.deepEqual(previewFailureFrom({ InstructionError: [2,{ Custom: 6148 }] },idl),{ reason: 'oracle-stale',errorName: 'OracleStale',errorCode: 6148 });
+  assert.deepEqual(previewFailureFrom({ InstructionError: [2,{ Custom: 6147 }] },idl),
+    { reason: 'program-error',errorName: 'OracleInvalidObservation',errorCode: 6147 });
+  // Anchor's own codes and other programs' codes are not in the IDL.
+  assert.deepEqual(previewFailureFrom({ InstructionError: [2,{ Custom: 3012 }] },idl),{ reason: 'program-error',errorName: null,errorCode: 3012 });
+  assert.deepEqual(previewFailureFrom({ InstructionError: [2,'InvalidArgument'] },idl),{ reason: 'program-error',errorName: 'InvalidArgument',errorCode: null });
+  // The compute-budget instructions ahead of the preview are not the program.
+  assert.deepEqual(previewFailureFrom({ InstructionError: [1,{ Custom: 6148 }] },idl),{ reason: 'simulation-error',errorName: null,errorCode: null });
+  assert.deepEqual(previewFailureFrom('AccountNotFound',idl),{ reason: 'simulation-error',errorName: 'AccountNotFound',errorCode: null });
+  assert.deepEqual(previewFailureFrom({ InsufficientFundsForRent: { account_index: 0 } },idl),{ reason: 'simulation-error',errorName: null,errorCode: null });
+  assert.deepEqual(previewFailureFrom('<not a name>',idl),{ reason: 'simulation-error',errorName: null,errorCode: null });
 });
 test('regressed simulation and fallback banks are rejected rather than accepted as current',async () => {
   const sample = fixture({ slot: 1,failed: true });
