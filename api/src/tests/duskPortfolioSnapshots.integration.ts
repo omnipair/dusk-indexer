@@ -155,9 +155,26 @@ test('sampling exposes unavailable captures even when their display bucket has a
     await projectPortfolioCapture(client,await storePortfolioCapture(client,fixture.source));
   }
   const result = await readPortfolioHistory(client,{ ...query(portfolioFixture().owner),sampleSeconds: 3600 });
-  assert.equal(result.snapshots.length,2);
-  assert.ok(result.snapshots.every((row) => row.valuations.quality === 'reference-valued'));
+  assert.equal(result.snapshots.length,3);
+  assert.deepEqual(result.snapshots.map(row => row.valuations.quality),['reference-valued','incomplete','reference-valued']);
+  assert.equal(result.coverage.gapBoundariesRetained,true);
   assert.equal(result.coverage.unvaluedSnapshots,1); assert.equal(result.coverage.rawTotal,3);
+}));
+test('sampling retains both ends of a missing run and stable pagination without retaining every missing point',()=>transaction(async client=>{
+  const ids: string[]=[];
+  for(let index=0;index<7;index++) {
+    const fixture=portfolioFixture({slot:910_000_030+index,references:index<2 || index>4});
+    const time=new Date(Date.parse('2026-09-02T03:00:00Z')+index*60000).toISOString();
+    fixture.source.groups[0].blockTime=time;fixture.source.groups[0].observedAt=fixture.source.observedAt=fixture.source.catalog.streamTime=time;
+    ids.push(await storePortfolioCapture(client,fixture.source));await projectPortfolioCapture(client,ids[index]);
+  }
+  const options={...query(portfolioFixture().owner),sampleSeconds:3600};
+  const all=await readPortfolioHistory(client,options);
+  assert.deepEqual(all.snapshots.map(row=>row.captureId),[ids[6],ids[5],ids[4],ids[2],ids[1],ids[0]]);
+  assert.equal(all.coverage.unvaluedSnapshots,3);assert.equal(all.coverage.gapBoundariesRetained,true);
+  const page=await readPortfolioHistory(client,{...options,limit:2,offset:2});
+  assert.deepEqual(page.snapshots.map(row=>row.captureId),[ids[4],ids[2]]);
+  assert.equal(page.coverage.selectionHash,all.coverage.selectionHash);assert.equal(page.pagination.total,6);
 }));
 test('owner transfer snapshots do not leave the former owner holding the LP value',() => transaction(async (client) => {
   const nextOwner = fixtureKey(178).toBase58(),fixture = portfolioFixture({ lpOwner: nextOwner });

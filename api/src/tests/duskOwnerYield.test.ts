@@ -182,7 +182,7 @@ test('a group is valued in one updated bank with transfer fees applied to fees a
   const streams = (await captureYieldGroup(f.dusk, f.group, f.payer, 1005))!;
   assert.deepEqual(streams[0], {
     address: f.yields[0].address.toBase58(), holder: f.group.holder, market: f.group.market, lpMint: f.group.lpMint,
-    assetMint: f.group.baseMint, kind: 'srlp', retired: false, recipient: f.group.holder, initialized: true, needsGrowth: false,
+    assetMint: f.group.baseMint, kind: 'srlp', retired: false, recipient: f.group.holder, initialized: true, needsGrowth: false, needsIncomeCatchup: false,
     lpBalance: '3', lpDecimals: 9, assetDecimals: 9, swapFeeAmount: '5', interestAmount: '4', recipientCredit: '7', sourceSlot: 1010,
   });
   assert.equal(streams[1].recipientCredit, '0');
@@ -292,4 +292,12 @@ for (const retired of [false,true]) test(`junior income includes escrow and froz
     f.juniorCohort.bump^=1;f.encode();
     await assert.rejects(captureYieldGroup(f.dusk,f.group,f.payer,1005),/Invalid retired junior cohort/);
   }
+});
+
+test('catch-up is identified per asset without hiding historical zero-balance holders',async()=>{
+  const f=await fixture();f.yields[0].account.incomeInitialized=true;
+  f.market.income.books[0].epoch=new BN(1);f.encode();
+  const streams=(await captureYieldGroup(f.dusk,f.group,f.payer,1005))!;
+  assert.equal(streams[0].needsIncomeCatchup,true);
+  assert.equal(streams[1].needsIncomeCatchup,false);
 });

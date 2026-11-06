@@ -363,14 +363,19 @@ export async function readPortfolioHistory(client: PoolClient,options: Portfolio
   await assertNoPortfolioConflict(client);
   const seconds = portfolioSampleSeconds(options.sampleSeconds);
   const filtered = `filtered AS (SELECT * FROM dusk_ingestion.portfolio_checkpoints WHERE ${filters.join(' AND ')})`;
-  // Return actual immutable captures, retaining the first point as a baseline.
-  // Sampling changes display density only; unavailable raw points remain visible
-  // in coverage so a chart cannot silently bridge a missing valuation.
+  // Keep both sides of each availability transition before downsampling.
+  // Otherwise an unavailable interval inside one display bucket disappears.
   const selection = seconds === 0 ? `${filtered},selected AS (SELECT * FROM filtered)` : `${filtered},
     bucket_latest AS (SELECT DISTINCT ON (floor(extract(epoch FROM bucket)/$${values.length+1})) capture_id
       FROM filtered ORDER BY floor(extract(epoch FROM bucket)/$${values.length+1}),bucket DESC,source_max_slot DESC,capture_id DESC),
-    earliest AS (SELECT capture_id FROM filtered ORDER BY bucket,source_max_slot,capture_id LIMIT 1),
-    selected AS (SELECT * FROM filtered WHERE capture_id IN (SELECT capture_id FROM bucket_latest UNION SELECT capture_id FROM earliest))`;
+    availability AS (SELECT capture_id,(valuations->>'unvaluedComponents')::int>0 AS missing,
+      lag((valuations->>'unvaluedComponents')::int>0) OVER chronology AS previous_missing,
+      lead((valuations->>'unvaluedComponents')::int>0) OVER chronology AS next_missing
+      FROM filtered WINDOW chronology AS (ORDER BY bucket,source_max_slot,capture_id)),
+    boundaries AS (SELECT capture_id FROM availability
+      WHERE missing IS DISTINCT FROM previous_missing OR missing IS DISTINCT FROM next_missing),
+    selected AS (SELECT * FROM filtered WHERE capture_id IN
+      (SELECT capture_id FROM bucket_latest UNION SELECT capture_id FROM boundaries))`;
   if (seconds !== 0) values.push(seconds);
   const summary = await client.query(`WITH ${selection} SELECT count(*)::text AS total,min(bucket) AS first_time,max(bucket) AS last_time,
     max(source_max_slot)::text AS last_slot,
@@ -392,7 +397,7 @@ export async function readPortfolioHistory(client: PoolClient,options: Portfolio
       deploymentIdentitySha256: row.coverage.deploymentIdentitySha256 } })),
     pagination: { limit: options.limit,offset: options.offset,total: Number(summary.rows[0].total) },
     coverage: { available: rows.rows.length>0,historyComplete: false,atomicAcrossMarkets: false,basis: 'sampled-native-positions.v1',
-      sampleSeconds: seconds,selectionHash: summary.rows[0].selection_hash as string,
+      sampleSeconds: seconds,selectionHash: summary.rows[0].selection_hash as string,gapBoundariesRetained: true,
       rawTotal: Number(summary.rows[0].raw_total),unvaluedSnapshots: Number(summary.rows[0].unvalued_snapshots),
       firstSnapshotAt: summary.rows[0].first_time?.toISOString() ?? null,lastSnapshotAt: summary.rows[0].last_time?.toISOString() ?? null,
       lastSourceSlot: summary.rows[0].last_slot as string | null,pendingCaptures: pending.rows[0].count as string } };
