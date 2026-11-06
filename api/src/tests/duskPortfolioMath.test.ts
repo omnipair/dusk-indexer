@@ -28,7 +28,7 @@ function fixture() {
       new PublicKey(marketAddress).toBuffer(),new PublicKey(base.owner).toBuffer(),
       ...(kind === 'leverage' ? [fixtureKey(124).toBuffer()] : []),positionId.toBuffer()],new PublicKey(base.programId));
     const state = { owner: base.owner,namespace_authority: fixtureKey(124),market: marketAddress,position_id: positionId,bump,
-      mint: kind === 'srlp' ? market.srlp_mint : nativeFields(market[`${kind === 'base_hlp' ? 'base' : 'quote'}_side`]).hlp_mint,
+      mint: kind === 'srlp' ? market.srlp_mint : kind === 'junior' ? market.junior_mint : nativeFields(market[`${kind === 'base_hlp' ? 'base' : 'quote'}_side`]).hlp_mint,
       amount: 100_000n,base_collateral: 2n*NAD,quote_collateral: 3_000_000n,fixed_base_shares: NAD,fixed_quote_shares: 0n,
       debt_asset: 1,collateral_amount: 2n*NAD,debt_shares: 1_000_000n,margin_amount: NAD,open_notional: 1_000_000n,...changes };
     return projectPortfolioComponent({ pin: loadPinnedProtocol(),kind,address: ['borrow','leverage'].includes(kind) ? position.toBase58() : fixtureKey(122).toBase58(),
@@ -138,4 +138,17 @@ test('wide virtual reserves stay exact while physical cash keeps its u64 bound',
   nativeFields(nativeFields(f.market.base_side).reserves).cash_reserve=wide;
   nativeFields(f.preview.base).cash_reserve=wide;
   assert.throws(() => assertPortfolioPreviewState(f.market,f.preview));
+});
+
+
+test('junior principal follows its current exchange rate, funded backing and first-loss wipe',() => {
+  const sample = fixture(),capital = nativeFields(sample.market.tranches);
+  Object.assign(capital,{ junior_reserve_shares: 200_000n,junior_receipt_supply: 400_000n });
+  const component = sample.component('junior');
+  assert.deepEqual(component.balances.map((balance) => balance.amount),['5000000000','12500000']);
+  assert.equal(component.valuation.netUsd,'25');
+  assert.equal(component.lpHolding,'100000');
+  assert.throws(() => sample.component('junior',{ amount: 400_001n }),/share backing/);
+  capital.junior_reserve_shares = 0n;
+  assert.equal(sample.component('junior').valuation.netUsd,'0');
 });

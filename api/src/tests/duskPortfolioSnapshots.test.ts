@@ -61,7 +61,7 @@ test('closed accounts preserve the known owner as an observed empty portfolio',(
   assert.equal(result.owners[0].valuations.netPositionValueUsd,'0'); assert.equal(result.coverage.closedAccounts.length,2);
 });
 test('empty system accounts replay as closed positions and LP accounts without changing saved evidence',() => {
-  for (const kind of ['borrow','leverage','srlp','base_hlp','quote_hlp'] as const) {
+  for (const kind of ['borrow','leverage','srlp','junior','base_hlp','quote_hlp'] as const) {
     const source = portfolioFixture({ closed: true }).source;
     source.catalog.items[0].kind = kind;
     for (const entry of source.groups[0].accounts)
@@ -124,4 +124,29 @@ test('incomplete, duplicate, foreign and stale catalog captures cannot project',
   assert.throws(() => projectPortfolioSource(stale),/stale/);
   const early = portfolioFixture().source; early.catalog.throughSlot += 2; early.catalog.sourceFloor += 2;
   assert.throws(() => projectPortfolioSource(early),/stale/);
+});
+
+
+test('junior receipt replay retains the holder and requires authenticated retirement evidence',async () => {
+  const { source } = portfolioFixture();
+  const rawIdl = JSON.parse(readFileSync(resolve(__dirname,'../../../protocol/idl/dusk.json'),'utf8')) as Idl;
+  const coder = new BorshCoder(rawIdl),program = new PublicKey(rawIdl.address),mint = fixtureKey(181);
+  const group = source.groups[0],market = new PublicKey(group.market);
+  source.catalog.items[1].kind = 'junior'; source.catalog.items[1].lpMint = mint.toBase58();
+  const tokenData = Buffer.from(group.accounts[1].account!.data,'base64');
+  AccountLayout.encode({ ...AccountLayout.decode(tokenData),mint },tokenData);
+  group.accounts[1].account!.data = tokenData.toString('base64');
+  const [address,bump] = PublicKey.findProgramAddressSync([Buffer.from('junior_cohort'),market.toBuffer(),mint.toBuffer()],program);
+  const layout = IdlCoder.typeDefLayout({ typeDef: rawIdl.types!.find((type) => type.name === 'JuniorCohort')!,types: rawIdl.types! });
+  const cohort = layout.decode(Buffer.alloc(32768));
+  Object.assign(cohort,{ market,mint,retired: true,bump });
+  const proof = async () => ({ address: address.toBase58(),account: { owner: program.toBase58(),executable: false,
+    data: (await coder.accounts.encode('JuniorCohort',cohort)).toString('base64') } });
+  group.juniorCohorts = [await proof()];
+  const retired = projectPortfolioSource(source).owners[0].components.find((row) => row.kind === 'junior')!;
+  assert.equal(retired.valuation.netUsd,'0'); assert.ok(retired.issues.includes('junior-retired'));
+  cohort.market = fixtureKey(182); group.juniorCohorts = [await proof()];
+  assert.throws(() => projectPortfolioSource(source),/retired junior cohort/);
+  group.juniorCohorts = [];
+  assert.throws(() => projectPortfolioSource(source),/no cohort evidence/);
 });

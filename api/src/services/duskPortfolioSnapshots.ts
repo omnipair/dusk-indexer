@@ -18,7 +18,7 @@ const identity = () => {
   return [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
 };
 export interface PortfolioCatalogItem { address: string; market: string; owner: string; kind: PortfolioKind; sourceSlot: number; lpMint?: string }
-interface PortfolioMarketSnapshot extends MarketSimulationSnapshot { hlpCohorts?: MarketSimulationSnapshot['accounts'] }
+interface PortfolioMarketSnapshot extends MarketSimulationSnapshot { hlpCohorts?: MarketSimulationSnapshot['accounts']; juniorCohorts?: MarketSimulationSnapshot['accounts'] }
 interface PortfolioCandidateIdentity { cluster: string; programId: string; idlHash: string; protocolRevision: string }
 /** Archived events supply addresses only. Current-bank accounts decide their state and value. */
 export interface PortfolioCatalog {
@@ -141,12 +141,12 @@ export function projectPortfolioSource(source: PortfolioCaptureSource) {
   for (const owner of catalog.knownOwners) owners.set(nativeKey(owner),[]);
   for (const item of catalog.items) {
     if (!catalog.markets.includes(item.market) || item.sourceSlot>catalog.sourceFloor || !owners.has(item.owner)
-      || !['borrow','leverage','srlp','base_hlp','quote_hlp'].includes(item.kind)) throw new Error('Portfolio catalog bindings are incomplete');
+      || !['borrow','leverage','srlp','junior','base_hlp','quote_hlp'].includes(item.kind)) throw new Error('Portfolio catalog bindings are incomplete');
     checkedSlot(item.sourceSlot);
   }
   const closed: string[] = [],moved: { address: string; previousOwner: string; owner: string }[] = [];
   for (const group of source.groups) {
-    const captured = [...group.accounts,...(group.hlpCohorts ?? [])];
+    const captured = [...group.accounts,...(group.hlpCohorts ?? []),...(group.juniorCohorts ?? [])];
     if ((group.commitment !== undefined && group.commitment !== 'finalized') || !catalog.markets.includes(group.market) || group.accounts.length>20 || group.deploymentIdentitySha256 !== source.deploymentIdentitySha256
       || captured.length>20
       || group.previewUnavailable !== (group.preview === null) || (group.preview === null ? group.basis !== 'rpc-account' : group.basis !== 'simulation-post-state'))
@@ -170,7 +170,7 @@ export function projectPortfolioSource(source: PortfolioCaptureSource) {
         closed.push(entry.address); continue;
       }
       let state: unknown;
-      let retiredHlp = false;
+      let retiredHlp = false,retiredJunior = false;
       if (item.kind === 'borrow' || item.kind === 'leverage') {
         state = decoder.accounts.decode(item.kind === 'borrow' ? 'BorrowPosition' : 'LeveragePosition',rawAccount(entry.account,pin.dusk.programId).data);
       } else {
@@ -178,6 +178,15 @@ export function projectPortfolioSource(source: PortfolioCaptureSource) {
         if (!token.isInitialized) throw new Error('Portfolio LP account is not initialized');
         if (item.lpMint && token.mint.toBase58() !== item.lpMint) throw new Error('Portfolio LP discovery mint changed');
         state = { mint: token.mint,owner: token.owner,amount: token.amount };
+        if (item.kind === 'junior' && token.mint.toBase58() !== nativeKey(nativeFields(market).junior_mint)) {
+          const [address,bump] = PublicKey.findProgramAddressSync([Buffer.from('junior_cohort'),new PublicKey(group.market).toBuffer(),token.mint.toBuffer()],new PublicKey(pin.dusk.programId));
+          const proof = group.juniorCohorts?.find((entry) => entry.address === address.toBase58())?.account;
+          if (!proof) throw new Error('Retired junior receipt has no cohort evidence');
+          const cohort = decoder.accounts.decode('JuniorCohort',rawAccount(proof,pin.dusk.programId).data) as Record<string,unknown>;
+          if (nativeKey(cohort.market) !== group.market || nativeKey(cohort.mint) !== token.mint.toBase58() || cohort.retired !== true || Number(cohort.bump) !== bump)
+            throw new Error('Invalid retired junior cohort');
+          retiredJunior = true;
+        }
         if (item.kind === 'base_hlp' || item.kind === 'quote_hlp') {
           const target = item.kind === 'base_hlp' ? 'base' : 'quote';
           const currentMint = nativeKey(nativeFields(nativeFields(market)[`${target}_side`]).hlp_mint);
@@ -194,7 +203,7 @@ export function projectPortfolioSource(source: PortfolioCaptureSource) {
         }
       }
       const component = { ...projectPortfolioComponent({ pin,kind: item.kind,address: entry.address,marketAddress: group.market,market,preview,state,
-        retiredHlp,slot: group.slot,blockTime: group.blockTime,references: source.references }),sourceBlockhash: group.blockhash,stateBasis: group.basis };
+        retiredHlp,retiredJunior,slot: group.slot,blockTime: group.blockTime,references: source.references }),sourceBlockhash: group.blockhash,stateBasis: group.basis };
       if (component.owner !== item.owner) moved.push({ address: entry.address,previousOwner: item.owner,owner: component.owner });
       if (!owners.has(component.owner)) owners.set(component.owner,[]);
       owners.get(component.owner)!.push(component);
@@ -229,7 +238,7 @@ export async function storePortfolioCapture(client: PoolClient,source: Portfolio
   const id = inserted.rows[0].capture_id;
   for (const group of source.groups) {
     const facts = [{ address: group.market,basis: group.basis,state: [group.marketAccount,group.preview] },
-      ...[...group.accounts,...(group.hlpCohorts ?? [])].map((entry) => ({ address: entry.address,basis: 'rpc-account',state: entry.account }))];
+      ...[...group.accounts,...(group.hlpCohorts ?? []),...(group.juniorCohorts ?? [])].map((entry) => ({ address: entry.address,basis: 'rpc-account',state: entry.account }))];
     for (const fact of facts) {
       const stateHash = sha256(canonicalJson([group.blockhash,fact.state]));
       await client.query(`INSERT INTO dusk_ingestion.portfolio_account_evidence(capture_id,account,slot,basis,blockhash,state_hash)
@@ -298,7 +307,7 @@ export async function captureDuskPortfolioSnapshots(dependencies?: {
   // Valuations read finalized banks at or after the stream's slot, so every
   // discovered position exists at its valuation bank.
   const readFloor = Math.max(catalog.sourceFloor,checkedSlot(Number(before.programDataSlot)),checkedSlot(Number(before.leverageDelegateProgramDataSlot)));
-  const jobs: { market: string; addresses: string[]; cohorts: string[] }[] = [];
+  const jobs: { market: string; addresses: string[]; cohorts: string[]; juniorCohorts: string[] }[] = [];
   for (const market of catalog.markets) {
     const items = catalog.items.filter((item) => item.market === market);
     for (let offset=0; offset<Math.max(items.length,1); offset+=10) {
@@ -307,17 +316,22 @@ export async function captureDuskPortfolioSnapshots(dependencies?: {
         if (!item.lpMint) throw new Error('hLP portfolio discovery omitted its mint');
         return hlpCohortAddress(new PublicKey(market),new PublicKey(item.lpMint),new PublicKey(loadPinnedProtocol().dusk.programId))[0].toBase58();
       }))];
-      jobs.push({ market,addresses: batch.map((item) => item.address),cohorts });
+      const juniorCohorts = [...new Set(batch.filter((item) => item.kind === 'junior').map((item) => {
+        if (!item.lpMint) throw new Error('Junior portfolio discovery omitted its mint');
+        return PublicKey.findProgramAddressSync([Buffer.from('junior_cohort'),new PublicKey(market).toBuffer(),new PublicKey(item.lpMint).toBuffer()],new PublicKey(loadPinnedProtocol().dusk.programId))[0].toBase58();
+      }))];
+      jobs.push({ market,addresses: batch.map((item) => item.address),cohorts,juniorCohorts });
     }
   }
   for (let offset=0; offset<jobs.length; offset+=4) {
     const captured = await Promise.all(jobs.slice(offset,offset+4).map((job) =>
-      (dependencies?.capture ?? captureMarketSimulation)(job.market,readFloor,[...job.addresses,...job.cohorts])));
+      (dependencies?.capture ?? captureMarketSimulation)(job.market,readFloor,[...job.addresses,...job.cohorts,...job.juniorCohorts])));
     for (const [index,group] of captured.entries()) {
       if (group.deploymentIdentitySha256 !== before.deploymentIdentitySha256) throw new Error('Deployment changed during portfolio capture');
-      const cohorts = jobs[offset+index].cohorts;
-      groups.push({ ...group,accounts: group.accounts.filter((entry) => !cohorts.includes(entry.address)),
-        ...(cohorts.length ? { hlpCohorts: group.accounts.filter((entry) => cohorts.includes(entry.address)) } : {}) });
+      const { cohorts,juniorCohorts } = jobs[offset+index];
+      groups.push({ ...group,accounts: group.accounts.filter((entry) => !cohorts.includes(entry.address) && !juniorCohorts.includes(entry.address)),
+        ...(cohorts.length ? { hlpCohorts: group.accounts.filter((entry) => cohorts.includes(entry.address)) } : {}),
+        ...(juniorCohorts.length ? { juniorCohorts: group.accounts.filter((entry) => juniorCohorts.includes(entry.address)) } : {}) });
     }
   }
   const source: PortfolioCaptureSource = { schemaVersion: 'dusk-portfolio-capture.v2',catalog,groups,references,
