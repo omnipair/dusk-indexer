@@ -1,3 +1,4 @@
+import { snapshotTransaction } from './duskSnapshotTransaction';
 import { marketLayoutVersion } from './duskProtocolSchema';
 /**
  * An owner's claimable LP yield: every (holder, market, LP mint) it has held,
@@ -26,12 +27,11 @@ import {
   ComputeBudgetProgram,
   PublicKey,
   SYSVAR_CLOCK_PUBKEY,
-  TransactionMessage,
-  VersionedTransaction,
 } from '@solana/web3.js';
 import type { AccountInfo } from '@solana/web3.js';
 import type { Pool, PoolClient } from 'pg';
-import type { Dusk, HlpCohort, Market, YieldAccount } from '@omnipair/dusk-sdk';
+import { deriveJuniorCohortAddress } from '@omnipair/dusk-sdk';
+import type { Dusk, HlpCohort, JuniorCohort, Market, YieldAccount } from '@omnipair/dusk-sdk';
 
 import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
@@ -173,25 +173,15 @@ export async function captureYieldGroup(
   const yields = assets.map((asset) => deriveYieldAccountAddress(market, holder, lpMint, asset, group.kind as any, program)[0]);
   const addresses = [group.market, group.lpMint, lpAccount.toBase58(), ...yields.map(String), ...assets.map(String), SYSVAR_CLOCK_PUBKEY.toBase58()];
   if (group.kind === 'hlp') addresses.push(hlpCohortAddress(market, lpMint, program)[0].toBase58());
-  if (group.kind === 'junior') addresses.push(PublicKey.findProgramAddressSync(
-    [Buffer.from('junior_cohort'),market.toBuffer(),lpMint.toBuffer()],program,
-  )[0].toBase58());
+  if (group.kind === 'junior') addresses.push(deriveJuniorCohortAddress(market,lpMint,program)[0].toBase58());
   if (new Set(addresses).size !== addresses.length) throw new Error('Duplicate yield source accounts');
   const instruction = await dusk.write.instruction('previewMarket', undefined, {
     accounts: { market },
-    remainingAccounts: addresses.slice(1).map(key => ({ pubkey: new PublicKey(key),isSigner: false,isWritable: false })),
   });
-  const transaction = new VersionedTransaction(
-    new TransactionMessage({
-      payerKey: new PublicKey(payer),
-      recentBlockhash: PublicKey.default.toBase58(),
-      instructions: [
-        ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }),
-        ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
-        instruction,
-      ],
-    }).compileToV0Message(),
-  );
+  const transaction = snapshotTransaction(new PublicKey(payer),[
+    ComputeBudgetProgram.requestHeapFrame({bytes:256*1024}),
+    ComputeBudgetProgram.setComputeUnitLimit({units:1_400_000}),instruction,
+  ],addresses);
   const simulation = await boundedDuskRpcRead(
     () =>
       dusk.program.provider.connection.simulateTransaction(transaction, {
@@ -243,8 +233,8 @@ export async function captureYieldGroup(
   const retired = retiredHlp || retiredJunior;
   const cohort = retiredHlp ? dusk.program.coder.accounts.decode<HlpCohort>('hlpCohort', owned(infos[8], program).data) : null;
   if (cohort) assertRetiredHlpCohort(cohort, market, lpMint, program);
-  const juniorCohort = retiredJunior ? dusk.program.coder.accounts.decode<any>('juniorCohort', owned(infos[8], program).data) : null;
-  if (juniorCohort && (!juniorCohort.market.equals(market) || !juniorCohort.mint.equals(lpMint) || !juniorCohort.retired))
+  const juniorCohort = retiredJunior ? dusk.program.coder.accounts.decode<JuniorCohort>('juniorCohort', owned(infos[8], program).data) : null;
+  if (juniorCohort && (!juniorCohort.market.equals(market) || !juniorCohort.mint.equals(lpMint) || !juniorCohort.retired || juniorCohort.bump !== deriveJuniorCohortAddress(market,lpMint,program)[1]))
     throw new Error('Invalid retired junior cohort');
   const lp = unpackMint(lpMint, owned(infos[1], TOKEN_2022_PROGRAM_ID), TOKEN_2022_PROGRAM_ID);
   if (!lp.isInitialized || !lp.mintAuthority?.equals(market)) throw new Error('Invalid yield LP mint');

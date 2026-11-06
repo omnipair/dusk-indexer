@@ -17,7 +17,8 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import type { AccountInfo, SimulateTransactionConfig } from '@solana/web3.js';
 import { marketLayoutVersion } from '../services/duskProtocolSchema';
 const MARKET_LAYOUT_VERSION = marketLayoutVersion();
-import type { Dusk, HlpCohort, Market, YieldAccount } from '@omnipair/dusk-sdk';
+import { deriveJuniorCohortAddress } from '@omnipair/dusk-sdk';
+import type { Dusk, HlpCohort, JuniorCohort, Market, YieldAccount } from '@omnipair/dusk-sdk';
 import { deriveYieldAccountAddress } from '../services/virtualBook/native';
 import { createSdkTestRuntime } from './duskSdkTestRuntime';
 import { hlpCohortAddress } from '../services/duskHlpCohort';
@@ -29,15 +30,15 @@ import type { DuskDeploymentEnvelope } from '../services/duskDeploymentService';
 const key = (n: number) => new PublicKey(Buffer.alloc(32, n));
 const Q = 1n << 64n;
 
-async function fixture(hlp = false, taxed = false) {
+async function fixture(hlp = false, taxed = false, junior = false, retiredJunior = false) {
   const owner = key(51),
     marketAddress = key(52),
     base = key(53),
     quote = key(54),
     srlp = key(55),
     hlpMint = key(56);
-  const lpMint = hlp ? hlpMint : srlp,
-    kind = hlp ? ('hlp' as const) : ('srlp' as const);
+  const lpMint = junior ? key(59) : hlp ? hlpMint : srlp,
+    kind = junior ? ('junior' as const) : hlp ? ('hlp' as const) : ('srlp' as const);
   const response = {
     context: { slot: 1010 },
     value: {
@@ -54,6 +55,15 @@ async function fixture(hlp = false, taxed = false) {
     getAccountInfoAndContext: async (key: PublicKey) => ({ context: { slot: 1010 },value: key.equals(marketAddress) ? encodeAccount('market',market) : null }),
     simulateTransaction: async (_tx: unknown, config: SimulateTransactionConfig) => {
       simulations.push(config); transactions.push(_tx as import("@solana/web3.js").VersionedTransaction);
+      const message = transactions.at(-1)!.message;
+      const preview = message.compiledInstructions[2];
+      const programKeys = Array.from(preview.accountKeyIndexes,index=>message.staticAccountKeys[index].toBase58());
+      assert.ok(programKeys.includes(marketAddress.toBase58()));
+      for(const address of config.accounts!.addresses.slice(1)) {
+        const index = message.staticAccountKeys.findIndex(key=>key.toBase58()===address);
+        assert.ok(index>=0);assert.equal(message.isAccountWritable(index),false);
+        assert.ok(!programKeys.includes(address),'auxiliary snapshots are not preview arguments');
+      }
       return response;
     },
   };
@@ -76,6 +86,9 @@ async function fixture(hlp = false, taxed = false) {
   const market = blank<Market>('market');
   market.version = MARKET_LAYOUT_VERSION;
   market.srlpMint = srlp;
+  market.juniorMint = junior && !retiredJunior ? lpMint : key(60);
+  market.baseSide.fees.junior.swapGrowthQ64 = new BN(Q.toString());
+  market.baseSide.fees.junior.interestGrowthQ64 = new BN((2n*Q).toString());
   market.baseSide.assetMint = base;
   market.quoteSide.assetMint = quote;
   market.baseSide.hlpMint = hlpMint;
@@ -92,10 +105,14 @@ async function fixture(hlp = false, taxed = false) {
     bump: hlpCohortAddress(marketAddress, lpMint, dusk.program.programId)[1] });
   cohort.finalVault.baseSwapFeeGrowthIndexQ64 = new BN((2n * Q).toString());
   cohort.finalVault.baseInterestGrowthIndexQ64 = new BN(Q.toString());
+  const juniorCohort = blank<JuniorCohort>('juniorCohort');
+  Object.assign(juniorCohort,{market:marketAddress,mint:lpMint,retired:retiredJunior,
+    bump:deriveJuniorCohortAddress(marketAddress,lpMint,dusk.program.programId)[1],
+    finalIncome:[{...market.baseSide.fees.junior},{...market.quoteSide.fees.junior}]});
   const yields = [base, quote].map((asset) => {
     const account = blank<YieldAccount>('yieldAccount');
     const [address, bump] = deriveYieldAccountAddress(marketAddress, owner, lpMint, asset, kind, dusk.program.programId);
-    Object.assign(account, { owner, market: marketAddress, lpMint, assetMint: asset, recipient: owner, tokenKind: hlp ? 1 : 0, bump });
+    Object.assign(account, { owner, market: marketAddress, lpMint, assetMint: asset, recipient: owner, tokenKind: junior ? 2 : hlp ? 1 : 0, escrowBalance:new BN(junior ? 2 : 0), bump });
     return { address, account };
   });
   yields[0].account.accruedSwapFeeAmount = new BN(2);
@@ -137,7 +154,7 @@ async function fixture(hlp = false, taxed = false) {
       mint(owner, taxed ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID, taxed),
       mint(owner, TOKEN_PROGRAM_ID),
       raw(new PublicKey('Sysvar1111111111111111111111111111111111111'), clock),
-      ...(hlp ? [encodeAccount('hlpCohort', cohort)] : []),
+      ...(hlp ? [encodeAccount('hlpCohort', cohort)] : junior ? [encodeAccount('juniorCohort',juniorCohort)] : []),
     ].map(serialize);
     const preview = layout('marketPreview').decode(Buffer.alloc(32768));
     preview.slot = new BN(1010);
@@ -146,7 +163,7 @@ async function fixture(hlp = false, taxed = false) {
   encode();
   const group: YieldGroup = { holder: owner.toBase58(), market: marketAddress.toBase58(), lpMint: lpMint.toBase58(), kind,
     baseMint: base.toBase58(), quoteMint: quote.toBase58() };
-  return { dusk: dusk as Dusk, market, cohort, yields, response, encode, group, simulations, transactions, payer: owner.toBase58() };
+  return { dusk: dusk as Dusk, market, cohort, juniorCohort, yields, response, encode, group, simulations, transactions, payer: owner.toBase58() };
 }
 
 test('live yield carries undistributed growth forward and checkpoints both hLP layers', async () => {
@@ -261,4 +278,18 @@ test('oracle-guided yield previews carry the configured report account through t
   const streams = await captureYieldGroup(f.dusk,f.group,f.payer,1005);
   assert.ok(streams);
   assert.ok(f.transactions[0].message.staticAccountKeys.some(address => address.equals(key(76))));
+});
+
+
+for (const retired of [false,true]) test(`junior income includes escrow and frozen cohort growth (retired=${retired})`,async()=>{
+  const f=await fixture(false,false,true,retired);
+  const [stream]=(await captureYieldGroup(f.dusk,f.group,f.payer,1005))!;
+  assert.equal(stream.kind,'junior');assert.equal(stream.retired,retired);
+  assert.equal(stream.swapFeeAmount,'7');assert.equal(stream.interestAmount,'11');
+  if(retired){
+    f.market.baseSide.fees.junior.swapGrowthQ64=new BN((99n*Q).toString());f.encode();
+    assert.equal((await captureYieldGroup(f.dusk,f.group,f.payer,1005))![0].swapFeeAmount,'7');
+    f.juniorCohort.bump^=1;f.encode();
+    await assert.rejects(captureYieldGroup(f.dusk,f.group,f.payer,1005),/Invalid retired junior cohort/);
+  }
 });

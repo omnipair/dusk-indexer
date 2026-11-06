@@ -1,7 +1,8 @@
+import { snapshotTransaction } from './duskSnapshotTransaction';
 import { pinnedDuskIdl } from './duskProtocolSchema';
 import { projectOraclePolicy, oracleReportAccounts } from './duskOraclePolicy';
 import { AnchorProvider, BorshCoder, Idl, Program, Wallet } from '@coral-xyz/anchor';
-import { ComputeBudgetProgram, Connection, PublicKey, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
+import { ComputeBudgetProgram, Connection, PublicKey } from '@solana/web3.js';
 import { duskApiConfig, loadPinnedProtocol } from '../config/duskProtocol';
 import { deploymentEnvelope } from './duskDeploymentService';
 import { readConfirmedBlock, readFinalizedBlock } from './duskFinalizedBlock';
@@ -105,12 +106,10 @@ async function captureAtCommitment<C extends 'finalized' | 'confirmed'>(market: 
   }
   const remaining = [...new Set([...extraAddresses, ...sourceAccounts])];
   const instruction = await program.methods.previewMarket().accounts({ market: new PublicKey(market) })
-    .remainingAccounts(remaining.map((address) => ({ pubkey: new PublicKey(address),isSigner: false,isWritable: false }))).instruction();
+    .remainingAccounts([...new Set(sourceAccounts)].map((address) => ({ pubkey: new PublicKey(address),isSigner: false,isWritable: false }))).instruction();
   const requested = [market,...remaining];
-  const tx = new VersionedTransaction(new TransactionMessage({ payerKey: new PublicKey(payer),recentBlockhash: PublicKey.default.toBase58(),
-    instructions: [ComputeBudgetProgram.requestHeapFrame({ bytes: 256*1024 }),ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),instruction],
-  }).compileToV0Message());
-  if (tx.serialize().length>1232) throw new Error('Market snapshot exceeds the transaction packet limit');
+  const tx = snapshotTransaction(new PublicKey(payer),
+    [ComputeBudgetProgram.requestHeapFrame({bytes:256*1024}),ComputeBudgetProgram.setComputeUnitLimit({units:1_400_000}),instruction],requested);
   const simulation = await atMinimumSlot(() => rpc.simulateTransaction(tx,{ commitment,minContextSlot: captureFloor,replaceRecentBlockhash: true,sigVerify: false,
     accounts: { encoding: 'base64',addresses: requested } }));
   let slot = simulation.context.slot,preview: string | null = null,basis: MarketSimulationSnapshot['basis'] = 'simulation-post-state';

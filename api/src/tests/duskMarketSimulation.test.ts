@@ -20,6 +20,13 @@ function fixture(options: { failed?: boolean; failure?: unknown; identityChanged
       if (++simulationCalls<=(options.transientFailures ?? 0)) throw new Error('failed to simulate transaction: Minimum context slot has not been reached');
       assert.ok(transaction.serialize().length<=1232);
       for (const address of config.accounts!.addresses) assert.ok(transaction.message.staticAccountKeys.some((key) => key.toBase58() === address));
+      const preview = transaction.message.compiledInstructions[2];
+      const programKeys = Array.from(preview.accountKeyIndexes, index => transaction.message.staticAccountKeys[index].toBase58());
+      assert.ok(!programKeys.includes(extra), 'auxiliary snapshots must stay outside the program instruction');
+      for (const address of config.accounts!.addresses.slice(1)) {
+        const index = transaction.message.staticAccountKeys.findIndex(key => key.toBase58() === address);
+        if (!programKeys.includes(address)) assert.equal(transaction.message.isAccountWritable(index), false);
+      }
       const returned = { programId: options.wrongProgram ? fixtureKey(144).toBase58() : pin.dusk.programId,
         data: [options.badEncoding ? source.rawPreview+'?' : source.rawPreview,'base64'] };
       const accounts = config.accounts!.addresses.map((_,index) => index === 0
