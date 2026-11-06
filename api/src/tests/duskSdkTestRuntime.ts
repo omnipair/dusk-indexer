@@ -5,8 +5,8 @@ import * as protocol from '../config/duskProtocol';
 import { createVirtualBookRuntime, sdkForProtocol } from '../services/virtualBook/native';
 
 /** Unit fixtures exercise the pending SDK without changing the deployed pin. */
-export async function createSdkTestRuntime(connection: Connection, oracle?: boolean) {
-  const sdk = oracle === undefined ? await sdkForProtocol() : await (new Function(`return import('${oracle ? "@omnipair/dusk-sdk-oracle" : "@omnipair/dusk-sdk"}')`)() as Promise<typeof import('@omnipair/dusk-sdk')>);
+export async function createSdkTestRuntime(connection: Connection) {
+  const sdk = await sdkForProtocol();
   const pin = protocol.loadPinnedProtocol();
   const delegate = sdk.createLeverageDelegateProgram({ provider: new AnchorProvider(connection, {} as Wallet, {}) });
   const mocked = mock.method(protocol, 'loadPinnedProtocol', () => ({ ...pin,

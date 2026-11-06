@@ -1,4 +1,3 @@
-import { seniorLpFixtureLayout } from './duskSeniorLpFixtures';
 import { marketLayoutVersion } from '../services/duskProtocolSchema';
 import { BN, utils } from '@coral-xyz/anchor';
 import { IdlCoder } from '@coral-xyz/anchor/dist/cjs/coder/borsh/idl';
@@ -108,10 +107,10 @@ export async function displayFixture(
   );
   const positionAddress = dusk.get.pda.leveragePosition(marketAddress, owner, id)[0];
   const layout = (name: string) =>
-    seniorLpFixtureLayout(IdlCoder.typeDefLayout({
+    IdlCoder.typeDefLayout({
       typeDef: dusk.program.idl.types!.find((t) => t.name === name)!,
       types: dusk.program.idl.types!,
-    }));
+    });
   const market = layout('market').decode(Buffer.alloc(16384)) as Market;
   Object.assign(market, { version: marketLayoutVersion(), srlpMint: srlp });
   Object.assign(market.baseSide, { assetMint: base, assetDecimals: 9 });

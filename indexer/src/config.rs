@@ -1,5 +1,4 @@
-use std::env;
-use clap::Parser;
+use {clap::Parser, std::env};
 
 #[derive(Parser, Debug)]
 #[command(version, about = "Omnipair Indexer Daemon")]
@@ -12,11 +11,13 @@ pub struct Args {
     #[arg(long)]
     pub start_block: Option<u64>,
 
-    /// RPC WebSocket URL (falls back to RPC_WS_URL env) - used for account monitoring
+    /// RPC WebSocket URL (falls back to RPC_WS_URL env) - used for account
+    /// monitoring
     #[arg(long)]
     pub rpc_ws_url: Option<String>,
 
-    /// Helius API key for transaction monitoring (falls back to HELIUS_API_KEY env)
+    /// Helius API key for transaction monitoring (falls back to HELIUS_API_KEY
+    /// env)
     #[arg(long)]
     pub helius_api_key: Option<String>,
 
@@ -24,16 +25,19 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     pub enable_account_monitoring: bool,
 
-    /// Prometheus metrics port (also used by Railway's healthcheck against /metrics)
+    /// Prometheus metrics port (also used by Railway's healthcheck against
+    /// /metrics)
     #[arg(long, default_value_t = 8080)]
     pub metrics_port: u16,
 
-    /// Run a one-shot historical backfill (oldest -> newest) instead of the realtime daemon
+    /// Run a one-shot historical backfill (oldest -> newest) instead of the
+    /// realtime daemon
     #[arg(long, default_value_t = false)]
     pub backfill: bool,
 
-    /// Lowest slot to backfill from, inclusive (falls back to BACKFILL_FROM_SLOT env).
-    /// The backfill covers the range [backfill_from_slot, most recent transaction].
+    /// Lowest slot to backfill from, inclusive (falls back to
+    /// BACKFILL_FROM_SLOT env). The backfill covers the range
+    /// [backfill_from_slot, most recent transaction].
     #[arg(long)]
     pub backfill_from_slot: Option<u64>,
 }
@@ -51,16 +55,22 @@ pub struct Config {
 
 impl Config {
     pub fn from_args(args: Args) -> Self {
-        let helius_api_key = args.helius_api_key.or_else(|| env::var("HELIUS_API_KEY").ok());
-        let http_rpc_url = args.http_rpc_url.or_else(|| env::var("HTTP_RPC_URL").ok())
+        let helius_api_key = args
+            .helius_api_key
+            .or_else(|| env::var("HELIUS_API_KEY").ok());
+        let http_rpc_url = args
+            .http_rpc_url
+            .or_else(|| env::var("HTTP_RPC_URL").ok())
             .unwrap_or_else(|| "https://api.mainnet-beta.solana.com/".to_string());
-        let start_block = args.start_block.or_else(|| {
-            env::var("START_BLOCK").ok().and_then(|s| s.parse().ok())
-        }).unwrap_or(0);
-        
+        let start_block = args
+            .start_block
+            .or_else(|| env::var("START_BLOCK").ok().and_then(|s| s.parse().ok()))
+            .unwrap_or(0);
+
         let rpc_ws_url = if args.enable_account_monitoring {
             Some(args.rpc_ws_url.unwrap_or_else(|| {
-                env::var("RPC_WS_URL").unwrap_or_else(|_| "wss://api.mainnet-beta.solana.com/".to_string())
+                env::var("RPC_WS_URL")
+                    .unwrap_or_else(|_| "wss://api.mainnet-beta.solana.com/".to_string())
             }))
         } else {
             None
@@ -75,7 +85,9 @@ impl Config {
 
         let backfill = args.backfill;
         let backfill_from_slot = args.backfill_from_slot.or_else(|| {
-            env::var("BACKFILL_FROM_SLOT").ok().and_then(|s| s.parse().ok())
+            env::var("BACKFILL_FROM_SLOT")
+                .ok()
+                .and_then(|s| s.parse().ok())
         });
 
         Self {
@@ -122,7 +134,7 @@ impl Config {
         } else {
             log::error!("  HELIUS_API_KEY is required for transaction monitoring");
         }
-        
+
         if let Some(ref url) = self.rpc_ws_url {
             log::info!("  Account monitoring: Enabled via {}", url);
         } else {
@@ -130,7 +142,10 @@ impl Config {
         }
 
         if self.metrics_port != 0 {
-            log::info!("  Prometheus metrics: Port {} (/metrics)", self.metrics_port);
+            log::info!(
+                "  Prometheus metrics: Port {} (/metrics)",
+                self.metrics_port
+            );
         } else {
             log::info!("  Prometheus metrics: Disabled");
         }

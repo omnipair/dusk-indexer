@@ -1,7 +1,7 @@
-use carbon_core::error::CarbonResult;
-use carbon_omnipair_decoder::PROGRAM_ID as OMNIPAIR_PROGRAM_ID;
-use clap::Parser;
-use std::time::Duration;
+use {
+    carbon_core::error::CarbonResult, carbon_omnipair_decoder::PROGRAM_ID as OMNIPAIR_PROGRAM_ID,
+    clap::Parser, std::time::Duration,
+};
 
 mod config;
 mod database;
@@ -10,8 +10,10 @@ mod pipeline;
 mod processors;
 mod signals;
 
-use config::{Args, Config};
-use pipeline::{create_backfill_pipeline, create_pipeline, run_pipeline};
+use {
+    config::{Args, Config},
+    pipeline::{create_backfill_pipeline, create_pipeline, run_pipeline},
+};
 
 #[tokio::main]
 pub async fn main() -> CarbonResult<()> {
@@ -53,7 +55,10 @@ pub async fn main() -> CarbonResult<()> {
             }
         };
 
-        log::info!("Running one-shot backfill from slot {} to most recent", from_slot);
+        log::info!(
+            "Running one-shot backfill from slot {} to most recent",
+            from_slot
+        );
         let pipeline = create_backfill_pipeline(&config, from_slot).await?;
         let result = run_pipeline(pipeline).await;
         match &result {

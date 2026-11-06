@@ -1,4 +1,3 @@
-import { seniorLpFixtureLayout } from './duskSeniorLpFixtures';
 import { BN, Idl } from '@coral-xyz/anchor';
 import type { IdlType, IdlTypeDef } from '@coral-xyz/anchor/dist/cjs/idl';
 import { IdlCoder } from '@coral-xyz/anchor/dist/cjs/coder/borsh/idl';
@@ -46,12 +45,12 @@ export function encodeFixtureType(name: string, changes: Record<string,unknown> 
   const definition = idl.types!.find((type) => type.name === name)!;
   const value = { ...zeroDefinition(definition),...changes };
   const buffer = Buffer.alloc(32_768);
-  const length = seniorLpFixtureLayout(IdlCoder.typeDefLayout({ typeDef: definition,types: idl.types! })).encode(value,buffer);
+  const length = IdlCoder.typeDefLayout({ typeDef: definition,types: idl.types! }).encode(value,buffer);
   return buffer.subarray(0,length);
 }
 function encode(name: string, value: object): Buffer {
   const buffer = Buffer.alloc(32_768);
-  const layout = seniorLpFixtureLayout(IdlCoder.typeDefLayout({ typeDef: idl.types!.find((type) => type.name === name)!,types: idl.types! }));
+  const layout = IdlCoder.typeDefLayout({ typeDef: idl.types!.find((type) => type.name === name)!,types: idl.types! });
   const length = layout.encode(value,buffer);
   return Buffer.concat([Buffer.from(idl.accounts!.find((account) => account.name === name)!.discriminator),buffer.subarray(0,length)]);
 }

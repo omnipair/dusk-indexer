@@ -1,22 +1,26 @@
-use std::sync::Arc;
-use carbon_core::{error::CarbonResult, pipeline::Pipeline};
-use carbon_omnipair_decoder::{OmnipairDecoder, PROGRAM_ID as OMNIPAIR_PROGRAM_ID};
-use carbon_log_metrics::LogMetrics;
-use carbon_prometheus_metrics::PrometheusMetrics;
-
-use crate::{
-    config::Config,
-    datasources::{create_helius_datasource, create_transaction_crawler_datasource, OrderedBackfillDatasource},
-    processors::OmnipairInstructionProcessor,
+use {
+    crate::{
+        config::Config,
+        datasources::{
+            OrderedBackfillDatasource, create_helius_datasource,
+            create_transaction_crawler_datasource,
+        },
+        processors::OmnipairInstructionProcessor,
+    },
+    carbon_core::{error::CarbonResult, pipeline::Pipeline},
+    carbon_log_metrics::LogMetrics,
+    carbon_omnipair_decoder::{OmnipairDecoder, PROGRAM_ID as OMNIPAIR_PROGRAM_ID},
+    carbon_prometheus_metrics::PrometheusMetrics,
+    std::sync::Arc,
 };
 
-/// Creates and configures the indexer pipeline based on the provided configuration
+/// Creates and configures the indexer pipeline based on the provided
+/// configuration
 pub async fn create_pipeline(config: &Config) -> CarbonResult<Pipeline> {
     // Require Helius API key for transaction monitoring
-    let api_key = config.helius_api_key.as_ref()
-        .ok_or_else(|| carbon_core::error::Error::Custom(
-            "HELIUS_API_KEY is required for Atlas WS".to_string()
-        ))?;
+    let api_key = config.helius_api_key.as_ref().ok_or_else(|| {
+        carbon_core::error::Error::Custom("HELIUS_API_KEY is required for Atlas WS".to_string())
+    })?;
 
     log::info!("Using Helius Atlas WebSocket for realtime transaction monitoring");
 
@@ -27,8 +31,9 @@ pub async fn create_pipeline(config: &Config) -> CarbonResult<Pipeline> {
     let _transaction_crawler_datasource = create_transaction_crawler_datasource(
         config.http_rpc_url.clone(),
         *OMNIPAIR_PROGRAM_ID,
-        Some(config.start_block)
-    ).await?;
+        Some(config.start_block),
+    )
+    .await?;
 
     // Create instruction processor
     let instruction_processor = OmnipairInstructionProcessor::new();
@@ -38,13 +43,17 @@ pub async fn create_pipeline(config: &Config) -> CarbonResult<Pipeline> {
         //.datasource(_transaction_crawler_datasource)
         .datasource(atlas_datasource)
         .metrics(Arc::new(LogMetrics::new()))
-        .metrics(Arc::new(PrometheusMetrics::new_with_port(config.metrics_port)))
+        .metrics(Arc::new(PrometheusMetrics::new_with_port(
+            config.metrics_port,
+        )))
         .metrics_flush_interval(3)
         .instruction(OmnipairDecoder, instruction_processor)
         .shutdown_strategy(carbon_core::pipeline::ShutdownStrategy::ProcessPending)
         .build()?;
-    
-    log::info!("Pipeline configured: historical transactions via RPC Transaction Crawler (TransactionUpdate)");
+
+    log::info!(
+        "Pipeline configured: historical transactions via RPC Transaction Crawler (TransactionUpdate)"
+    );
 
     Ok(pipeline)
 }
@@ -73,7 +82,9 @@ pub async fn create_backfill_pipeline(config: &Config, from_slot: u64) -> Carbon
     let pipeline = Pipeline::builder()
         .datasource(backfill_datasource)
         .metrics(Arc::new(LogMetrics::new()))
-        .metrics(Arc::new(PrometheusMetrics::new_with_port(config.metrics_port)))
+        .metrics(Arc::new(PrometheusMetrics::new_with_port(
+            config.metrics_port,
+        )))
         .metrics_flush_interval(3)
         .instruction(OmnipairDecoder, instruction_processor)
         .shutdown_strategy(carbon_core::pipeline::ShutdownStrategy::ProcessPending)

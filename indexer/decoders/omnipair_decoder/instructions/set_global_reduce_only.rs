@@ -1,12 +1,13 @@
+use {
+    super::super::types::*,
+    carbon_core::{CarbonDeserialize, account_utils::next_account, borsh},
+};
 
-use super::super::types::*;
-
-use carbon_core::{CarbonDeserialize, borsh, account_utils::next_account};
-
-
-#[derive(CarbonDeserialize, Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone, Hash)]
+#[derive(
+    CarbonDeserialize, Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone, Hash,
+)]
 #[carbon(discriminator = "0xf2977b8bef57f962")]
-pub struct SetGlobalReduceOnly{
+pub struct SetGlobalReduceOnly {
     pub args: SetGlobalReduceOnlyArgs,
 }
 
@@ -20,7 +21,9 @@ pub struct SetGlobalReduceOnlyInstructionAccounts {
 impl carbon_core::deserialize::ArrangeAccounts for SetGlobalReduceOnly {
     type ArrangedAccounts = SetGlobalReduceOnlyInstructionAccounts;
 
-    fn arrange_accounts(accounts: &[solana_instruction::AccountMeta]) -> Option<Self::ArrangedAccounts> {
+    fn arrange_accounts(
+        accounts: &[solana_instruction::AccountMeta],
+    ) -> Option<Self::ArrangedAccounts> {
         let mut iter = accounts.iter();
         let authority_signer = next_account(&mut iter)?;
         let futarchy_authority = next_account(&mut iter)?;

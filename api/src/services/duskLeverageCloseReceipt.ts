@@ -1,3 +1,4 @@
+import { calculateLeverageCloseoutPrice } from './virtualBook/native';
 import { utils } from '@coral-xyz/anchor';
 
 import type { Dusk, LeveragePosition, Market } from '@omnipair/dusk-sdk';
@@ -82,22 +83,11 @@ export function readDuskLeverageCloseReceipt(
       'Leverage close receipt does not match the position and simulation',
     );
 
-  // In 9973dea the delegate checks the curve after the first controller advance.
-  // Full close prepares the same curve again. A positive interval makes a second
-  // advance in that slot impossible; a disabled controller or CPMM is also identical.
-  // Protocol fee allocation changes reserve compounding, not this swap's amountOut.
-  // If collateral loses atoms in transfer, its executed price is not the delegate's
-  // full-collateral trigger. Keep that trigger unavailable while retaining net PnL.
-  const sameCurve =
-    market.config.amm.peakAmplificationNad.toString() === '1000000000' ||
-    market.config.amm.adjustmentStepNad.toString() === '0' ||
-    BigInt(market.config.amm.minAdjustmentIntervalSlots.toString()) > 0n;
+  // The delegate callback uses this same Dusk-certified full-close quote.
   return {
     grossCloseoutRaw,
     triggerCloseoutPriceNad:
-      input === sold && sameCurve
-        ? (grossCloseoutRaw * 1_000_000_000n) / sold
-        : null,
+      calculateLeverageCloseoutPrice(grossCloseoutRaw, sold, debt.assetDecimals, collateral.assetDecimals),
     collateralDecimals: collateral.assetDecimals,
   };
 }

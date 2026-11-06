@@ -1,4 +1,3 @@
-import { seniorLpFields } from './duskSeniorLp';
 import { PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { settleRecordedGrowth, unsigned } from './duskYieldAccounting';
@@ -7,7 +6,7 @@ const U64_MAX = (1n << 64n)-1n;
 type Fields = Record<string, unknown>;
 const fields = (value: unknown): Fields => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Missing native yield fields');
-  return seniorLpFields(value) as Fields;
+  return value as Fields;
 };
 export const keyString = (value: unknown): string => {
   const text = value instanceof PublicKey ? value.toBase58() : value;

@@ -1,46 +1,52 @@
-use carbon_core::error::CarbonResult;
-use carbon_omnipair_decoder::instructions::{
-    swap_event::SwapEvent,
-    mint_event::MintEvent,
-    burn_event::BurnEvent,
-    adjust_collateral_event::AdjustCollateralEvent,
-    adjust_debt_event::AdjustDebtEvent,
-    user_position_updated_event::UserPositionUpdatedEvent,
-    user_position_liquidated_event::UserPositionLiquidatedEvent,
-    user_liquidity_position_updated_event::UserLiquidityPositionUpdatedEvent,
-    pair_created_event::PairCreatedEvent,
-    update_pair_event::UpdatePairEvent,
+use {
+    carbon_core::error::CarbonResult,
+    carbon_omnipair_decoder::instructions::{
+        adjust_collateral_event::AdjustCollateralEvent, adjust_debt_event::AdjustDebtEvent,
+        burn_event::BurnEvent, mint_event::MintEvent, pair_created_event::PairCreatedEvent,
+        swap_event::SwapEvent, update_pair_event::UpdatePairEvent,
+        user_liquidity_position_updated_event::UserLiquidityPositionUpdatedEvent,
+        user_position_liquidated_event::UserPositionLiquidatedEvent,
+        user_position_updated_event::UserPositionUpdatedEvent,
+    },
+    sqlx::PgPool,
+    tokio::sync::OnceCell,
 };
-use sqlx::PgPool;
-use tokio::sync::OnceCell;
 
 static DB_POOL: OnceCell<PgPool> = OnceCell::const_new();
 
 /// Initialize the database connection pool
 pub async fn init_db_pool() -> CarbonResult<()> {
-    let database_url = std::env::var("DATABASE_URL")
-        .map_err(|_| carbon_core::error::Error::Custom("DATABASE_URL environment variable not set".to_string()))?;
-    
-    let pool = PgPool::connect(&database_url).await
-        .map_err(|e| carbon_core::error::Error::Custom(format!("Failed to connect to database: {}", e)))?;
-    
+    let database_url = std::env::var("DATABASE_URL").map_err(|_| {
+        carbon_core::error::Error::Custom("DATABASE_URL environment variable not set".to_string())
+    })?;
+
+    let pool = PgPool::connect(&database_url).await.map_err(|e| {
+        carbon_core::error::Error::Custom(format!("Failed to connect to database: {}", e))
+    })?;
+
     // Test the connection
     sqlx::query("SELECT 1")
         .fetch_one(&pool)
         .await
-        .map_err(|e| carbon_core::error::Error::Custom(format!("Database connection test failed: {}", e)))?;
-    
-    DB_POOL.set(pool)
-        .map_err(|_| carbon_core::error::Error::Custom("Failed to initialize database pool".to_string()))?;
-    
+        .map_err(|e| {
+            carbon_core::error::Error::Custom(format!("Database connection test failed: {}", e))
+        })?;
+
+    DB_POOL.set(pool).map_err(|_| {
+        carbon_core::error::Error::Custom("Failed to initialize database pool".to_string())
+    })?;
+
     log::info!("Database connection pool initialized successfully");
     Ok(())
 }
 
 /// Get the database pool
 pub fn get_db_pool() -> CarbonResult<&'static PgPool> {
-    DB_POOL.get()
-        .ok_or_else(|| carbon_core::error::Error::Custom("Database pool not initialized. Call init_db_pool() first".to_string()))
+    DB_POOL.get().ok_or_else(|| {
+        carbon_core::error::Error::Custom(
+            "Database pool not initialized. Call init_db_pool() first".to_string(),
+        )
+    })
 }
 
 /// Upsert a swap event into the database (handles duplicate tx_sig)
@@ -52,7 +58,7 @@ pub async fn upsert_swap_event(
     instruction_path: &str,
 ) -> CarbonResult<()> {
     let pool = get_db_pool()?;
-    
+
     // Calculate fee amounts
     let fee_amount = swap_event.amount_in - swap_event.amount_in_after_fee;
     let fee_paid0 = if swap_event.is_token0_in {
@@ -62,12 +68,12 @@ pub async fn upsert_swap_event(
         (swap_event.reserve0 as f64 / swap_event.reserve1 as f64 * fee_amount as f64) as u64
     };
     let fee_paid1 = if swap_event.is_token0_in {
-        // Convert token0 fee to token1 equivalent using reserve ratio  
+        // Convert token0 fee to token1 equivalent using reserve ratio
         (swap_event.reserve1 as f64 / swap_event.reserve0 as f64 * fee_amount as f64) as u64
     } else {
         fee_amount
     };
-    
+
     let upsert_result = sqlx::query(
         r#"
         INSERT INTO swaps (
@@ -91,7 +97,7 @@ pub async fn upsert_swap_event(
             protocol_fee = EXCLUDED.protocol_fee,
             instruction_index = EXCLUDED.instruction_index,
             instruction_path = EXCLUDED.instruction_path
-        "#
+        "#,
     )
     .bind(swap_event.metadata.pair.to_string())
     .bind(swap_event.metadata.signer.to_string())
@@ -111,12 +117,15 @@ pub async fn upsert_swap_event(
     .bind(instruction_path)
     .execute(pool)
     .await;
-    
+
     if let Err(e) = upsert_result {
         log::error!("Failed to upsert into swaps table: {}", e);
-        return Err(carbon_core::error::Error::Custom(format!("Failed to upsert swap: {}", e)));
+        return Err(carbon_core::error::Error::Custom(format!(
+            "Failed to upsert swap: {}",
+            e
+        )));
     }
-    
+
     Ok(())
 }
 
@@ -129,7 +138,7 @@ pub async fn upsert_mint_event(
     instruction_path: &str,
 ) -> CarbonResult<()> {
     let pool = get_db_pool()?;
-    
+
     let upsert_result = sqlx::query(
         r#"
         INSERT INTO adjust_liquidity (
@@ -147,7 +156,7 @@ pub async fn upsert_mint_event(
             slot = EXCLUDED.slot,
             instruction_index = EXCLUDED.instruction_index,
             instruction_path = EXCLUDED.instruction_path
-        "#
+        "#,
     )
     .bind(event.metadata.pair.to_string())
     .bind(event.metadata.signer.to_string())
@@ -162,12 +171,15 @@ pub async fn upsert_mint_event(
     .bind(instruction_path)
     .execute(pool)
     .await;
-    
+
     if let Err(e) = upsert_result {
         log::error!("Failed to upsert into adjust_liquidity table: {}", e);
-        return Err(carbon_core::error::Error::Custom(format!("Failed to upsert mint event: {}", e)));
+        return Err(carbon_core::error::Error::Custom(format!(
+            "Failed to upsert mint event: {}",
+            e
+        )));
     }
-    
+
     Ok(())
 }
 
@@ -180,7 +192,7 @@ pub async fn upsert_burn_event(
     instruction_path: &str,
 ) -> CarbonResult<()> {
     let pool = get_db_pool()?;
-    
+
     let upsert_result = sqlx::query(
         r#"
         INSERT INTO adjust_liquidity (
@@ -198,7 +210,7 @@ pub async fn upsert_burn_event(
             slot = EXCLUDED.slot,
             instruction_index = EXCLUDED.instruction_index,
             instruction_path = EXCLUDED.instruction_path
-        "#
+        "#,
     )
     .bind(event.metadata.pair.to_string())
     .bind(event.metadata.signer.to_string())
@@ -213,12 +225,15 @@ pub async fn upsert_burn_event(
     .bind(instruction_path)
     .execute(pool)
     .await;
-    
+
     if let Err(e) = upsert_result {
         log::error!("Failed to upsert into adjust_liquidity table: {}", e);
-        return Err(carbon_core::error::Error::Custom(format!("Failed to upsert burn event: {}", e)));
+        return Err(carbon_core::error::Error::Custom(format!(
+            "Failed to upsert burn event: {}",
+            e
+        )));
     }
-    
+
     Ok(())
 }
 
@@ -229,7 +244,7 @@ pub async fn upsert_adjust_collateral_event(
     slot: i64,
 ) -> CarbonResult<()> {
     let pool = get_db_pool()?;
-    
+
     let upsert_result = sqlx::query(
         r#"
         INSERT INTO adjust_collateral_events (
@@ -242,7 +257,7 @@ pub async fn upsert_adjust_collateral_event(
             amount1 = EXCLUDED.amount1,
             slot = EXCLUDED.slot,
             event_timestamp = EXCLUDED.event_timestamp
-        "#
+        "#,
     )
     .bind(event.metadata.pair.to_string())
     .bind(event.metadata.signer.to_string())
@@ -253,12 +268,18 @@ pub async fn upsert_adjust_collateral_event(
     .bind(chrono::Utc::now())
     .execute(pool)
     .await;
-    
+
     if let Err(e) = upsert_result {
-        log::error!("Failed to upsert into adjust_collateral_events table: {}", e);
-        return Err(carbon_core::error::Error::Custom(format!("Failed to upsert adjust collateral event: {}", e)));
+        log::error!(
+            "Failed to upsert into adjust_collateral_events table: {}",
+            e
+        );
+        return Err(carbon_core::error::Error::Custom(format!(
+            "Failed to upsert adjust collateral event: {}",
+            e
+        )));
     }
-    
+
     Ok(())
 }
 
@@ -269,7 +290,7 @@ pub async fn upsert_adjust_debt_event(
     slot: i64,
 ) -> CarbonResult<()> {
     let pool = get_db_pool()?;
-    
+
     let upsert_result = sqlx::query(
         r#"
         INSERT INTO adjust_debt_events (
@@ -282,7 +303,7 @@ pub async fn upsert_adjust_debt_event(
             amount1 = EXCLUDED.amount1,
             slot = EXCLUDED.slot,
             event_timestamp = EXCLUDED.event_timestamp
-        "#
+        "#,
     )
     .bind(event.metadata.pair.to_string())
     .bind(event.metadata.signer.to_string())
@@ -293,12 +314,15 @@ pub async fn upsert_adjust_debt_event(
     .bind(chrono::Utc::now())
     .execute(pool)
     .await;
-    
+
     if let Err(e) = upsert_result {
         log::error!("Failed to upsert into adjust_debt_events table: {}", e);
-        return Err(carbon_core::error::Error::Custom(format!("Failed to upsert adjust debt event: {}", e)));
+        return Err(carbon_core::error::Error::Custom(format!(
+            "Failed to upsert adjust debt event: {}",
+            e
+        )));
     }
-    
+
     Ok(())
 }
 
@@ -309,10 +333,10 @@ pub async fn upsert_user_position_updated_event(
     slot: i64,
 ) -> CarbonResult<()> {
     let pool = get_db_pool()?;
-    
+
     // Compute event_timestamp once for reuse
     let event_timestamp = chrono::Utc::now();
-    
+
     let upsert_result = sqlx::query(
         r#"
         INSERT INTO user_position_updated_events (
@@ -335,15 +359,19 @@ pub async fn upsert_user_position_updated_event(
             collateral1_max_cf_bps = EXCLUDED.collateral1_max_cf_bps,
             slot = EXCLUDED.slot,
             event_timestamp = EXCLUDED.event_timestamp
-        "#
+        "#,
     )
     .bind(event.metadata.pair.to_string())
     .bind(event.metadata.signer.to_string())
     .bind(event.position.to_string())
     .bind(bigdecimal::BigDecimal::from(event.collateral0))
     .bind(bigdecimal::BigDecimal::from(event.collateral1))
-    .bind(bigdecimal::BigDecimal::from(bigdecimal::num_bigint::BigInt::from(event.debt0_shares)))
-    .bind(bigdecimal::BigDecimal::from(bigdecimal::num_bigint::BigInt::from(event.debt1_shares)))
+    .bind(bigdecimal::BigDecimal::from(
+        bigdecimal::num_bigint::BigInt::from(event.debt0_shares),
+    ))
+    .bind(bigdecimal::BigDecimal::from(
+        bigdecimal::num_bigint::BigInt::from(event.debt1_shares),
+    ))
     .bind(event.collateral0_liquidation_cf_bps as i32)
     .bind(event.collateral1_liquidation_cf_bps as i32)
     .bind(event.collateral0_max_cf_bps as i32)
@@ -353,14 +381,21 @@ pub async fn upsert_user_position_updated_event(
     .bind(event_timestamp)
     .execute(pool)
     .await;
-    
+
     if let Err(e) = upsert_result {
-        log::error!("Failed to upsert into user_position_updated_events table: {}", e);
-        return Err(carbon_core::error::Error::Custom(format!("Failed to upsert user position updated event: {}", e)));
+        log::error!(
+            "Failed to upsert into user_position_updated_events table: {}",
+            e
+        );
+        return Err(carbon_core::error::Error::Custom(format!(
+            "Failed to upsert user position updated event: {}",
+            e
+        )));
     }
-    
-    // Also upsert into user_borrow_positions table (latest position per pair per signer)
-    
+
+    // Also upsert into user_borrow_positions table (latest position per pair per
+    // signer)
+
     let upsert_latest_result = sqlx::query(
         r#"
         INSERT INTO user_borrow_positions (
@@ -382,15 +417,19 @@ pub async fn upsert_user_position_updated_event(
             slot = EXCLUDED.slot,
             event_timestamp = EXCLUDED.event_timestamp,
             updated_at = now()
-        "#
+        "#,
     )
     .bind(event.metadata.pair.to_string())
     .bind(event.metadata.signer.to_string())
     .bind(event.position.to_string())
     .bind(bigdecimal::BigDecimal::from(event.collateral0))
     .bind(bigdecimal::BigDecimal::from(event.collateral1))
-    .bind(bigdecimal::BigDecimal::from(bigdecimal::num_bigint::BigInt::from(event.debt0_shares)))
-    .bind(bigdecimal::BigDecimal::from(bigdecimal::num_bigint::BigInt::from(event.debt1_shares)))
+    .bind(bigdecimal::BigDecimal::from(
+        bigdecimal::num_bigint::BigInt::from(event.debt0_shares),
+    ))
+    .bind(bigdecimal::BigDecimal::from(
+        bigdecimal::num_bigint::BigInt::from(event.debt1_shares),
+    ))
     .bind(event.collateral0_liquidation_cf_bps as i32)
     .bind(event.collateral1_liquidation_cf_bps as i32)
     .bind(event.collateral0_max_cf_bps as i32)
@@ -400,12 +439,15 @@ pub async fn upsert_user_position_updated_event(
     .bind(chrono::Utc::now())
     .execute(pool)
     .await;
-    
+
     if let Err(e) = upsert_latest_result {
         log::error!("Failed to upsert into user_borrow_positions table: {}", e);
-        return Err(carbon_core::error::Error::Custom(format!("Failed to upsert user borrow position: {}", e)));
+        return Err(carbon_core::error::Error::Custom(format!(
+            "Failed to upsert user borrow position: {}",
+            e
+        )));
     }
-    
+
     Ok(())
 }
 
@@ -416,7 +458,7 @@ pub async fn upsert_user_position_liquidated_event(
     slot: i64,
 ) -> CarbonResult<()> {
     let pool = get_db_pool()?;
-    
+
     let upsert_result = sqlx::query(
         r#"
         INSERT INTO user_position_liquidated_events (
@@ -460,12 +502,18 @@ pub async fn upsert_user_position_liquidated_event(
     .bind(chrono::Utc::now())
     .execute(pool)
     .await;
-    
+
     if let Err(e) = upsert_result {
-        log::error!("Failed to upsert into user_position_liquidated_events table: {}", e);
-        return Err(carbon_core::error::Error::Custom(format!("Failed to upsert user position liquidated event: {}", e)));
+        log::error!(
+            "Failed to upsert into user_position_liquidated_events table: {}",
+            e
+        );
+        return Err(carbon_core::error::Error::Custom(format!(
+            "Failed to upsert user position liquidated event: {}",
+            e
+        )));
     }
-    
+
     Ok(())
 }
 
@@ -476,7 +524,7 @@ pub async fn upsert_pair_created_event(
     _slot: i64,
 ) -> CarbonResult<()> {
     let pool = get_db_pool()?;
-    
+
     let upsert_result = sqlx::query(
         r#"
         INSERT INTO pools (
@@ -517,12 +565,15 @@ pub async fn upsert_pair_created_event(
     .bind(event.max_rate_bps as i64)
     .execute(pool)
     .await;
-    
+
     if let Err(e) = upsert_result {
         log::error!("Failed to upsert into pools table: {}", e);
-        return Err(carbon_core::error::Error::Custom(format!("Failed to upsert pair created event: {}", e)));
+        return Err(carbon_core::error::Error::Custom(format!(
+            "Failed to upsert pair created event: {}",
+            e
+        )));
     }
-    
+
     Ok(())
 }
 
@@ -535,10 +586,10 @@ pub async fn upsert_user_liquidity_position_updated_event(
     instruction_path: &str,
 ) -> CarbonResult<()> {
     let pool = get_db_pool()?;
-    
+
     // Compute event_timestamp once for reuse
     let event_timestamp = chrono::Utc::now();
-    
+
     // Insert into user_lp_position_updated_events table (always inserts)
     let insert_event_result = sqlx::query(
         r#"
@@ -546,7 +597,7 @@ pub async fn upsert_user_liquidity_position_updated_event(
             pair_address, lp_amount, amount0, amount1, signer, timestamp, slot,
             transaction_signature, instruction_index, instruction_path
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        "#
+        "#,
     )
     .bind(event.metadata.pair.to_string())
     .bind(bigdecimal::BigDecimal::from(event.lp_amount))
@@ -560,14 +611,20 @@ pub async fn upsert_user_liquidity_position_updated_event(
     .bind(instruction_path)
     .execute(pool)
     .await;
-    
+
     if let Err(e) = insert_event_result {
-        log::error!("Failed to insert into user_lp_position_updated_events table: {}", e);
-        return Err(carbon_core::error::Error::Custom(format!("Failed to insert user liquidity position updated event: {}", e)));
+        log::error!(
+            "Failed to insert into user_lp_position_updated_events table: {}",
+            e
+        );
+        return Err(carbon_core::error::Error::Custom(format!(
+            "Failed to insert user liquidity position updated event: {}",
+            e
+        )));
     }
-    
-    // Upsert into user_liquidity_positions table (latest position per pair per signer)
-    // Uses ON CONFLICT with unique constraint on (pair, signer)
+
+    // Upsert into user_liquidity_positions table (latest position per pair per
+    // signer) Uses ON CONFLICT with unique constraint on (pair, signer)
     let upsert_result = sqlx::query(
         r#"
         INSERT INTO user_liquidity_positions (
@@ -582,7 +639,7 @@ pub async fn upsert_user_liquidity_position_updated_event(
             lp_amount = EXCLUDED.lp_amount,
             updated_at = now(),
             slot = EXCLUDED.slot
-        "#
+        "#,
     )
     .bind(event.metadata.pair.to_string())
     .bind(event.metadata.signer.to_string())
@@ -595,12 +652,18 @@ pub async fn upsert_user_liquidity_position_updated_event(
     .bind(bigdecimal::BigDecimal::from(event.metadata.slot))
     .execute(pool)
     .await;
-    
+
     if let Err(e) = upsert_result {
-        log::error!("Failed to upsert into user_liquidity_positions table: {}", e);
-        return Err(carbon_core::error::Error::Custom(format!("Failed to upsert user liquidity position: {}", e)));
+        log::error!(
+            "Failed to upsert into user_liquidity_positions table: {}",
+            e
+        );
+        return Err(carbon_core::error::Error::Custom(format!(
+            "Failed to upsert user liquidity position: {}",
+            e
+        )));
     }
-    
+
     Ok(())
 }
 
@@ -674,7 +737,10 @@ pub async fn upsert_update_pair_event(
 
     if let Err(e) = upsert_result {
         log::error!("Failed to upsert into update_pair_events table: {}", e);
-        return Err(carbon_core::error::Error::Custom(format!("Failed to upsert update pair event: {}", e)));
+        return Err(carbon_core::error::Error::Custom(format!(
+            "Failed to upsert update pair event: {}",
+            e
+        )));
     }
 
     Ok(())

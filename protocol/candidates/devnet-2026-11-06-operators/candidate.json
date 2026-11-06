@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "dusk-protocol-candidate.v1",
+  "status": "promoted",
+  "revision": "devnet-2026-11-06-operators",
+  "source": {
+    "repository": "https://github.com/omnipair/dusk",
+    "branch": "main",
+    "gitCommit": "d8c7f89534b734792ec32af6914e53c3efeb04a9",
+    "mergeCommit": "8dc51d0a68887af393d580b0a68b45a69d51365e"
+  },
+  "programs": [
+    {
+      "name": "dusk",
+      "programId": "B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2",
+      "idl": {
+        "path": "idl/dusk.json",
+        "sha256": "f84a03e73952f39e9055019a4595b482ee3e487fc561551d183380b13fabb3dc",
+        "canonicalSha256": "ce1c819b539c9a9ab526e84dd37b21326d6c0cdcfe7ab2af1fa05f9707d99e6d"
+      }
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "B315E6hHTgDjHgCCPungLop2mkgv9SHkcBc9ZzALNxNY",
+      "idl": {
+        "path": "idl/leverage_delegate.json",
+        "sha256": "9ec94b37072bbabe76f585ff600debb3163097ceca4755bccd68334e491e3147",
+        "canonicalSha256": "b3066a5badc7006b9379d750581c9014671f9bb56c411aea552710b84ffcbc9e"
+      }
+    }
+  ],
+  "sdk": {
+    "version": "2.18.0-next.20261106",
+    "tarball": "https://registry.npmjs.org/@omnipair/dusk-sdk/-/dusk-sdk-2.18.0-next.20261106.tgz",
+    "integrity": "sha512-Rz1Yvg43dIdLD1Tj0G2DIfLKSoZl2nIERBfuiYrJtGWpgR3wx9luYwsXD00akFY2bcObTUIYoEScAHvdXdXATw==",
+    "sha256": "f78066543b0605720115c04a0b9c5b54f383e953944b84476a3fa3127194caff"
+  },
+  "activation": "Fresh devnet program identity; start a new ingestion cursor after both finalized deployment slots. Matching published SDK from the merge-triggered npm workflow."
+}

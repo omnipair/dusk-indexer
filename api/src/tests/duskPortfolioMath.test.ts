@@ -126,3 +126,16 @@ test('USD values keep integer precision beyond JavaScript numbers and reject inv
   assert.equal(valuePortfolioBalances([balance],[{ mint: balance.mint,decimals: 0,priceUsd: '1.5',quality: 'configured-reference' }]).netUsd,'13510798882111489.5');
   assert.throws(() => valuePortfolioBalances([{ ...balance,decimals: -1 }],[]),/decimals/);
 });
+
+test('wide virtual reserves stay exact while physical cash keeps its u64 bound',() => {
+  const f=fixture(), wide=(1n<<64n)+1n;
+  nativeFields(nativeFields(f.market.base_side).reserves).live_reserve=wide;
+  nativeFields(f.preview.base).live_reserve=wide;
+  assert.doesNotThrow(() => assertPortfolioPreviewState(f.market,f.preview));
+  nativeFields(f.preview.base).live_reserve=wide+1n;
+  assert.throws(() => assertPortfolioPreviewState(f.market,f.preview),/reserves differ/);
+  nativeFields(f.preview.base).live_reserve=wide;
+  nativeFields(nativeFields(f.market.base_side).reserves).cash_reserve=wide;
+  nativeFields(f.preview.base).cash_reserve=wide;
+  assert.throws(() => assertPortfolioPreviewState(f.market,f.preview));
+});

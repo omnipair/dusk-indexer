@@ -1,4 +1,3 @@
-import { seniorLpFields } from './duskSeniorLp';
 import { marketLayoutVersion } from './duskProtocolSchema';
 /**
  * An owner's claimable LP yield: every (holder, market, LP mint) it has held,
@@ -225,7 +224,7 @@ export async function captureYieldGroup(
     if (!info || !info.owner.equals(owner)) throw new Error('Invalid yield source account');
     return info;
   };
-  const state = seniorLpFields(dusk.program.coder.accounts.decode<Market>('market', owned(infos[0], program).data));
+  const state = dusk.program.coder.accounts.decode<Market>('market', owned(infos[0], program).data);
   const clock = infos[7];
   if (
     !clock ||

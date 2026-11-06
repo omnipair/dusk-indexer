@@ -1,4 +1,3 @@
-import { seniorLpFields } from './duskSeniorLp';
 import { PublicKey } from '@solana/web3.js';
 import { DuskPinnedProtocol } from '../config/duskProtocol';
 import { priceMarketBindings, projectMarketPrices } from './duskPriceMath';
@@ -8,7 +7,7 @@ const NAD = 1_000_000_000n,U64 = (1n<<64n)-1n,U128 = (1n<<128n)-1n,USD_SCALE = 1
 export type PortfolioKind = 'borrow'|'leverage'|'srlp'|'base_hlp'|'quote_hlp';
 export const nativeFields = (value: unknown): Record<string,unknown> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Missing native portfolio fields');
-  return seniorLpFields(value) as Record<string,unknown>;
+  return value as Record<string,unknown>;
 };
 export const nativeKey = (value: unknown): string => {
   const text = value instanceof PublicKey ? value.toBase58() : value;
@@ -74,7 +73,7 @@ export function assertPortfolioPreviewState(market: Record<string,unknown>,previ
   for (const side of ['base','quote'] as const) {
     const raw = sideOf(market,side),observed = nativeFields(preview[side]),reserves = nativeFields(raw.reserves);
     for (const name of ['live_reserve','cash_reserve'] as const)
-      if (unsigned(reserves[name],U64) !== unsigned(observed[name],U64)) throw new Error('Simulated portfolio reserves differ from the preview');
+      if (unsigned(reserves[name],name === 'live_reserve' ? U128 : U64) !== unsigned(observed[name],name === 'live_reserve' ? U128 : U64)) throw new Error('Simulated portfolio reserves differ from the preview');
     if (unsigned(nativeFields(raw.shares).srlp_supply,U64) !== unsigned(observed.srlp_supply,U64) || indexOf(market,side) !== unsigned(observed.borrow_index_nad))
       throw new Error('Simulated portfolio shares/index differ from the preview');
   }
@@ -84,7 +83,7 @@ function curveReserve(market: Record<string,unknown>,side: 'base'|'quote'): bigi
   const fixed = indexedPortfolioDebt(debt[`fixed_${side}_shares`],index),isolated = indexedPortfolioDebt(debt[`isolated_${side}_shares`],index);
   const fixedPrincipal = unsigned(debt[`fixed_${side}_principal`],U64),isolatedPrincipal = unsigned(debt[`isolated_${side}_principal`],U64);
   const interest = (fixed>fixedPrincipal ? fixed-fixedPrincipal : 0n)+(isolated>isolatedPrincipal ? isolated-isolatedPrincipal : 0n);
-  const live = unsigned(nativeFields(sideOf(market,side).reserves).live_reserve,U64);
+  const live = unsigned(nativeFields(sideOf(market,side).reserves).live_reserve,U128);
   if (interest>live) throw new Error('Unrealized interest exceeds live reserves');
   return live-interest;
 }
@@ -160,7 +159,7 @@ export function projectPortfolioComponent(input: {
       const supply = shareSupply(market);
       if (holding>supply) throw new Error('LP holding exceeds market supply');
       for (const side of ['base','quote'] as const)
-        add(side,holding === 0n ? 0n : unsigned(multiplyDivide(holding,unsigned(nativeFields(sideOf(market,side).reserves).live_reserve,U64),supply),U64),'asset');
+        add(side,holding === 0n ? 0n : unsigned(multiplyDivide(holding,unsigned(nativeFields(sideOf(market,side).reserves).live_reserve,U128),supply),U64),'asset');
     } else if (preview) {
       const target = input.kind === 'base_hlp' ? 'base' : 'quote';
       hlpNav = hlpPortfolioPrincipal(market,preview,target,holding);

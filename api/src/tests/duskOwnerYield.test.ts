@@ -1,4 +1,3 @@
-import { seniorLpFixtureLayout } from './duskSeniorLpFixtures';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BN } from '@coral-xyz/anchor';
@@ -61,7 +60,7 @@ async function fixture(hlp = false, taxed = false) {
   const { dusk } = await createSdkTestRuntime(connection as unknown as Connection);
   response.value.returnData.programId = dusk.program.programId.toBase58();
   const layout = (name: string) =>
-    seniorLpFixtureLayout(IdlCoder.typeDefLayout({ typeDef: dusk.program.idl.types!.find((type) => type.name === name)!, types: dusk.program.idl.types! }));
+    IdlCoder.typeDefLayout({ typeDef: dusk.program.idl.types!.find((type) => type.name === name)!, types: dusk.program.idl.types! });
   const encodeType = (name: string, value: unknown) => {
     const bytes = Buffer.alloc(32768),
       length = layout(name).encode(value, bytes);

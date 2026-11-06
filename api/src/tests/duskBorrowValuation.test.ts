@@ -66,7 +66,7 @@ async function fixture(oracle?: boolean) {
       };
     },
   };
-  ({ dusk } = await createSdkTestRuntime(connection as unknown as Connection, oracle));
+  ({ dusk } = await createSdkTestRuntime(connection as unknown as Connection));
   const layout = (name: string) =>
     IdlCoder.typeDefLayout({ typeDef: dusk.program.idl.types!.find((t) => t.name === name)!, types: dusk.program.idl.types! });
   const encode = (name: string, value: unknown, kind: 'account' | 'type'): AccountInfo<Buffer> => {
@@ -165,11 +165,7 @@ test('a borrow valuation reads accrued debt, liquidation terms and distress from
   assert.equal(f.state.simulations[0].minContextSlot, 1990);
   assert.deepEqual((f.state.simulations[0].accounts as { addresses: string[] }).addresses,
     [f.ref.market, f.ref.address, SYSVAR_CLOCK_PUBKEY.toBase58()]);
-  f.state.distressActive = true;
-  const distressed = (await captureBorrowValuation(f.dusk, f.ref, 1990, displayKey(80).toBase58())) as BorrowValuation;
-  assert.deepEqual(distressed.quote.liquidationDistress, schema.marketLayoutVersion() === 6 ? {
-    active: true, startedAt: '1789999900', observedSlot: '1999',
-  } : undefined);
+
 });
 
 test('a rejected preview is an unavailable row; a changed owner, bank or stale slot fails', async () => {

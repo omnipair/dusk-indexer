@@ -1,4 +1,3 @@
-import { seniorLpFields } from './duskSeniorLp';
 // Backend display capture; ported from the reviewed webapp adapter.
 import { BorshInstructionCoder } from '@coral-xyz/anchor';
 import {
@@ -141,7 +140,7 @@ export async function readDuskEntryOrderReceipt(
     now > BigInt(order.expiryUnixTimestamp.toString()) ||
     market.version !== row.market.version ||
     market.bump !== row.market.bump ||
-    !seniorLpFields(market).srlpMint.equals(seniorLpFields(row.market).srlpMint) ||
+    !market.srlpMint.equals(row.market.srlpMint) ||
     !debt.assetMint.equals(order.debtMint) ||
     !collateralSide.assetMint.equals(order.collateralMint) ||
     market.baseSide.assetDecimals !== row.market.baseSide.assetDecimals ||

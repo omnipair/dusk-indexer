@@ -1,5 +1,7 @@
-use base64::{engine::general_purpose::STANDARD, Engine};
-use serde::{de, Deserialize, Deserializer};
+use {
+    base64::{Engine, engine::general_purpose::STANDARD},
+    serde::{Deserialize, Deserializer, de},
+};
 
 pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
 where

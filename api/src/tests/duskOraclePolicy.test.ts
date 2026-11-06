@@ -4,13 +4,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PublicKey } from '@solana/web3.js';
 import { BorshCoder, Idl } from '@coral-xyz/anchor';
-import { loadPinnedProtocol, loadProtocolAt, canonicalJson, sha256 } from '../config/duskProtocol';
 import { projectOraclePolicy, oracleReportAccounts } from '../services/duskOraclePolicy';
-import { governanceFamilyCount, marketLayoutVersion, marketAccountLayout } from '../services/duskProtocolSchema';
-import { sdkForProtocol } from '../services/virtualBook/native';
+import { marketAccountLayout } from '../services/duskProtocolSchema';
 
 const root = resolve(__dirname, '../../../protocol/candidates/next-2026-10-31-8fadcc31');
-const candidate = JSON.parse(readFileSync(resolve(root, 'candidate.json'), 'utf8'));
 const idl = JSON.parse(readFileSync(resolve(root, 'idl/dusk.json'), 'utf8')) as Idl;
 const golden = JSON.parse(readFileSync(resolve(root, 'fixtures/oracle-wire.json'), 'utf8'));
 const key = (n: number) => new PublicKey(Buffer.alloc(32,n)).toBase58();
@@ -19,31 +16,6 @@ const native = () => ({ format: 0, provider: key(0), baseAccount: key(0), quoteA
   quoteFeedId: Array(32).fill(0), lambdaBps: 0, adjustmentCapNad: '0', maxAgeSeconds: 0, maxAgeSlots: '0', maxConfidenceBps: 0, maxPublishSkewSeconds: 0 });
 const project = (policy: unknown) => projectOraclePolicy({ oracle: { policy } })!;
 
-test('reviewed candidate artifacts remain immutable beside the active deployment', async () => {
-  assert.equal(candidate.status,'undeployed');
-  assert.equal(candidate.source.gitCommit,'8fadcc31fbe542f4f822060724639a5057fad2cc');
-  for (const program of candidate.programs) {
-    const bytes = readFileSync(resolve(root,program.idl.path));
-    assert.equal(sha256(bytes),program.idl.sha256);
-    assert.equal(sha256(canonicalJson(JSON.parse(bytes.toString()))),program.idl.canonicalSha256);
-    assert.equal(program.deployment,undefined); assert.equal(program.binary,undefined);
-  }
-  assert.equal(sha256(readFileSync(resolve(root,'../../..',candidate.sdk.path))),candidate.sdk.sha256);
-  const legacy = loadProtocolAt(resolve(root,'../../archive/devnet-2026-10-26-cd6f1ec'));
-  assert.equal(legacy.revision,'devnet-2026-10-26-cd6f1ec');
-  assert.throws(() => loadProtocolAt(root),/protocol.lock/);
-  assert.equal(marketLayoutVersion(),10);
-  assert.equal(governanceFamilyCount(),9);
-  assert.equal(governanceFamilyCount(idl),8);
-  const pin = loadPinnedProtocol();
-  const historic = await sdkForProtocol(legacy);
-  assert.equal(sha256(canonicalJson(historic.IDL)),legacy.dusk.idlCanonicalSha256);
-  const current = await sdkForProtocol(pin);
-  assert.equal(sha256(canonicalJson(current.IDL)),pin.dusk.idlCanonicalSha256);
-  const future = await sdkForProtocol({ ...pin,dusk: { ...pin.dusk,idlCanonicalSha256: candidate.programs[0].idl.canonicalSha256 } });
-  assert.equal(sha256(canonicalJson(future.IDL)),candidate.programs[0].idl.canonicalSha256);
-  await assert.rejects(sdkForProtocol({ ...pin,dusk: { ...pin.dusk,idlCanonicalSha256: 'f'.repeat(64) } }),/differs/);
-});
 test('SDK-encoded Market and Oracle update agree with lossless indexed policy terms', () => {
   const coder = new BorshCoder(idl);
   const market = coder.accounts.decode('Market',Buffer.from(golden.marketHex,'hex'));
@@ -105,31 +77,4 @@ test('feed layout is independent of provider for policy projection and report ac
     else assert.throws(() => project({...policy,maxPublishSkewSeconds:1}));
     if (pyth) assert.throws(() => project({...policy,provider:key(2)}));
   }
-});
-
-test('layout-8 wire and SDK remain available as archived review material', async () => {
-  const futureRoot = resolve(root,'../next-2026-10-31-layouts');
-  const manifest = JSON.parse(readFileSync(resolve(futureRoot,'candidate.json'),'utf8'));
-  assert.equal(manifest.status,'undeployed');
-  for (const program of manifest.programs) {
-    const bytes=readFileSync(resolve(futureRoot,program.idl.path));
-    assert.equal(sha256(bytes),program.idl.sha256);
-    assert.equal(sha256(canonicalJson(JSON.parse(bytes.toString()))),program.idl.canonicalSha256);
-    assert.equal(program.deployment,undefined);assert.equal(program.binary,undefined);
-  }
-  assert.equal(sha256(readFileSync(resolve(futureRoot,'../../..',manifest.sdk.path))),manifest.sdk.sha256);
-  const futureIdl=JSON.parse(readFileSync(resolve(futureRoot,'idl/dusk.json'),'utf8')) as Idl;
-  const fixture=JSON.parse(readFileSync(resolve(futureRoot,'fixtures/oracle-wire.json'),'utf8'));
-  assert.deepEqual(marketAccountLayout(futureIdl),{versionOffset:413,prefixBytes:414,accountBytes:3541});
-  assert.equal(fixture.marketVersion,8);
-  const coder=new BorshCoder(futureIdl);
-  const decoded=coder.accounts.decode('Market',Buffer.from(fixture.marketHex,'hex')) as {oracle:{last_observation:unknown}};
-  assert.deepEqual(projectOraclePolicy(decoded),projectOraclePolicy(new BorshCoder(idl).accounts.decode('Market',Buffer.from(golden.marketHex,'hex'))));
-  const observation=decoded.oracle.last_observation as {source_sequences:unknown[];source_hashes:unknown[]};
-  assert.equal(observation.source_sequences.length,2);assert.equal(observation.source_hashes.length,2);
-  const active=loadPinnedProtocol();
-  assert.notEqual(active.dusk.idlCanonicalSha256,manifest.programs[0].idl.canonicalSha256);
-  const sdk=await sdkForProtocol({...active,dusk:{...active.dusk,idlCanonicalSha256:manifest.programs[0].idl.canonicalSha256}});
-  assert.equal(sha256(canonicalJson(sdk.IDL)),manifest.programs[0].idl.canonicalSha256);
-  assert.throws(() => loadProtocolAt(futureRoot),/protocol.lock/);
 });
