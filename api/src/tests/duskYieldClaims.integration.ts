@@ -88,6 +88,25 @@ test('finalized cash flows replay once, discover late old slots, and preserve ev
   await rejectsAtSavepoint(client, () => client.query('DELETE FROM dusk_ingestion.yield_claims WHERE event_key=$1', [first]), /FINALIZED_INVARIANT/);
 }));
 
+test('junior claims project once with their exact source, owner and LP kind', () => transaction(async client => {
+  const slot = 800000013;
+  const eventKey = await source(client,{ slot,fields: { ...payload(slot),token_kind: '2' } });
+  assert.equal(await projectYieldClaimBatch(client),1);
+  assert.equal(await projectYieldClaimBatch(client),0);
+  const view = await readYieldClaims(client,{ owner,limit: 10,offset: 0 });
+  assert.equal(view.pagination.total,1);
+  assert.equal(view.claims[0].eventKey,eventKey);
+  assert.equal(view.claims[0].tokenKind,'junior');
+  assert.equal(view.claims[0].owner,owner);
+  assert.equal(view.claims[0].grossAmount,'9007199254741000');
+  assert.equal(view.coverage.projectionComplete,true);
+  await rejectsAtSavepoint(client,() => client.query('UPDATE dusk_ingestion.yield_claims SET token_kind=0 WHERE event_key=$1',[eventKey]),/FINALIZED_INVARIANT/);
+  const invalidSlot = 800000014;
+  await source(client,{ slot: invalidSlot,fields: { ...payload(invalidSlot),token_kind: '3' } });
+  await rejectsAtSavepoint(client,() => projectYieldClaimBatch(client),/Unsupported yield claim token kind/);
+  assert.equal((await readYieldClaims(client,{ owner,limit: 10,offset: 0 })).pagination.total,1);
+}));
+
 test('microsecond claim time survives the projection and exact source guard', () => transaction(async client => {
   const eventKey = await source(client,{ slot: 800000005,time: '2026-09-01T00:00:00.123456Z' });
   assert.equal(await projectYieldClaimBatch(client),1);
