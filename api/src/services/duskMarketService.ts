@@ -1,3 +1,4 @@
+import { projectBorrowController } from './duskBorrowController';
 import { marketAccountLayout, marketLayoutVersion } from './duskProtocolSchema';
 import { projectOraclePolicy, oracleReportAccounts } from './duskOraclePolicy';
 /**
@@ -545,6 +546,7 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
     swapFeeBps: config.swapFeeBps,
     config,
     tranches: trancheProjection(marketAccount, sourceSlot),
+    borrowController: preview === null ? null : projectBorrowController(marketAccount,sourceSlot),
     tranchePolicy: (() => {
       const policy = field<Record<string, unknown> | undefined>(marketAccount, 'tranchePolicy', 'tranche_policy');
       if (!policy || typeof policy !== 'object') return null;

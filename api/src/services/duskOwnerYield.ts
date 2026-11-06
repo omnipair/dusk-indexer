@@ -67,6 +67,7 @@ export interface YieldStream {
   recipient: string;
   initialized: boolean;
   needsGrowth: boolean;
+  needsIncomeCatchup?: boolean;
   lpBalance: string;
   lpDecimals: number;
   assetDecimals: number;
@@ -275,6 +276,8 @@ export async function captureYieldGroup(
       recipient: account?.recipient.toBase58() ?? group.holder,
       initialized: account !== null,
       needsGrowth: info !== null && info.data.length < size,
+      needsIncomeCatchup: Boolean(account && group.kind !== 'hlp' && account.incomeInitialized &&
+        [0,1].some(source => BigInt(account.income[source].epoch.toString()) < BigInt(state.income.books[index+source*2].epoch.toString()))),
       lpBalance: balance.toString(),
       lpDecimals: lp.decimals,
       assetDecimals: mint.decimals,

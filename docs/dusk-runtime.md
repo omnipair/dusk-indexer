@@ -262,3 +262,9 @@ No observations are copied, rewritten or labelled as the active release. The
 ordinary history route, live prices, ingestion cursors and all write boundaries
 continue to reject a different protocol identity. Unknown archive/release pairs
 are rejected. Frontends may combine validated segments for chart display only.
+
+## Controller stress inputs and portfolio continuity
+
+Market state includes `borrowController` when a usable preview bank supplies a valuation mark. Its `dusk-borrow-controller.v1` inputs share the market source slot and quote-denominated NAD: funded junior capital, covered debt including public/leverage/hLP books, per-asset cash/debt values and the coverage signal. Unfunded public interest is excluded from junior backing; cash-funded advances remain backing. A client can illustrate new borrowing with these inputs while keeping collateral and daily admission checks on the normal transaction path.
+
+Portfolio downsampling preserves both sides of every valued/unavailable transition, as well as bucket samples. `gapBoundariesRetained` marks this contract. Clients show valid periods with explicit gaps and suppress unsupported range-return comparisons. No historical capture or valuation is rewritten. Owner yield streams expose `needsIncomeCatchup` for archived income epochs; the existing Claim flow handles the bounded checkpoint transactions before harvesting.
