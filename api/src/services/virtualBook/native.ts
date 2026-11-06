@@ -17,28 +17,16 @@ type Sdk = typeof import('@omnipair/dusk-sdk');
 const importSdk = new Function(
   "return import('@omnipair/dusk-sdk')",
 ) as () => Promise<Sdk>;
-/** Presence of the reviewed future SDK does not activate a protocol revision. */
+/** A fresh deployment uses one exact published SDK. A mismatched pin fails closed. */
 export async function sdkForProtocol(pin = loadPinnedProtocol()): Promise<Sdk> {
-  const current = await importSdk();
-  if (sha256(canonicalJson(current.IDL)) === pin.dusk.idlCanonicalSha256) return current;
-  const legacy = await (new Function("return import('@omnipair/dusk-sdk-legacy')")() as Promise<Sdk>);
-  if (sha256(canonicalJson(legacy.IDL)) === pin.dusk.idlCanonicalSha256) return legacy;
-  const oracle = await (new Function("return import('@omnipair/dusk-sdk-oracle')")() as Promise<typeof import('@omnipair/dusk-sdk-oracle')>);
-  if (sha256(canonicalJson(oracle.IDL)) === pin.dusk.idlCanonicalSha256) return oracle as unknown as Sdk;
-  const layouts = await (new Function("return import('@omnipair/dusk-sdk-layouts')")() as Promise<typeof import('@omnipair/dusk-sdk-layouts')>);
-  if (sha256(canonicalJson(layouts.IDL)) === pin.dusk.idlCanonicalSha256)
-    return layouts as unknown as Sdk;
-  const tranches = await (new Function("return import('@omnipair/dusk-sdk-tranches')")() as Promise<typeof import('@omnipair/dusk-sdk-tranches')>);
-  if (sha256(canonicalJson(tranches.IDL)) === pin.dusk.idlCanonicalSha256)
-    return tranches as unknown as Sdk;
-  const trancheGovernance = await (new Function("return import('@omnipair/dusk-sdk-tranche-governance')")() as Promise<typeof import('@omnipair/dusk-sdk-tranche-governance')>);
-  if (sha256(canonicalJson(trancheGovernance.IDL)) !== pin.dusk.idlCanonicalSha256)
-    throw new Error('VOB SDK IDL differs from the pinned deployment');
-  // Only shared API signatures are adapted here. Return-data decoding still
-  // comes from the matching SDK; removed distress data is optional downstream.
-  return trancheGovernance as unknown as Sdk;
+  const current=await importSdk();
+  if(current.DUSK_PROGRAM_ID.toBase58()!==pin.dusk.programId
+    ||sha256(canonicalJson(current.IDL))!==pin.dusk.idlCanonicalSha256)
+    throw new Error('SDK identity differs from the pinned deployment');
+  return current;
 }
 let sdkExports: Sdk | undefined;
+export const calculateLeverageCloseoutPrice: Sdk['calculateLeverageCloseoutPrice'] = (...args) => sdkExports!.calculateLeverageCloseoutPrice(...args);
 // Native ESM imports are initialized once by createVirtualBookRuntime.
 export const decodePreviewSwapReturnData: Sdk['decodePreviewSwapReturnData'] = (
   ...args
@@ -62,6 +50,8 @@ export const deriveLeverageOrderAddress: Sdk['deriveLeverageOrderAddress'] = (
 ) => sdkExports!.deriveLeverageOrderAddress(...args);
 export const deriveLeveragePositionAddress: Sdk['deriveLeveragePositionAddress'] =
   (...args) => sdkExports!.deriveLeveragePositionAddress(...args);
+export const deriveOperatorProposalAddress: Sdk['deriveOperatorProposalAddress'] = (...args) =>
+  sdkExports!.deriveOperatorProposalAddress(...args);
 export const deriveMarketAddress: Sdk['deriveMarketAddress'] = (...args) =>
   sdkExports!.deriveMarketAddress(...args);
 export const deriveReferralAccrualAddress: Sdk['deriveReferralAccrualAddress'] =
@@ -78,17 +68,7 @@ export const decodePreviewMarketReturnData: Sdk['decodePreviewMarketReturnData']
 export const deriveBorrowPositionAddress: Sdk['deriveBorrowPositionAddress'] = (
   ...args
 ) => sdkExports!.deriveBorrowPositionAddress(...args);
-export const deriveYieldAccountAddress: Sdk['deriveYieldAccountAddress'] = (
-  ...args
-) => {
-  // Enum code zero is stable across the historical and renamed interfaces.
-  const [market, owner, lpMint, assetMint, kind, programId] = args;
-  return sdkExports!.deriveYieldAccountAddress(market, owner, lpMint, assetMint, kind === 'srlp' ? 0 : kind, programId);
-};
-export const deriveGovernanceBalanceAddress: Sdk['deriveGovernanceBalanceAddress'] = (...args) =>
-  sdkExports!.deriveGovernanceBalanceAddress(...args);
-export const deriveGovernanceSupportAddress: Sdk['deriveGovernanceSupportAddress'] = (...args) =>
-  sdkExports!.deriveGovernanceSupportAddress(...args);
+export const deriveYieldAccountAddress: Sdk['deriveYieldAccountAddress'] = (...args) => sdkExports!.deriveYieldAccountAddress(...args);
 export const minimumDuskReadSlot = (deployment: DuskDeploymentEnvelope) =>
   Math.max(
     Number(deployment.programDataSlot),

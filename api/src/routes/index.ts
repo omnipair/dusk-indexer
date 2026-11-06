@@ -47,7 +47,7 @@ const DUSK_ENDPOINTS = {
   provenance: 'GET /api/dusk/v1/provenance',
   config: 'GET /api/dusk/v1/config',
   'market-state': 'GET /api/dusk/v1/markets/state',
-  'governance-proposals': 'GET /api/dusk/v1/governance/proposals?market=ADDR'
+  'market-operator': 'GET /api/dusk/v1/markets/ADDR/operator'
 };
 
 router.get('/', (req, res) => {

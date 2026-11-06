@@ -1,7 +1,8 @@
 import { minimumDuskReadSlot } from './native';
 import type { DuskDeploymentEnvelope } from '../duskDeploymentService';
 import type { DuskReadBoundary } from './native';
-import type { Dusk } from '@omnipair/dusk-sdk';
+import type { Dusk, DuskVirtualBookSnapshot as NativeSnapshot } from '@omnipair/dusk-sdk';
+export type DuskVirtualBookSnapshot = NativeSnapshot & { deployment: DuskDeploymentEnvelope };
 
 /** The SDK owns computation; this adapter owns deployment and mutation freshness. */
 export async function readDuskVirtualBook({
@@ -16,7 +17,7 @@ export async function readDuskVirtualBook({
   deployment: DuskDeploymentEnvelope;
   boundary: Pick<DuskReadBoundary, 'assertCompatibleForRead'>;
   signal?: AbortSignal;
-}) {
+}): Promise<DuskVirtualBookSnapshot> {
   if (dusk.program.programId.toBase58() !== deployment.programId)
     throw new Error('Depth SDK deployment mismatch');
   const before = await boundary.assertCompatibleForRead(deployment, signal);
@@ -32,6 +33,3 @@ export async function readDuskVirtualBook({
     throw new Error('Market depth was invalidated');
   return { ...snapshot, deployment };
 }
-export type DuskVirtualBookSnapshot = Awaited<
-  ReturnType<typeof readDuskVirtualBook>
->;

@@ -1,9 +1,12 @@
-use sqlx::postgres::{PgListener, PgPool};
-use std::collections::HashMap;
-use tokio::sync::broadcast;
-use tokio::time::{Duration, Instant, interval};
-
-use crate::grpc_server::stream::SwapsUpdate;
+use {
+    crate::grpc_server::stream::SwapsUpdate,
+    sqlx::postgres::{PgListener, PgPool},
+    std::collections::HashMap,
+    tokio::{
+        sync::broadcast,
+        time::{Duration, Instant, interval},
+    },
+};
 
 /// How long to hold an INSERT notification waiting for the enriched UPDATE.
 /// Configurable via GRPC_DEDUP_TIMEOUT_SECS env var (default: 5).
@@ -50,7 +53,8 @@ pub async fn start_db_listener(
     let dedup_timeout_dur = dedup_timeout();
     let mut tick = interval(tick_interval_duration());
 
-    log::info!("Dedup buffer: timeout={}s, tick={}s (configurable via GRPC_DEDUP_TIMEOUT_SECS, GRPC_DEDUP_TICK_SECS)",
+    log::info!(
+        "Dedup buffer: timeout={}s, tick={}s (configurable via GRPC_DEDUP_TIMEOUT_SECS, GRPC_DEDUP_TICK_SECS)",
         dedup_timeout_dur.as_secs(),
         tick_interval_duration().as_secs()
     );

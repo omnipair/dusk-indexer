@@ -71,10 +71,10 @@ test('failed market previews preserve fresh raw account visibility with no usabl
   assert.deepEqual(sample.requestedSlots,[sample.source.slot,sample.source.slot+1]);
 });
 test('a failed preview keeps its reason, named from the pinned IDL, and a working one carries none',async () => {
-  const stale = fixture({ live: true,failed: true,failure: { InstructionError: [2,{ Custom: 6148 }] } });
+  const stale = fixture({ live: true,failed: true,failure: { InstructionError: [2,{ Custom: 6144 }] } });
   const snapshot = await captureLiveMarketSimulation(stale.source.market,stale.source.slot,[stale.extra],stale.dependencies);
   assert.equal(snapshot.previewUnavailable,true);
-  assert.deepEqual(snapshot.previewFailure,{ reason: 'oracle-stale',errorName: 'OracleStale',errorCode: 6148 });
+  assert.deepEqual(snapshot.previewFailure,{ reason: 'oracle-stale',errorName: 'OracleStale',errorCode: 6144 });
   const working = fixture({ live: true });
   const ok = await captureLiveMarketSimulation(working.source.market,working.source.slot,[working.extra],working.dependencies);
   // A successful capture is unchanged, so saved evidence hashes the same.
@@ -82,14 +82,14 @@ test('a failed preview keeps its reason, named from the pinned IDL, and a workin
 });
 test('preview failures map to oracle-stale, other program errors, or simulation errors',() => {
   const idl = duskRawIdl();
-  assert.deepEqual(previewFailureFrom({ InstructionError: [2,{ Custom: 6148 }] },idl),{ reason: 'oracle-stale',errorName: 'OracleStale',errorCode: 6148 });
-  assert.deepEqual(previewFailureFrom({ InstructionError: [2,{ Custom: 6147 }] },idl),
-    { reason: 'program-error',errorName: 'OracleInvalidObservation',errorCode: 6147 });
+  assert.deepEqual(previewFailureFrom({ InstructionError: [2,{ Custom: 6144 }] },idl),{ reason: 'oracle-stale',errorName: 'OracleStale',errorCode: 6144 });
+  assert.deepEqual(previewFailureFrom({ InstructionError: [2,{ Custom: 6143 }] },idl),
+    { reason: 'program-error',errorName: 'OracleInvalidObservation',errorCode: 6143 });
   // Anchor's own codes and other programs' codes are not in the IDL.
   assert.deepEqual(previewFailureFrom({ InstructionError: [2,{ Custom: 3012 }] },idl),{ reason: 'program-error',errorName: null,errorCode: 3012 });
   assert.deepEqual(previewFailureFrom({ InstructionError: [2,'InvalidArgument'] },idl),{ reason: 'program-error',errorName: 'InvalidArgument',errorCode: null });
   // The compute-budget instructions ahead of the preview are not the program.
-  assert.deepEqual(previewFailureFrom({ InstructionError: [1,{ Custom: 6148 }] },idl),{ reason: 'simulation-error',errorName: null,errorCode: null });
+  assert.deepEqual(previewFailureFrom({ InstructionError: [1,{ Custom: 6144 }] },idl),{ reason: 'simulation-error',errorName: null,errorCode: null });
   assert.deepEqual(previewFailureFrom('AccountNotFound',idl),{ reason: 'simulation-error',errorName: 'AccountNotFound',errorCode: null });
   assert.deepEqual(previewFailureFrom({ InsufficientFundsForRent: { account_index: 0 } },idl),{ reason: 'simulation-error',errorName: null,errorCode: null });
   assert.deepEqual(previewFailureFrom('<not a name>',idl),{ reason: 'simulation-error',errorName: null,errorCode: null });

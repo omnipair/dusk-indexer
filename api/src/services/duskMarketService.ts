@@ -204,14 +204,8 @@ function marketConfigPayload(marketAccount: unknown): Record<string, unknown> {
       volatilityHalfLifeMs: stringValue(
         field(amm, 'volatilityHalfLifeMs', 'volatility_half_life_ms'),
       ),
-      adjustmentThresholdNad: stringValue(
-        field(amm, 'adjustmentThresholdNad', 'adjustment_threshold_nad'),
-      ),
       adjustmentStepNad: stringValue(
         field(amm, 'adjustmentStepNad', 'adjustment_step_nad'),
-      ),
-      minAdjustmentIntervalSlots: stringValue(
-        field(amm, 'minAdjustmentIntervalSlots', 'min_adjustment_interval_slots'),
       ),
       volatilityShockCapNad: stringValue(
         field(amm, 'volatilityShockCapNad', 'volatility_shock_cap_nad'),
@@ -251,8 +245,6 @@ function marketConfigPayload(marketAccount: unknown): Record<string, unknown> {
       upperSignalNad: stringValue(field(irm, 'upperSignalNad', 'upper_signal_nad')),
       halfLifeMs: stringValue(field(irm, 'halfLifeMs', 'half_life_ms')),
       initialAprNad: stringValue(field(irm, 'initialAprNad', 'initial_apr_nad')),
-      minimumAprNad: stringValue(field(irm, 'minimumAprNad', 'minimum_apr_nad')),
-      maximumAprNad: stringValue(field(irm, 'maximumAprNad', 'maximum_apr_nad')),
       borrowUtilizationLimitBps: numberValue(
         field(irm, 'borrowUtilizationLimitBps', 'borrow_utilization_limit_bps'),
       ),
@@ -286,8 +278,6 @@ export interface DuskMarketAssociatedAddresses {
   quoteReserveVault: string;
   baseCollateralVault: string;
   quoteCollateralVault: string;
-  baseInsuranceVault: string;
-  quoteInsuranceVault: string;
   baseInterestVault: string;
   quoteInterestVault: string;
   baseHlpSrlpVault: string;
@@ -303,7 +293,7 @@ function pda(seeds: (Buffer | Uint8Array)[], programId: PublicKey): string {
  *
  * The account already stores its mints, decimals, HLP mints and the reserve,
  * collateral and interest vaults, so almost nothing needs deriving — only the
- * insurance and HLP/SRLP vaults, whose seeds come from the IDL. The token
+ * HLP/SRLP vaults, whose seeds come from the IDL. The token
  * programs are the mints' owners, which is the one thing that has to be read.
  */
 function associatedAddresses(
@@ -370,8 +360,6 @@ function associatedAddresses(
     quoteReserveVault: stringValue(field(quoteSide, 'reserveVault', 'reserve_vault')),
     baseCollateralVault: stringValue(field(baseSide, 'collateralVault', 'collateral_vault')),
     quoteCollateralVault: stringValue(field(quoteSide, 'collateralVault', 'collateral_vault')),
-    baseInsuranceVault: pda([seed('insurance'), marketBytes, baseMint.toBuffer()], programId),
-    quoteInsuranceVault: pda([seed('insurance'), marketBytes, quoteMint.toBuffer()], programId),
     baseInterestVault: stringValue(field(baseSide, 'interestVault', 'interest_vault')),
     quoteInterestVault: stringValue(field(quoteSide, 'interestVault', 'interest_vault')),
     baseHlpSrlpVault: hlpSrlpVault(baseHlpMint),
@@ -416,11 +404,11 @@ function trancheProjection(marketAccount: unknown, sourceSlot: number) {
       minimumNoticeSlots: stringValue(field(exit, 'minimumNoticeSlots', 'minimum_notice_slots')),
       maximumNoticeSlots: stringValue(field(exit, 'maximumNoticeSlots', 'maximum_notice_slots')),
       exerciseWindowSlots: stringValue(field(exit, 'exerciseWindowSlots', 'exercise_window_slots')),
-      requestFeeBps: numberValue(field(exit, 'requestFeeBps', 'request_fee_bps')),
+      requestFeeBps: 50,
     },
     policy: policy && typeof policy === 'object' ? {
       juniorIncomeShareBps: numberValue(field(policy, 'juniorIncomeShareBps', 'junior_income_share_bps')),
-      liquidationFeeBps: numberValue(field(policy, 'liquidationFeeBps', 'liquidation_fee_bps')),
+      liquidationFeeBps: 300,
     } : null,
     rates: null,
   };
@@ -520,16 +508,6 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
   const baseBucket = field(baseSide, 'dailyBorrowBucket', 'daily_borrow_bucket');
   const quoteBucket = field(quoteSide, 'dailyBorrowBucket', 'daily_borrow_bucket');
   const debt = field(marketAccount, 'debt');
-  const insurance = field(marketAccount, 'insurance');
-  const insuranceWindow = (side: 'base' | 'quote') => {
-    const window = field(insurance, `${side}DrawWindow`, `${side}_draw_window`);
-    return {
-      startSlot: stringValue(field(window, 'startSlot', 'start_slot')),
-      openingAvailable: stringValue(field(window, 'openingAvailable', 'opening_available')),
-      credited: stringValue(field(window, 'credited')),
-      drawn: stringValue(field(window, 'drawn')),
-    };
-  };
 
   const fixedBaseShares = toBigInt(field(debt, 'fixedBaseShares', 'fixed_base_shares'));
   const fixedQuoteShares = toBigInt(field(debt, 'fixedQuoteShares', 'fixed_quote_shares'));
@@ -570,25 +548,31 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
     tranchePolicy: (() => {
       const policy = field<Record<string, unknown> | undefined>(marketAccount, 'tranchePolicy', 'tranche_policy');
       if (!policy || typeof policy !== 'object') return null;
-      const exit = field<Record<string, unknown>>(marketAccount, 'juniorExitConfig', 'junior_exit_config');
       return {
         juniorIncomeShareBps: numberValue(field(policy, 'juniorIncomeShareBps', 'junior_income_share_bps')),
-        requestFeeBps: numberValue(field(exit, 'requestFeeBps', 'request_fee_bps')),
-        liquidationFeeBps: numberValue(field(policy, 'liquidationFeeBps', 'liquidation_fee_bps')),
+        requestFeeBps: 50,
+        liquidationFeeBps: 300,
       };
     })(),
     oraclePolicy: projectOraclePolicy(marketAccount),
-    insurance: {
-      principalCoverageBps: numberValue(
-        field(insurance, 'principalCoverageBps', 'principal_coverage_bps'),
-      ),
-      perDayDrawBps: numberValue(field(insurance, 'perDayDrawBps', 'per_day_draw_bps')),
-      baseWindow: insuranceWindow('base'),
-      quoteWindow: insuranceWindow('quote'),
-    },
-    governanceLockedSrlp: stringValue(
-      field(marketAccount, 'governanceLockedSrlp', 'governance_locked_srlp'),
-    ),
+    operator: (() => {
+      const operator = field(marketAccount, 'operator');
+      const optionalKey = (name: string, snake: string) => {
+        const value = stringValue(field(operator, name, snake));
+        return value === PublicKey.default.toBase58() ? null : value;
+      };
+      return {
+        authority: optionalKey('authority', 'authority'),
+        manager: optionalKey('manager', 'manager'),
+        epoch: stringValue(field(operator, 'epoch')),
+        nextNonce: stringValue(field(operator, 'nextNonce', 'next_nonce')),
+        pending: optionalKey('pending', 'pending'),
+        pendingAuthor: optionalKey('pendingAuthor', 'pending_author'),
+        revenueEpoch: stringValue(field(operator, 'revenueEpoch', 'revenue_epoch')),
+        revenueRecipient: stringValue(field(operator, 'revenueRecipient', 'revenue_recipient')),
+        interestShareBps: numberValue(field(operator, 'interestShareBps', 'interest_share_bps')),
+      };
+    })(),
     parameterRevisions: Array.from(
       (field<unknown[]>(marketAccount, 'parameterRevisions', 'parameter_revisions') ??
         []) as unknown[],
@@ -635,8 +619,6 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
       isolatedQuotePrincipal: stringValue(
         field(debt, 'isolatedQuotePrincipal', 'isolated_quote_principal'),
       ),
-      baseInsuranceAvailable: stringValue(field(insurance, 'baseAvailable', 'base_available')),
-      quoteInsuranceAvailable: stringValue(field(insurance, 'quoteAvailable', 'quote_available')),
       baseSwapFeeCustodyBalance: stringValue(
         field(baseFees, 'swapFeeCustodyBalance', 'swap_fee_custody_balance'),
       ),

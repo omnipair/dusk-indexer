@@ -1,4 +1,3 @@
-import { seniorLpFields } from './duskSeniorLp';
 import { marketLayoutVersion } from './duskProtocolSchema';
 import {
   createInitializeAccount3Instruction,
@@ -113,10 +112,10 @@ export async function captureLeverageValuation(
     marketRead.context.slot < initial.context.slot
   )
     throw new Error('Regressed valuation market slot');
-  const market = seniorLpFields(dusk.program.coder.accounts.decode<Market>(
+  const market = dusk.program.coder.accounts.decode<Market>(
     'market',
     assertProgramAccount(marketRead.value).data,
-  ));
+  );
   if (market.version !== marketLayoutVersion())
     throw new Error('Unsupported valuation market');
   const debtSide = position.debtAsset === 0 ? 'baseSide' : 'quoteSide';
@@ -259,10 +258,10 @@ export async function captureLeverageValuation(
     !token.mint.equals(mintAddress)
   )
     throw new Error('Valuation receipt token identity changed');
-  const afterMarket = seniorLpFields(dusk.program.coder.accounts.decode<Market>(
+  const afterMarket = dusk.program.coder.accounts.decode<Market>(
     'market',
     assertProgramAccount(accountAt(2)).data,
-  ));
+  );
   if (
     afterMarket.version !== marketLayoutVersion() ||
     !afterMarket.srlpMint.equals(market.srlpMint) ||

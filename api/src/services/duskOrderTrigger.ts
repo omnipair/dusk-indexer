@@ -10,7 +10,7 @@ import {
 import { BN } from './virtualBook/native';
 import { boundedDuskRpcRead } from './virtualBook/native';
 
-import type { Dusk, HlpCohort, Market } from '@omnipair/dusk-sdk';
+import type { Dusk, HlpCohort, Market, HlpOrderTriggerPreview } from '@omnipair/dusk-sdk';
 import { assertRetiredHlpCohort, hlpCohortAddress } from './duskHlpCohort';
 
 /** The same native preview used by the delegate, including its 12-hour funding EMA. */
@@ -24,7 +24,8 @@ export async function previewDuskHlpOrderTrigger(
   accounts?: string[],
   signal?: AbortSignal,
   expectedHlpMint?: PublicKey,
-) {
+): Promise<{ slot: number; value: HlpOrderTriggerPreview | null; retired?: boolean;
+  accounts?: import('@solana/web3.js').SimulatedTransactionResponse['accounts'] }> {
   signal?.throwIfAborted();
   const cohort = expectedHlpMint ? hlpCohortAddress(market, expectedHlpMint, dusk.program.programId)[0] : null;
   if (cohort) accounts = [...new Set([...(accounts ?? []), market.toBase58(), cohort.toBase58()])];

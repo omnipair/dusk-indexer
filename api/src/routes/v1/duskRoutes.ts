@@ -52,9 +52,8 @@ import { clearQuoteHistoryCache, listQuoteHistory } from '../../services/duskQuo
 import { listArchivedQuoteHistory } from '../../services/duskArchivedQuoteHistory';
 import { openDuskChangeStream } from '../../services/duskChangeStream';
 import { listPortfolioHistory, portfolioSampleSeconds } from '../../services/duskPortfolioSnapshots';
-import { governanceSelection, listGovernanceProposals } from '../../services/duskGovernance';
+import { currentMarketOperator } from '../../services/duskOperator';
 import { currentLiquidations } from '../../services/duskLiquidations';
-import { currentOwnerGovernance } from '../../services/duskOwnerGovernance';
 import { currentReferralPartner } from '../../services/duskReferralPartner';
 import { currentOwnerYield } from '../../services/duskOwnerYield';
 import { displayPublicKey } from '../../services/duskOwnerAccounts';
@@ -104,13 +103,6 @@ router.get('/owners/:owner/accounts/:kind', asyncRoute(async (req, res) => {
 router.get('/owners/:owner/leverage-valuations/:address', asyncRoute(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json(await currentLeverageValuation(leverageValuationSelection(req.params.owner, req.params.address)));
-}));
-
-/** Supports locked from streamed events; yield-account flags for one market. */
-router.get('/owners/:owner/governance', asyncRoute(async (req, res) => {
-  const selection = { owner: displayPublicKey(req.params.owner), market: governanceSelection(req.query.market) };
-  res.setHeader('Cache-Control', 'no-store');
-  res.json(await currentOwnerGovernance(selection));
 }));
 
 /** Partner terms and accruals from streamed events, with current transfer fees. */
@@ -384,13 +376,9 @@ router.get(
 );
 
 /** Saved native position values, with catalog and per-bank coverage. */
-/** Governance proposals and each market's eligible srLP, from streamed events. */
-router.get('/governance/proposals',asyncRoute(async (req,res) => {
-  const market = governanceSelection(req.query.market);
-  res.set('Cache-Control','no-store').json(await withDeploymentRead(async () => {
-    const data = await listGovernanceProposals(market);
-    return { data,sourceSlot: data.sourceSlot };
-  }));
+/** Current operator/manager and single pending bundle, read by the indexer. */
+router.get('/markets/:market/operator', asyncRoute(async (req, res) => {
+  res.set('Cache-Control', 'no-store').json(await currentMarketOperator(req.params.market));
 }));
 
 router.get('/owners/:owner/portfolio-snapshots',asyncRoute(async (req,res) => {

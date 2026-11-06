@@ -1,5 +1,3 @@
-import { seniorLpFields } from '../services/duskSeniorLp';
-import { seniorLpFixtureLayout } from './duskSeniorLpFixtures';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BorshCoder, BN } from '@coral-xyz/anchor';
@@ -15,7 +13,7 @@ import { leverageCollateralAddress, tokenMetadataAddress } from '../services/dus
 
 function liveFixture() {
   const fixture = portfolioFixture(),group = fixture.source.groups[0],decoder = new BorshCoder(duskRawIdl());
-  const market = seniorLpFields(decoder.accounts.decode('Market',Buffer.from(group.marketAccount.data,'base64'))) as any;
+  const market = decoder.accounts.decode('Market',Buffer.from(group.marketAccount.data,'base64')) as any;
   const preview = decoder.types.decode('MarketPreview',Buffer.from(group.preview!,'base64')) as any;
   // The curve price differs from reserve ratio. Accrued isolated debt and
   // hLP funding debt must both survive the API/UI adapter.
@@ -92,7 +90,7 @@ test('a failed preview preserves market inventory and marks every preview-only v
   assert.deepEqual(payload.displayPrices.prices,[]);
 });
 test('a failed preview says why on the market state, and a working one says nothing',() => {
-  const sample = liveFixture(),failure = { reason: 'oracle-stale' as const,errorName: 'OracleStale',errorCode: 6148 };
+  const sample = liveFixture(),failure = { reason: 'oracle-stale' as const,errorName: 'OracleStale',errorCode: 6144 };
   const stale = projectMarketSnapshot({ ...sample.snapshot,preview: null,basis: 'rpc-account',previewUnavailable: true,previewFailure: failure },sample.references) as any;
   assert.deepEqual(stale.state.previewFailure,failure);
   // A capture made before the field existed cannot say why.
@@ -101,19 +99,20 @@ test('a failed preview says why on the market state, and a working one says noth
   const working = projectMarketSnapshot(sample.snapshot,sample.references) as any;
   assert.equal(working.state.previewStatus,'available'); assert.equal(working.state.previewFailure,null);
 });
-test('insurance caps and both draw windows come from the same decoded market bank even without a preview',() => {
+test('operator roles and fee terms come from the same decoded market bank without a preview',() => {
+
   const sample = liveFixture();
-  sample.market.insurance.principal_coverage_bps = 7500;
-  sample.market.insurance.per_day_draw_bps = 1500;
-  sample.market.insurance.base_available = new BN('9007199254740993');
-  sample.market.insurance.base_draw_window = { start_slot: new BN(12), opening_available: new BN('9007199254740993'), credited: new BN(55), drawn: new BN(23) };
-  sample.market.insurance.quote_draw_window = { start_slot: new BN(13), opening_available: new BN(21), credited: new BN(8), drawn: new BN(5) };
+  Object.assign(sample.market.operator, { authority: fixtureKey(90), manager: fixtureKey(91),
+    epoch: new BN('9007199254740993'), next_nonce: new BN(12), pending: PublicKey.default,
+    pending_author: PublicKey.default, revenue_epoch: new BN(7), revenue_recipient: fixtureKey(92), interest_share_bps: 5000 });
   const payload = projectMarketSnapshot({ ...sample.snapshot, preview: null, basis: 'rpc-account', previewUnavailable: true,
     marketAccount: { ...sample.snapshot.marketAccount, data: encodeFixtureAccount('Market',sample.market).toString('base64') } },sample.references) as any;
-  assert.equal(payload.state.baseInsuranceAvailable,'9007199254740993');
-  assert.deepEqual(payload.insurance, { principalCoverageBps: 7500, perDayDrawBps: 1500,
-    baseWindow: { startSlot: '12', openingAvailable: '9007199254740993', credited: '55', drawn: '23' },
-    quoteWindow: { startSlot: '13', openingAvailable: '21', credited: '8', drawn: '5' } });
+  assert.deepEqual(payload.operator, { authority: fixtureKey(90).toBase58(), manager: fixtureKey(91).toBase58(),
+    epoch: '9007199254740993', nextNonce: '12', pending: null, pendingAuthor: null, revenueEpoch: '7',
+    revenueRecipient: fixtureKey(92).toBase58(), interestShareBps: 5000 });
+  assert.equal(payload.insurance, undefined);
+  assert.equal(payload.tranchePolicy.requestFeeBps,50);
+  assert.equal(payload.tranchePolicy.liquidationFeeBps,300);
   assert.equal(payload.state.sourceSlot,sample.snapshot.slot);
 });
 test('a missing or foreign mint cannot be used as the market token program',() => {
@@ -210,7 +209,7 @@ test('market payload exposes configured Oracle terms even when its valuation pre
   sample.market.oracle = candidate.oracle;
   sample.market.version = 7;
   sample.market.parameter_revisions = Array.from({ length: 8 },() => new BN(0));
-  const layout = seniorLpFixtureLayout(IdlCoder.typeDefLayout({ typeDef: idl.types.find((row: { name: string }) => row.name === 'Market'),types: idl.types }));
+  const layout = IdlCoder.typeDefLayout({ typeDef: idl.types.find((row: { name: string }) => row.name === 'Market'),types: idl.types });
   const bytes = Buffer.alloc(32768),length = layout.encode(sample.market,bytes);
   const encoded = Buffer.concat([Buffer.from(idl.accounts.find((row: { name: string }) => row.name === 'Market').discriminator),bytes.subarray(0,length)]);
   const pinned = mock.method(schema,'pinnedDuskIdl',() => idl);

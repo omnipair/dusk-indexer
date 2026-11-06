@@ -6,7 +6,7 @@ use {
     std::collections::BTreeSet,
 };
 
-const DUSK_EVENTS: [&str; 61] = [
+const DUSK_EVENTS: [&str; 59] = [
     "BorrowInterestAccrued",
     "BorrowInterestPaid",
     "BorrowPositionLiquidated",
@@ -14,8 +14,6 @@ const DUSK_EVENTS: [&str; 61] = [
     "EmergencyLiquidationSettled",
     "FlashLiquidationBegun",
     "FlashLiquidationSettled",
-    "GovernanceBalanceUpdated",
-    "GovernanceSupportChanged",
     "HarvestAuthorityUpdated",
     "HlpClosed",
     "HlpCohortRotated",
@@ -26,7 +24,6 @@ const DUSK_EVENTS: [&str; 61] = [
     "HlpRebalanced",
     "HlpRetiredReceiptBurned",
     "HlpTerminalLiquidated",
-    "InsuranceDonated",
     "JuniorCohortInitialized",
     "JuniorSeedCompounded",
     "JuniorSeedFunded",
@@ -40,22 +37,23 @@ const DUSK_EVENTS: [&str; 61] = [
     "LiquidityAdded",
     "LiquidityRemoved",
     "LpTransferred",
+    "ManagerChanged",
     "MarketCollateralDeposited",
     "MarketCollateralWithdrawn",
     "MarketCreated",
     "MarketDebtUpdated",
     "MarketHealthUpdated",
     "MarketReduceOnlyUpdated",
-    "ParameterProposalCreated",
-    "ParameterProposalExecuted",
-    "ParameterProposalQueued",
-    "ParameterProposalSupportWithdrawn",
-    "ParameterProposalSupported",
+    "OperatorChangeAnnounced",
+    "OperatorChangeResolved",
+    "OperatorChanged",
+    "OperatorRevenueClaimed",
     "ProtocolAuctionConfigUpdated",
     "ProtocolAuctionRecipientsUpdated",
     "ProtocolAuctionRouteUpdated",
     "ProtocolAuctionSettled",
     "ProtocolAuctionSplitUpdated",
+    "ProtocolInterestMarkupCheckpointed",
     "PublicInterestFunded",
     "ReferralBound",
     "ReferralInterestAccrued",
@@ -93,11 +91,9 @@ const DELEGATE_INSTRUCTIONS: [&str; 18] = [
     "update_leverage_order",
 ];
 
-const DUSK_ACCOUNTS: [&str; 18] = [
+const DUSK_ACCOUNTS: [&str; 16] = [
     "BorrowPosition",
     "FutarchyAuthority",
-    "GovernanceBalance",
-    "GovernanceSupport",
     "HlpCohort",
     "HlpFlashSession",
     "IncomeEpoch",
@@ -107,8 +103,8 @@ const DUSK_ACCOUNTS: [&str; 18] = [
     "LeveragePosition",
     "LiquidationSession",
     "Market",
-    "ParameterProposal",
-    "ProposalSupport",
+    "OperatorProposal",
+    "OperatorRevenueAccount",
     "ReferralAccrual",
     "ReferralPartner",
     "YieldAccount",
@@ -295,7 +291,7 @@ fn registry_classifies_every_pinned_event_and_instruction() {
         actual_delegate_events,
         DELEGATE_EVENTS.into_iter().collect()
     );
-    assert_eq!(decoder.instruction_names(PinnedProgram::Dusk).len(), 84);
+    assert_eq!(decoder.instruction_names(PinnedProgram::Dusk).len(), 79);
     let actual_delegate: BTreeSet<_> = decoder
         .instruction_names(PinnedProgram::LeverageDelegate)
         .into_iter()
@@ -309,8 +305,8 @@ fn anchor_tags_and_every_idl_discriminator_are_cryptographically_verified() {
     anchor_event_digest.reverse();
     assert_eq!(anchor_event_digest, ANCHOR_EVENT_CPI_TAG);
     let decoder = decoder();
-    assert_eq!(decoder.dusk.events.len(), 61);
-    assert_eq!(decoder.dusk.instructions.len(), 84);
+    assert_eq!(decoder.dusk.events.len(), 59);
+    assert_eq!(decoder.dusk.instructions.len(), 79);
     assert_eq!(decoder.delegate.events.len(), 2);
     assert_eq!(decoder.delegate.instructions.len(), 18);
 
@@ -384,31 +380,27 @@ fn nonzero_event_fields_decode_with_lossless_integer_and_pubkey_representation()
     let (discriminator, _) = registry
         .events
         .iter()
-        .find(|(_, descriptor)| descriptor.name == "ParameterProposalExecuted")
+        .find(|(_, descriptor)| descriptor.name == "OperatorRevenueClaimed")
         .unwrap();
-    let proposal = Pubkey::new_from_array([1; 32]);
-    let market = Pubkey::new_from_array([2; 32]);
+    let market = Pubkey::new_from_array([1; 32]);
+    let recipient = Pubkey::new_from_array([2; 32]);
+    let mint = Pubkey::new_from_array([3; 32]);
     let mut data = ANCHOR_EVENT_CPI_TAG.to_vec();
     data.extend_from_slice(discriminator);
-    data.extend_from_slice(proposal.as_ref());
     data.extend_from_slice(market.as_ref());
-    data.extend_from_slice(&2_u32.to_le_bytes());
-    data.extend_from_slice(&[4, 6]);
-    for revision in 99_u64..108 {
-        data.extend_from_slice(&revision.to_le_bytes());
-    }
-    data.extend_from_slice(&(-7_i64).to_le_bytes());
+    data.extend_from_slice(recipient.as_ref());
+    data.extend_from_slice(&u64::MAX.to_le_bytes());
+    data.extend_from_slice(mint.as_ref());
+    data.extend_from_slice(&9_007_199_254_740_993_u64.to_le_bytes());
+    data.extend_from_slice(&9_007_199_254_740_991_u64.to_le_bytes());
     let decoded = decoder
         .decode_event_cpi_instruction(&context(), DUSK_PROGRAM_ID, vec![1, 0], 0, &data)
         .unwrap();
     assert_eq!(
         decoded.decoded_fields,
         Some(json!({
-            "proposal": proposal.to_string(),
-            "market": market.to_string(),
-            "families": "BAY=",
-            "new_family_revisions": ["99", "100", "101", "102", "103", "104", "105", "106", "107"],
-            "executed_at": "-7"
+            "market": market.to_string(), "recipient": recipient.to_string(), "asset_mint": mint.to_string(),
+            "revenue_epoch": "18446744073709551615", "gross_debit": "9007199254740993", "net_credit": "9007199254740991"
         }))
     );
 }
@@ -669,7 +661,7 @@ fn registry_classifies_every_pinned_account_declaration() {
         .collect();
     assert_eq!(dusk, DUSK_ACCOUNTS.into_iter().collect());
     assert_eq!(delegate, DELEGATE_ACCOUNTS.into_iter().collect());
-    assert_eq!(decoder.dusk.accounts.len(), 18);
+    assert_eq!(decoder.dusk.accounts.len(), 16);
     assert_eq!(decoder.delegate.accounts.len(), 12);
 
     let mut idl: Value = serde_json::from_slice(DUSK_IDL).unwrap();
@@ -961,8 +953,5 @@ fn oracle_candidate_matches_sdk_wire_bytes_without_promoting_the_pin() {
             )
             .is_err()
     );
-    assert_eq!(
-        crate::PROTOCOL_REVISION,
-        "devnet-2026-11-02-governable-tranches"
-    );
+    assert_eq!(crate::PROTOCOL_REVISION, "devnet-2026-11-06-operators");
 }

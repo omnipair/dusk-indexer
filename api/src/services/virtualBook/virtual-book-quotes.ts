@@ -123,7 +123,7 @@ export function decodeDuskVirtualBookBatch(
   requests: VirtualBookQuoteRequest[],
   result: Parameters<typeof decodeBatch>[3],
   floor: number,
-) {
+): ReturnType<typeof decodeBatch> {
   return decodeBatch(
     dusk.program,
     { ...snapshot, programId: snapshot.deployment.programId },

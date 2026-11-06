@@ -9,7 +9,7 @@ const deployment = { deploymentIdentitySha256: 'a'.repeat(64) } as DuskDeploymen
 
 test('status names each market whose preview failed, with the reason it reports',() => {
   assert.deepEqual(failingMarketPreviews([
-    market('META','unavailable',{ reason: 'oracle-stale',errorName: 'OracleStale',errorCode: 6148 }),
+    market('META','unavailable',{ reason: 'oracle-stale',errorName: 'OracleStale',errorCode: 6144 }),
     market('SOL','available',null),
     market('OLD','unavailable'),
   ]),[

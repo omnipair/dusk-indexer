@@ -1,14 +1,13 @@
-import { seniorLpFields } from './duskSeniorLp';
 import { PublicKey } from '@solana/web3.js';
 import { DuskPinnedProtocol } from '../config/duskProtocol';
 import { priceMarketBindings, projectMarketPrices } from './duskPriceMath';
 import { unsigned } from './duskYieldAccounting';
 
 const NAD = 1_000_000_000n,U64 = (1n<<64n)-1n,U128 = (1n<<128n)-1n,USD_SCALE = 10n**36n;
-export type PortfolioKind = 'borrow'|'leverage'|'srlp'|'base_hlp'|'quote_hlp';
+export type PortfolioKind = 'borrow'|'leverage'|'srlp'|'junior'|'base_hlp'|'quote_hlp';
 export const nativeFields = (value: unknown): Record<string,unknown> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Missing native portfolio fields');
-  return seniorLpFields(value) as Record<string,unknown>;
+  return value as Record<string,unknown>;
 };
 export const nativeKey = (value: unknown): string => {
   const text = value instanceof PublicKey ? value.toBase58() : value;
@@ -74,7 +73,7 @@ export function assertPortfolioPreviewState(market: Record<string,unknown>,previ
   for (const side of ['base','quote'] as const) {
     const raw = sideOf(market,side),observed = nativeFields(preview[side]),reserves = nativeFields(raw.reserves);
     for (const name of ['live_reserve','cash_reserve'] as const)
-      if (unsigned(reserves[name],U64) !== unsigned(observed[name],U64)) throw new Error('Simulated portfolio reserves differ from the preview');
+      if (unsigned(reserves[name],name === 'live_reserve' ? U128 : U64) !== unsigned(observed[name],name === 'live_reserve' ? U128 : U64)) throw new Error('Simulated portfolio reserves differ from the preview');
     if (unsigned(nativeFields(raw.shares).srlp_supply,U64) !== unsigned(observed.srlp_supply,U64) || indexOf(market,side) !== unsigned(observed.borrow_index_nad))
       throw new Error('Simulated portfolio shares/index differ from the preview');
   }
@@ -84,7 +83,7 @@ function curveReserve(market: Record<string,unknown>,side: 'base'|'quote'): bigi
   const fixed = indexedPortfolioDebt(debt[`fixed_${side}_shares`],index),isolated = indexedPortfolioDebt(debt[`isolated_${side}_shares`],index);
   const fixedPrincipal = unsigned(debt[`fixed_${side}_principal`],U64),isolatedPrincipal = unsigned(debt[`isolated_${side}_principal`],U64);
   const interest = (fixed>fixedPrincipal ? fixed-fixedPrincipal : 0n)+(isolated>isolatedPrincipal ? isolated-isolatedPrincipal : 0n);
-  const live = unsigned(nativeFields(sideOf(market,side).reserves).live_reserve,U64);
+  const live = unsigned(nativeFields(sideOf(market,side).reserves).live_reserve,U128);
   if (interest>live) throw new Error('Unrealized interest exceeds live reserves');
   return live-interest;
 }
@@ -119,6 +118,7 @@ export function projectPortfolioComponent(input: {
   state: unknown; slot: number; blockTime: string; references: unknown;
   /** Set only after validating same-bank retired-cohort evidence. */
   retiredHlp?: boolean;
+  retiredJunior?: boolean;
 }) {
   const market = nativeFields(input.market),state = nativeFields(input.state);
   const bound = priceMarketBindings(input.pin.dusk.programId,input.marketAddress,market);
@@ -150,17 +150,28 @@ export function projectPortfolioComponent(input: {
     // margin_amount and open_notional are cost-basis fields, not extra assets.
   } else {
     const holding = unsigned(state.amount,U64),mint = nativeKey(state.mint);
-    const expected = input.kind === 'srlp' ? nativeKey(market.srlp_mint) : nativeKey(sideOf(market,input.kind === 'base_hlp' ? 'base' : 'quote').hlp_mint);
-    if (mint !== expected && !input.retiredHlp) throw new Error('Portfolio LP account has the wrong mint');
-    if (input.retiredHlp) {
+    const expected = input.kind === 'srlp' ? nativeKey(market.srlp_mint) : input.kind === 'junior' ? nativeKey(market.junior_mint) : nativeKey(sideOf(market,input.kind === 'base_hlp' ? 'base' : 'quote').hlp_mint);
+    if (mint !== expected && !input.retiredHlp && !input.retiredJunior) throw new Error('Portfolio LP account has the wrong mint');
+    if (input.retiredJunior) {
+      if (input.kind !== 'junior' || mint === expected) throw new Error('Invalid retired junior receipt');
+      add('base',0n,'asset'); add('quote',0n,'asset');
+      issues.push('junior-retired');
+    } else if (input.retiredHlp) {
       if (!input.kind.includes('hlp') || mint === expected) throw new Error('Invalid retired portfolio receipt');
       add(input.kind === 'base_hlp' ? 'base' : 'quote',0n,'asset');
       issues.push('hlp-retired');
+    } else if (preview && input.kind === 'junior') {
+      const capital = nativeFields(market.tranches),supply = shareSupply(market);
+      const receipts = unsigned(capital.junior_receipt_supply,U64),backing = unsigned(capital.junior_reserve_shares,U64);
+      if (holding>receipts || backing>supply || (backing>0n && receipts === 0n)) throw new Error('Junior holding exceeds its share backing');
+      const shares = holding === 0n ? 0n : multiplyDivide(holding,backing,receipts);
+      for (const side of ['base','quote'] as const)
+        add(side,shares === 0n ? 0n : unsigned(multiplyDivide(shares,curveReserve(market,side),supply),U64),'asset');
     } else if (preview && input.kind === 'srlp') {
       const supply = shareSupply(market);
       if (holding>supply) throw new Error('LP holding exceeds market supply');
       for (const side of ['base','quote'] as const)
-        add(side,holding === 0n ? 0n : unsigned(multiplyDivide(holding,unsigned(nativeFields(sideOf(market,side).reserves).live_reserve,U64),supply),U64),'asset');
+        add(side,holding === 0n ? 0n : unsigned(multiplyDivide(holding,unsigned(nativeFields(sideOf(market,side).reserves).live_reserve,U128),supply),U64),'asset');
     } else if (preview) {
       const target = input.kind === 'base_hlp' ? 'base' : 'quote';
       hlpNav = hlpPortfolioPrincipal(market,preview,target,holding);
@@ -170,11 +181,11 @@ export function projectPortfolioComponent(input: {
   }
   const priced = preview ? projectMarketPrices({ pin: input.pin,marketAddress: input.marketAddress,market,preview,
     slot: input.slot,blockTime: input.blockTime,references: input.references }) : null;
-  const valuation: PortfolioValuation = input.retiredHlp ? valuePortfolioBalances(balances,[]) : priced ? valuePortfolioBalances(balances,priced.prices)
+  const valuation: PortfolioValuation = (input.retiredHlp || input.retiredJunior) ? valuePortfolioBalances(balances,[]) : priced ? valuePortfolioBalances(balances,priced.prices)
     : { assetsUsd: null,debtUsd: null,netUsd: null,missingMints: [],priceQualities: [],rounding: 'down-36-decimals' };
   if (valuation.missingMints.length) issues.push('missing-price-reference');
   return { address: input.address,owner,market: input.marketAddress,kind: input.kind,balances,valuation,issues,
-    lpHolding: ['srlp','base_hlp','quote_hlp'].includes(input.kind) ? unsigned(state.amount,U64).toString() : null,
+    lpHolding: ['srlp','junior','base_hlp','quote_hlp'].includes(input.kind) ? unsigned(state.amount,U64).toString() : null,
     hlpNav: hlpNav ? { signedVaultNav: hlpNav.signedVaultNav,quantityDecimals: hlpNav.quantityDecimals,underwater: hlpNav.underwater } : null,
     sourceSlot: input.slot.toString(),sourceTime: input.blockTime,basis: input.kind.includes('hlp') ? 'hlp-principal-nav.v1' : 'program-position-value.v1' };
 }

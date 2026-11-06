@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { IdlCoder } from '@coral-xyz/anchor/dist/cjs/coder/borsh/idl';
 import type { Idl } from '@coral-xyz/anchor';
-import type { IdlField } from '@coral-xyz/anchor/dist/cjs/idl';
 import { loadPinnedProtocol, sha256 } from '../config/duskProtocol';
 
 let verified: { path: string; hash: string; idl: Idl } | undefined;
@@ -26,16 +25,6 @@ export function marketLayoutVersion(idl: Idl = pinnedDuskIdl()): number {
   const version = Number(constant?.value);
   if (!Number.isInteger(version) || version < 1 || version > 255) throw new Error('Invalid pinned market layout version');
   return version;
-}
-
-export function governanceFamilyCount(idl: Idl = pinnedDuskIdl()): number {
-  const proposal = idl.types?.find(row => row.name === 'ParameterProposal' || row.name === 'parameterProposal');
-  const fields = proposal?.type.kind === 'struct' ? proposal.type.fields ?? [] : [];
-  const revisions = fields.find((row): row is IdlField => typeof row === 'object' && 'name' in row
-    && (row.name === 'family_revisions' || row.name === 'familyRevisions'));
-  const length = revisions && typeof revisions.type === 'object' && 'array' in revisions.type ? revisions.type.array[1] : null;
-  if (length !== 7 && length !== 8 && length !== 9) throw new Error('Unsupported governance revision layout');
-  return length;
 }
 
 /** Box fields serialize inline. Derive the version location instead of assuming

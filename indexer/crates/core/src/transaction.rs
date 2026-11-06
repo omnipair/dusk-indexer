@@ -29,13 +29,11 @@
 //!   instructions against the provided schema, only processing the data if it
 //!   conforms to the schema.
 
-use crate::filter::Filter;
-use solana_program::hash::Hash;
-
 use {
     crate::{
         collection::InstructionDecoderCollection,
         error::CarbonResult,
+        filter::Filter,
         instruction::{DecodedInstruction, InstructionMetadata, NestedInstruction},
         metrics::MetricsCollection,
         processor::Processor,
@@ -45,6 +43,7 @@ use {
     async_trait::async_trait,
     core::convert::TryFrom,
     serde::de::DeserializeOwned,
+    solana_program::hash::Hash,
     solana_pubkey::Pubkey,
     solana_signature::Signature,
     std::sync::Arc,
@@ -182,9 +181,9 @@ impl<T: InstructionDecoderCollection, U> TransactionPipe<T, U> {
     pub fn new(
         schema: Option<TransactionSchema<T>>,
         processor: impl Processor<InputType = TransactionProcessorInputType<T, U>>
-            + Send
-            + Sync
-            + 'static,
+        + Send
+        + Sync
+        + 'static,
         filters: Vec<Box<dyn Filter + Send + Sync + 'static>>,
     ) -> Self {
         log::trace!(

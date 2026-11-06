@@ -95,7 +95,7 @@ pub struct MarketProjection {
     /// Curve currently admitted by the protected-profit gate and executable by
     /// swaps.
     pub amm_kind: AmmKind,
-    /// Governance/config target. This may differ from `amm_kind` while a ramp
+    /// Operator/config target. This may differ from `amm_kind` while a ramp
     /// or deferred controller admission is pending.
     pub configured_amm_kind: AmmKind,
     pub initialized: bool,
@@ -150,18 +150,6 @@ pub struct LeverageDelegationPortfolioProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct ProposalSupportPortfolioProjection {
-    pub account: String,
-    pub proposal: String,
-    pub supporter: String,
-    pub locked_amount: UnsignedInteger,
-    pub accrued_base_swap_fee: UnsignedInteger,
-    pub accrued_base_interest: UnsignedInteger,
-    pub accrued_quote_swap_fee: UnsignedInteger,
-    pub accrued_quote_interest: UnsignedInteger,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ReferralAccrualPortfolioProjection {
     pub account: String,
     pub referral_partner: String,
@@ -209,7 +197,6 @@ pub enum PortfolioProjection {
     BorrowPosition(BorrowPortfolioProjection),
     LeveragePosition(LeveragePortfolioProjection),
     LeverageDelegation(LeverageDelegationPortfolioProjection),
-    ProposalSupport(ProposalSupportPortfolioProjection),
     ReferralAccrual(ReferralAccrualPortfolioProjection),
     ReferralPartner(ReferralPartnerPortfolioProjection),
     YieldAccount(YieldPortfolioProjection),
@@ -269,17 +256,17 @@ pub struct LeverageOrderDiscoveryProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct ProposalExecutionDiscoveryProjection {
+pub struct OperatorExecutionDiscoveryProjection {
     pub proposal: String,
     pub market: String,
-    pub proposer: String,
+    pub operator: String,
+    pub epoch: UnsignedInteger,
     pub nonce: UnsignedInteger,
     pub families: Vec<String>,
-    pub status: String,
-    pub total_locked: UnsignedInteger,
-    pub queued_support: UnsignedInteger,
-    pub execute_after: SignedInteger,
-    pub execution_deadline: SignedInteger,
+    pub executed: bool,
+    pub next_operator: Option<String>,
+    pub execute_after_slot: UnsignedInteger,
+    pub deadline_slot: UnsignedInteger,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -299,7 +286,7 @@ pub enum KeeperDiscoveryProjection {
     BorrowLiquidation(BorrowLiquidationDiscoveryProjection),
     LeverageLiquidation(LeverageLiquidationDiscoveryProjection),
     LeverageOrder(LeverageOrderDiscoveryProjection),
-    ParameterProposalExecution(ProposalExecutionDiscoveryProjection),
+    OperatorProposalExecution(OperatorExecutionDiscoveryProjection),
     ProtocolAuctionLane(ProtocolAuctionLaneProjection),
     ProtocolAuctionConfig(ProtocolAuctionConfigDiscoveryProjection),
 }
@@ -321,12 +308,11 @@ pub(super) fn build_product_projections(
         "BorrowPosition" => project_borrow(account, fields),
         "LeveragePosition" => project_leverage(account, fields),
         "LeverageDelegation" => project_delegation(account, fields),
-        "ProposalSupport" => project_proposal_support(account, fields),
         "ReferralAccrual" => project_referral_accrual(account, fields),
         "ReferralPartner" => project_referral_partner(account, fields),
         "YieldAccount" => project_yield(account, fields),
         "LeverageOrder" => project_leverage_order(account, fields),
-        "ParameterProposal" => project_parameter_proposal(account, fields),
+        "OperatorProposal" => project_operator_proposal(account, fields),
         "FutarchyAuthority" => project_futarchy_authority(account, fields),
         _ => Ok(AccountProjections::default()),
     }
@@ -570,37 +556,6 @@ fn project_delegation(account: &str, fields: &Value) -> Result<AccountProjection
     })
 }
 
-fn project_proposal_support(account: &str, fields: &Value) -> Result<AccountProjections, String> {
-    Ok(AccountProjections {
-        market: None,
-        portfolio: Some(PortfolioProjection::ProposalSupport(
-            ProposalSupportPortfolioProjection {
-                account: account.to_owned(),
-                proposal: pubkey(fields, &["proposal"])?,
-                supporter: pubkey(fields, &["supporter"])?,
-                locked_amount: unsigned(fields, &["locked_amount"])?,
-                accrued_base_swap_fee: unsigned(
-                    fields,
-                    &["base_yield", "accrued_swap_fee_amount"],
-                )?,
-                accrued_base_interest: unsigned(
-                    fields,
-                    &["base_yield", "accrued_interest_amount"],
-                )?,
-                accrued_quote_swap_fee: unsigned(
-                    fields,
-                    &["quote_yield", "accrued_swap_fee_amount"],
-                )?,
-                accrued_quote_interest: unsigned(
-                    fields,
-                    &["quote_yield", "accrued_interest_amount"],
-                )?,
-            },
-        )),
-        keeper_discovery: Vec::new(),
-    })
-}
-
 fn project_referral_accrual(account: &str, fields: &Value) -> Result<AccountProjections, String> {
     Ok(AccountProjections {
         market: None,
@@ -683,22 +638,26 @@ fn project_leverage_order(account: &str, fields: &Value) -> Result<AccountProjec
     })
 }
 
-fn project_parameter_proposal(account: &str, fields: &Value) -> Result<AccountProjections, String> {
+fn project_operator_proposal(account: &str, fields: &Value) -> Result<AccountProjections, String> {
     Ok(AccountProjections {
         market: None,
         portfolio: None,
-        keeper_discovery: vec![KeeperDiscoveryProjection::ParameterProposalExecution(
-            ProposalExecutionDiscoveryProjection {
+        keeper_discovery: vec![KeeperDiscoveryProjection::OperatorProposalExecution(
+            OperatorExecutionDiscoveryProjection {
                 proposal: account.to_owned(),
                 market: pubkey(fields, &["market"])?,
-                proposer: pubkey(fields, &["proposer"])?,
+                operator: pubkey(fields, &["operator"])?,
+                epoch: unsigned(fields, &["epoch"])?,
                 nonce: unsigned(fields, &["nonce"])?,
                 families: enum_variants(fields, &["updates"])?,
-                status: enum_variant(fields, &["status"])?,
-                total_locked: unsigned(fields, &["total_locked"])?,
-                queued_support: unsigned(fields, &["queued_support"])?,
-                execute_after: signed(fields, &["execute_after"])?,
-                execution_deadline: signed(fields, &["execution_deadline"])?,
+                executed: boolean(fields, &["executed"])?,
+                next_operator: if at(fields, &["next_operator"])?.is_null() {
+                    None
+                } else {
+                    Some(pubkey(fields, &["next_operator"])?)
+                },
+                execute_after_slot: unsigned(fields, &["execute_after_slot"])?,
+                deadline_slot: unsigned(fields, &["deadline_slot"])?,
             },
         )],
     })
@@ -813,12 +772,6 @@ fn boolean(value: &Value, path: &[&str]) -> Result<bool, String> {
     at(value, path)?
         .as_bool()
         .ok_or_else(|| format!("projection field {} is not a boolean", path.join(".")))
-}
-
-fn enum_variant(value: &Value, path: &[&str]) -> Result<String, String> {
-    let mut variant_path = path.to_vec();
-    variant_path.push("variant");
-    text(value, &variant_path)
 }
 
 fn enum_variants(value: &Value, path: &[&str]) -> Result<Vec<String>, String> {

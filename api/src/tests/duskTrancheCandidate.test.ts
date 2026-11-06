@@ -54,17 +54,9 @@ test('prior junior tranche promotion bundle remains verifiable after the next ac
     candidate.programs[1].idl.canonicalSha256,
   );
 
-  const selected = await sdkForProtocol({
-    ...active,
-    dusk: {
-      ...active.dusk,
-      idlCanonicalSha256: candidate.programs[0].idl.canonicalSha256,
-    },
-  });
-  assert.equal(
-    sha256(canonicalJson(selected.IDL)),
-    candidate.programs[0].idl.canonicalSha256,
-  );
+  await assert.rejects(sdkForProtocol({ ...active, dusk: { ...active.dusk,
+    idlCanonicalSha256: candidate.programs[0].idl.canonicalSha256,
+  } }), /differs/, 'a historical decoder cannot authorize current SDK execution');
   await assert.rejects(
     sdkForProtocol({
       ...active,

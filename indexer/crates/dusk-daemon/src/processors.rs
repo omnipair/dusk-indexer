@@ -343,30 +343,13 @@ mod tests {
     /// back out of the pinned decoder with its hLP adjustment and swap events.
     #[test]
     fn a_streamed_devnet_swap_decodes_its_event() {
-        let source = include_str!("../fixtures/swap-executed-devnet.json").replace(
-            "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
-            dusk_indexer_foundation::DUSK_PROGRAM_ID,
-        );
+        let source = include_str!("../fixtures/swap-executed-devnet.json");
         let fixture: EncodedConfirmedTransactionWithStatusMeta =
-            serde_json::from_str(&source).unwrap();
-        let mut streamed = TransactionMetadata {
+            serde_json::from_str(source).unwrap();
+        let streamed = TransactionMetadata {
             block_time: None,
             ..metadata_from_rpc(&fixture).unwrap()
         };
-        let retired: solana_pubkey::Pubkey = "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X"
-            .parse()
-            .unwrap();
-        let active: solana_pubkey::Pubkey =
-            dusk_indexer_foundation::DUSK_PROGRAM_ID.parse().unwrap();
-        let account_keys = match &mut streamed.message {
-            solana_message::VersionedMessage::Legacy(message) => &mut message.account_keys,
-            solana_message::VersionedMessage::V0(message) => &mut message.account_keys,
-        };
-        for key in account_keys {
-            if *key == retired {
-                *key = active;
-            }
-        }
         let signature = streamed.signature.to_string();
         let decoder = PinnedIdlDecoder::new("devnet").unwrap();
         let observed = extract::decode_transaction(
@@ -401,10 +384,10 @@ mod tests {
             .unwrap();
         assert_eq!(record.commitment, Commitment::Confirmed);
         assert_eq!(record.blockhash, STREAM_BLOCKHASH);
-        assert_eq!(record.slot, 515_002_836);
+        assert_eq!(record.slot, 519_166_984);
         let payload = record.decoded_payload.as_ref().unwrap();
-        assert_eq!(payload["base"]["spot_price_nad"], "999800629");
-        assert_eq!(payload["quote"]["spot_price_nad"], "1000199410");
+        assert_eq!(payload["base"]["spot_price_nad"], "998008977");
+        assert_eq!(payload["quote"]["spot_price_nad"], "1001994995");
         assert_eq!(payload["base"]["price_ema_nad"], "1000000000");
         assert_eq!(payload["quote"]["price_ema_nad"], "1000000000");
         assert!(record.event_key.contains(&signature));
