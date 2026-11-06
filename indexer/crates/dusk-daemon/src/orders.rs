@@ -29,6 +29,26 @@ pub fn decode(
     path: Vec<u16>,
 ) -> Result<Option<OrderInstruction>> {
     let raw = bs58::decode(&instruction.data).into_vec()?;
+    // Anchor's reserved IDL maintenance namespace is outside the business IDL.
+    // It cannot mutate orders. Validate its complete Borsh shape before skipping;
+    // unknown business discriminators still fail closed below.
+    if raw.starts_with(&0x0a69e9a778bcf440u64.to_le_bytes()) {
+        let payload = &raw[8..];
+        let valid = match payload.first() {
+            Some(0 | 6) => payload.len() == 9,     // create/resize: u64 length
+            Some(1 | 3 | 5) => payload.len() == 1, // create buffer/set buffer/close
+            Some(4) => payload.len() == 33,        // set authority: pubkey
+            Some(2) if payload.len() >= 5 => {
+                let len = u32::from_le_bytes(payload[1..5].try_into().unwrap()) as usize;
+                len == payload.len() - 5
+            }
+            _ => false,
+        };
+        if !valid {
+            bail!("malformed Anchor IDL maintenance instruction");
+        }
+        return Ok(None);
+    }
     let decoded = decoder.decode_instruction(LEVERAGE_DELEGATE_PROGRAM_ID, &raw)?;
     if decoded.status == InstructionDecodeStatus::AnchorEventCpi {
         return Ok(None);
@@ -151,5 +171,53 @@ mod tests {
         assert_eq!(decoded.owner, "owner");
         assert_eq!(decoded.path, vec![2, 0, 1]);
         assert_eq!(decoded.arguments["_args"]["order_id"], "91");
+    }
+}
+
+#[cfg(test)]
+mod idl_maintenance_tests {
+    use super::*;
+    fn instruction(payload: &[u8]) -> UiCompiledInstruction {
+        let raw = [0x0a69e9a778bcf440u64.to_le_bytes().as_slice(), payload].concat();
+        UiCompiledInstruction {
+            program_id_index: 0,
+            accounts: vec![],
+            data: bs58::encode(raw).into_string(),
+            stack_height: None,
+        }
+    }
+    #[test]
+    fn idl_uploads_are_not_orders_and_unknown_or_truncated_shapes_still_fail_closed() {
+        let decoder = PinnedIdlDecoder::new("devnet").unwrap();
+        for payload in [
+            vec![1],
+            vec![3],
+            vec![5],
+            [vec![0], 1u64.to_le_bytes().to_vec()].concat(),
+            [vec![6], 1u64.to_le_bytes().to_vec()].concat(),
+            [vec![4], vec![1; 32]].concat(),
+            [vec![2], 3u32.to_le_bytes().to_vec(), vec![1, 2, 3]].concat(),
+        ] {
+            assert!(decode(&decoder, &instruction(&payload), &[], vec![0])
+                .unwrap()
+                .is_none());
+        }
+        for payload in [
+            vec![],
+            vec![255],
+            vec![0],
+            vec![4; 32],
+            vec![1, 0],
+            [vec![2], 4u32.to_le_bytes().to_vec(), vec![1, 2, 3]].concat(),
+        ] {
+            assert!(decode(&decoder, &instruction(&payload), &[], vec![0]).is_err());
+        }
+        let unknown = UiCompiledInstruction {
+            program_id_index: 0,
+            accounts: vec![],
+            data: bs58::encode([255; 8]).into_string(),
+            stack_height: None,
+        };
+        assert!(decode(&decoder, &unknown, &[], vec![0]).is_err());
     }
 }
