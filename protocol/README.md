@@ -1,6 +1,14 @@
 # Dusk devnet protocol pin
 
-The active revision is `devnet-2026-11-02-governable-tranches`. It adds the
+The active revision is `devnet-2026-11-06-operators`, with operator/manager authority, junior-first losses and no core LP governance or separate insurance fund. Dusk is `B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2`; the delegate is `B315E6hHTgDjHgCCPungLop2mkgv9SHkcBc9ZzALNxNY`. Continuous event history begins at slot **519164380**.
+
+The compatible Dusk upgrade at finalized slot **519241008** preserves both generated IDLs, program IDs, accounts and event history. `compatible-deployment.json` records the verified allocated executable; `quote-runtime/` carries its matching payload. The original `protocol.lock.json` remains the immutable history boundary. The published SDK remains `2.18.0-next.20261106`.
+
+[Upgrade evidence](../docs/evidence/devnet-operators-e2e-20261106/deployment.json) records the finalized signature, source commit, binary sizes and hashes.
+
+## Historical November 2 deployment
+
+The November 2 revision was `devnet-2026-11-02-governable-tranches`. It adds the
 governable tranche-income split, request and renewal fee bounds, liquidation
 credit allocation, jrLP governance support and deterministic LP metadata from
 Dusk PR #64. The complete revision begins at slot **517844521**.
@@ -20,7 +28,7 @@ records the exact source, program, IDL, SDK, slot, signature and hash pins.
 `protocol.lock.json` records the original deployment and the active decoding
 identity. It includes the devnet genesis, program IDs, original binary hashes,
 raw IDL hashes and canonical IDL hashes. Later executable upgrades under the
-same program IDs and IDL revision do not require a new binary pin.
+same program IDs and IDL revision retain that history lock, while current compatible-deployment metadata and quote-runtime artifacts must be updated together.
 
 `dusk-indexer-foundation::verify_vendored_protocol` verifies the vendored files.
 Never hand-edit generated IDLs. A protocol upgrade vendors a new revision, runs

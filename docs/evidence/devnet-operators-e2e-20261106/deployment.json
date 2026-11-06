@@ -1,0 +1,17 @@
+{
+  "sourceCommit": "fda084dce13fdb99da0731d8c74861eefd7432fc",
+  "programId": "B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2",
+  "programData": "C6AN9yEBoq5MUGWBXCeMSudEj7fo8pkRwwiJAgZYkcDY",
+  "oldDeploySlot": 519164140,
+  "payloadBytes": 4781904,
+  "payloadSha256": "3db2f56071c6bbe513a90b54f8a5816af102664f258089be29ce59a8c93384cc",
+  "allocatedBinaryBytes": 4791536,
+  "buffer": "dXCt5Eh5zLcT17YNwJqjjhimR8b8HpQx3k3GZ6hxJqT",
+  "deploySlot": 519241008,
+  "binarySha256": "c6df2029bc428a13697fbc7260e125d8d53cdc623a63cd8ba122e6db5fb5f276",
+  "idlCanonicalSha256": "ce1c819b539c9a9ab526e84dd37b21326d6c0cdcfe7ab2af1fa05f9707d99e6d",
+  "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+  "signature": "495oFbLB2zhFLGWJrfzHUqVYqDk1caBSKeydsDQFbDnodiuVhHXzgmFnhJ16FvMHckWXhGTpRie2n51R7vTZ5kNX",
+  "verifiedAt": "2026-11-06T08:39:24.767Z",
+  "cluster": "devnet"
+}

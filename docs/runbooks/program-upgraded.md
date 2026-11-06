@@ -41,7 +41,7 @@ does not infer that a new binary has the same IDL merely from its hash.
 4. For a compatible upgrade (same IDL and event revision), record the new
    executable in `protocol/compatible-deployment.json`: `deploySlot` and
    `allocatedBinaryBytes` from `solana program show`, and `binarySha256` of
-   the dumped program. Redeploy the API and workers so envelopes and capture
+   the dumped program. Update the matching `protocol/quote-runtime/dusk.so` payload and manifest, verifying both payload and padded allocation hashes. Redeploy the API and workers so envelopes and capture
    provenance carry it.
 5. Deploy updated consumers only if their IDL or account contract changed.
 

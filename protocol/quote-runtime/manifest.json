@@ -1,10 +1,10 @@
 {
   "schemaVersion": "dusk-quote-runtime.v1",
   "programId": "B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2",
-  "programBinarySha256": "f3e9fe0e2de5244592831bfb5689dc705dfc6d9747daffc58b07bef3d7f26bd9",
-  "payloadSha256": "17d30c8fb9d5a4c8b4f2373e5b3a54431f6a7effebb89acc1f8a0a583adc67e3",
-  "payloadBytes": 4781760,
+  "programBinarySha256": "c6df2029bc428a13697fbc7260e125d8d53cdc623a63cd8ba122e6db5fb5f276",
+  "payloadSha256": "3db2f56071c6bbe513a90b54f8a5816af102664f258089be29ce59a8c93384cc",
+  "payloadBytes": 4781904,
   "allocatedBinaryBytes": 4791536,
-  "sourceCommit": "d8c7f89534b734792ec32af6914e53c3efeb04a9",
+  "sourceCommit": "fda084dce13fdb99da0731d8c74861eefd7432fc",
   "featureSetSha256": "84956b860fe38fdeb69b3d65e8e2e88352a12a40a00dd35a5253309e411626e8"
 }
