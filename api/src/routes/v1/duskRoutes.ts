@@ -11,7 +11,7 @@ import { currentLeverageMaximum } from '../../services/duskLeverageMaximum';
 
 import { Router } from 'express';
 
-import { deploymentSnapshot } from '../../services/duskMarketSurface';
+import { deploymentSnapshot, marketPreviewStatus } from '../../services/duskMarketSurface';
 import { openDuskPayloadStream } from '../../services/duskPayloadStream';
 import { currentOwnerAccounts, currentLeverageValuation } from '../../services/duskDisplayState';
 import { ownerAccountsSelection } from '../../services/duskOwnerAccounts';
@@ -487,8 +487,9 @@ router.get(
     let chainSlot: number | null = null;
     let identity: string | null = null;
     let identityError: string | null = null;
+    let envelope: DuskDeploymentEnvelope | null = null;
     try {
-      const envelope = await deploymentEnvelope();
+      envelope = await deploymentEnvelope();
       chainSlot = envelope.sourceSlot;
       identity = envelope.deploymentIdentitySha256;
     } catch (error) {
@@ -514,6 +515,11 @@ router.get(
     // A deploy to a new program ID starts without it, and no market can launch
     // until the upgrade authority creates it.
     const futarchyAuthority = await futarchyAuthorityStatus(pinned.dusk.programId);
+    // A market whose preview fails has no prices and no trading in the app
+    // while ingestion stays healthy, so it is named here. The read is the
+    // same coalesced surface /markets/state serves; with no deployment
+    // identity it cannot run, and deployment-identity already says why.
+    const marketPreviews = envelope ? await marketPreviewStatus(envelope) : null;
 
     const degraded: string[] = [];
     if (identityError) degraded.push('deployment-identity');
@@ -522,6 +528,8 @@ router.get(
       degraded.push('ingestion-stalled');
     }
     if (futarchyAuthority.initialized === false) degraded.push('futarchy-authority');
+    if (marketPreviews?.error) degraded.push('market-state');
+    if (marketPreviews?.failing.length) degraded.push('market-preview');
 
     res.status(degraded.length > 0 ? 503 : 200).json({
       success: degraded.length === 0,
@@ -535,6 +543,7 @@ router.get(
         deploymentIdentitySha256: identity,
         deploymentError: identityError,
         futarchyAuthority,
+        marketPreviews,
         chainSlot,
         indexedSlot,
         slotLag,
@@ -655,6 +664,8 @@ const RUNBOOKS = {
   'indexer-lag': 'indexer-lag',
   'ingestion-stalled': 'indexer-lag',
   'futarchy-authority': 'futarchy-authority-missing',
+  'market-preview': 'market-preview-failing',
+  'market-state': 'market-preview-failing',
 };
 const RUNBOOK_BASE =
   'https://github.com/omnipair/dusk-indexer/blob/main/docs/runbooks/';

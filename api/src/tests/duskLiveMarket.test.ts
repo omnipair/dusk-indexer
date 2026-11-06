@@ -89,7 +89,18 @@ test('a failed preview preserves market inventory and marks every preview-only v
   assert.equal(payload.state.previewStatus,'unavailable'); assert.equal(payload.state.stateBasis,'rpc-account');
   assert.deepEqual(payload.displayPrices.prices,[]);
 });
+test('a failed preview says why on the market state, and a working one says nothing',() => {
+  const sample = liveFixture(),failure = { reason: 'oracle-stale' as const,errorName: 'OracleStale',errorCode: 6144 };
+  const stale = projectMarketSnapshot({ ...sample.snapshot,preview: null,basis: 'rpc-account',previewUnavailable: true,previewFailure: failure },sample.references) as any;
+  assert.deepEqual(stale.state.previewFailure,failure);
+  // A capture made before the field existed cannot say why.
+  const older = projectMarketSnapshot({ ...sample.snapshot,preview: null,basis: 'rpc-account',previewUnavailable: true },sample.references) as any;
+  assert.equal(older.state.previewStatus,'unavailable'); assert.equal(older.state.previewFailure,null);
+  const working = projectMarketSnapshot(sample.snapshot,sample.references) as any;
+  assert.equal(working.state.previewStatus,'available'); assert.equal(working.state.previewFailure,null);
+});
 test('operator roles and fee terms come from the same decoded market bank without a preview',() => {
+
   const sample = liveFixture();
   Object.assign(sample.market.operator, { authority: fixtureKey(90), manager: fixtureKey(91),
     epoch: new BN('9007199254740993'), next_nonce: new BN(12), pending: PublicKey.default,

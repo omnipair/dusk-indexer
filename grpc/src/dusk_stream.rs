@@ -101,8 +101,13 @@ pub(crate) fn valid_envelope(value: &Value, pin: &Value, floor: u64, now: i64) -
         let deployment_slot = d[fields[2]].as_str().and_then(|s| s.parse::<u64>().ok());
         if d[fields[0]] != p["programId"]
             || d[fields[1]] != p["deployment"]["programData"]
-            || !deployment_slot.is_some_and(|deployed| deployed >= p["deployment"]["deploySlot"].as_u64().unwrap_or(u64::MAX) && deployed < slot)
-            || !d[fields[4]].as_str().is_some_and(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+            || !deployment_slot.is_some_and(|deployed| {
+                deployed >= p["deployment"]["deploySlot"].as_u64().unwrap_or(u64::MAX)
+                    && deployed < slot
+            })
+            || !d[fields[4]]
+                .as_str()
+                .is_some_and(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
             || d[fields[5]] != p["idl"]["canonicalSha256"]
             || d[fields[6]] != p["idl"]["sha256"]
         {
@@ -177,10 +182,8 @@ impl DuskStream {
         let current_pin: Arc<Value> = Arc::new(serde_json::to_value(
             dusk_indexer_foundation::deployment::current_deployment()?,
         )?);
-        let mut endpoint = reqwest::Url::parse(&format!(
-            "{}/api/dusk/v1/config",
-            api.trim_end_matches('/')
-        ))?;
+        let mut endpoint =
+            reqwest::Url::parse(&format!("{}/api/dusk/v1/config", api.trim_end_matches('/')))?;
         if !["http", "https"].contains(&endpoint.scheme())
             || !endpoint.username().is_empty()
             || endpoint.password().is_some()
@@ -317,13 +320,19 @@ mod tests {
     fn notices_require_the_complete_native_identity() {
         let pin: Value = serde_json::from_str(PIN).unwrap();
         let p = &pin["programs"][0];
-        let first_slot = pin["programs"].as_array().unwrap().iter()
-            .filter_map(|program| program["deployment"]["deploySlot"].as_u64()).max().unwrap() + 1;
+        let first_slot = pin["programs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|program| program["deployment"]["deploySlot"].as_u64())
+            .max()
+            .unwrap()
+            + 1;
         let notice = json!({ "cluster": pin["cluster"]["name"], "protocolRevision": pin["revision"],
             "programId": p["programId"], "idlHash": p["idl"]["canonicalSha256"], "slot": first_slot });
         assert!(notice_slot(&notice.to_string(), &pin).is_some());
         let mut incomplete = notice.clone();
-        incomplete["slot"] = json!(first_slot-1);
+        incomplete["slot"] = json!(first_slot - 1);
         assert!(notice_slot(&incomplete.to_string(), &pin).is_none());
         for key in [
             "cluster",
@@ -346,9 +355,14 @@ mod tests {
         )
         .unwrap();
         let now = chrono::Utc::now();
-        let source_slot = pin["programs"].as_array().unwrap().iter()
+        let source_slot = pin["programs"]
+            .as_array()
+            .unwrap()
+            .iter()
             .filter_map(|program| program["deployment"]["deploySlot"].as_u64())
-            .max().unwrap() + 1;
+            .max()
+            .unwrap()
+            + 1;
         let mut d = json!({ "schemaVersion": "dusk-deployment.v2", "network": pin["cluster"]["name"],
             "genesisHash": pin["cluster"]["genesisHash"], "commitment": "confirmed", "sourceSlot": source_slot,
             "observedAt": now.to_rfc3339(), "deploymentIdentitySha256": "a".repeat(64) });
@@ -406,7 +420,14 @@ mod tests {
             now.timestamp_millis()
         ));
         for key in d.as_object().unwrap().keys() {
-            if ["programUpgradeAuthority", "leverageDelegateUpgradeAuthority"].contains(&key.as_str()) { continue; }
+            if [
+                "programUpgradeAuthority",
+                "leverageDelegateUpgradeAuthority",
+            ]
+            .contains(&key.as_str())
+            {
+                continue;
+            }
             let mut invalid = valid.clone();
             invalid["deployment"][key] = Value::Null;
             assert!(
@@ -443,9 +464,14 @@ mod tests {
         )
         .unwrap();
         let now = chrono::Utc::now();
-        let source_slot = pin["programs"].as_array().unwrap().iter()
+        let source_slot = pin["programs"]
+            .as_array()
+            .unwrap()
+            .iter()
             .filter_map(|program| program["deployment"]["deploySlot"].as_u64())
-            .max().unwrap() + 1;
+            .max()
+            .unwrap()
+            + 1;
         let mut deployment = json!({
             "schemaVersion": "dusk-deployment.v2",
             "network": pin["cluster"]["name"],
@@ -456,14 +482,46 @@ mod tests {
             "deploymentIdentitySha256": "a".repeat(64)
         });
         for (name, fields) in [
-            ("dusk", ["programId", "programDataAddress", "programDataSlot", "programUpgradeAuthority", "programBinarySha256", "idlSha256", "idlRawSha256"]),
-            ("leverage_delegate", ["leverageDelegateProgramId", "leverageDelegateProgramDataAddress", "leverageDelegateProgramDataSlot", "leverageDelegateUpgradeAuthority", "leverageDelegateBinarySha256", "leverageDelegateIdlSha256", "leverageDelegateIdlRawSha256"]),
+            (
+                "dusk",
+                [
+                    "programId",
+                    "programDataAddress",
+                    "programDataSlot",
+                    "programUpgradeAuthority",
+                    "programBinarySha256",
+                    "idlSha256",
+                    "idlRawSha256",
+                ],
+            ),
+            (
+                "leverage_delegate",
+                [
+                    "leverageDelegateProgramId",
+                    "leverageDelegateProgramDataAddress",
+                    "leverageDelegateProgramDataSlot",
+                    "leverageDelegateUpgradeAuthority",
+                    "leverageDelegateBinarySha256",
+                    "leverageDelegateIdlSha256",
+                    "leverageDelegateIdlRawSha256",
+                ],
+            ),
         ] {
-            let program = pin["programs"].as_array().unwrap().iter().find(|p| p["name"] == name).unwrap();
+            let program = pin["programs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|p| p["name"] == name)
+                .unwrap();
             for (field, value) in fields.iter().zip([
                 program["programId"].clone(),
                 program["deployment"]["programData"].clone(),
-                json!(program["deployment"]["deploySlot"].as_u64().unwrap().to_string()),
+                json!(
+                    program["deployment"]["deploySlot"]
+                        .as_u64()
+                        .unwrap()
+                        .to_string()
+                ),
                 program["deployment"]["upgradeAuthority"].clone(),
                 program["binary"]["sha256"].clone(),
                 program["idl"]["canonicalSha256"].clone(),
@@ -479,8 +537,11 @@ mod tests {
             let (mut socket, _) = listener.accept().await.unwrap();
             let mut request = [0u8; 4096];
             let size = socket.read(&mut request).await.unwrap();
-            assert!(std::str::from_utf8(&request[..size]).unwrap()
-                .contains("/api/dusk/v1/config?minimumSourceSlot=500000000"));
+            assert!(
+                std::str::from_utf8(&request[..size])
+                    .unwrap()
+                    .contains("/api/dusk/v1/config?minimumSourceSlot=500000000")
+            );
             socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}", body.len(), body).as_bytes()).await.unwrap();
         });
         let (_sender, receiver) = watch::channel(Notice::default());
@@ -493,7 +554,10 @@ mod tests {
             capacity: Arc::new(Semaphore::new(1)),
             observation: Arc::new(Mutex::new(None)),
         };
-        assert_eq!(stream.read_envelope(500000000).await.unwrap()["sourceSlot"], source_slot);
+        assert_eq!(
+            stream.read_envelope(500000000).await.unwrap()["sourceSlot"],
+            source_slot
+        );
         server.await.unwrap();
     }
 }
