@@ -2,8 +2,8 @@
  * Pinned Dusk protocol artifacts.
  *
  * The historical lock fixes the event revision and first slot. The compatible
- * deployment records a known upgrade; live executable metadata is observed
- * separately, so later upgrades do not require editing this file.
+ * deployment records the verified current executable. Compatible upgrades update
+ * its metadata and the quote-runtime artifacts while retaining the history lock.
  */
 
 import { createHash } from 'crypto';
