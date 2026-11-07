@@ -1,3 +1,4 @@
+import { projectHolderIncome, type IncomeArchiveMap, type IncomeBookInput, type IncomeClaimInput, type IncomeEndInput } from "@omnipair/dusk-sdk";
 const Q64 = 1n << 64n;
 const U64_MAX = (1n << 64n) - 1n;
 const U128_MAX = (1n << 128n) - 1n;
@@ -37,6 +38,7 @@ export interface LiveYieldMarket {
   juniorMint?: { equals(other: unknown): boolean };
   baseSide: GrowthSide; quoteSide: GrowthSide;
   baseHlpVault: Record<string, unknown>; quoteHlpVault: Record<string, unknown>;
+  income: { books: readonly IncomeBookInput[]; juniorEnd: readonly IncomeEndInput[] };
 }
 export interface LiveYieldAccount {
   assetMint: unknown; lpMint: unknown; tokenKind: number;
@@ -44,6 +46,7 @@ export interface LiveYieldAccount {
   swapFeeRemainderQ64: unknown; interestRemainderQ64: unknown;
   accruedSwapFeeAmount: unknown; accruedInterestAmount: unknown;
   escrowBalance?: unknown;
+  incomeInitialized: boolean; income: readonly IncomeClaimInput[];
 }
 
 /** An index after crediting growth that is recorded but not yet distributed. */
@@ -57,11 +60,12 @@ function publishedIndex(index: unknown, amount: unknown, supply: unknown, carry:
  * carried forward and, for hLP, the vault's srLP entitlement is checkpointed
  * into hLP growth first, exactly as the program's lazy update does. The
  * market must already be the preview's updated post-state. */
-export function projectLiveYield(market: LiveYieldMarket, account: LiveYieldAccount, balance: bigint, retiredVault?: Record<string, unknown>) {
+export function projectLiveYield(market: LiveYieldMarket, account: LiveYieldAccount, balance: bigint, retiredVault?: Record<string, unknown>, income?: {ends?: readonly IncomeEndInput[]; archives?: IncomeArchiveMap; pendingHistory?: boolean}) {
   const side = market.baseSide.assetMint.equals(account.assetMint) ? 'base'
     : market.quoteSide.assetMint.equals(account.assetMint) ? 'quote' : null;
   if (!side) throw new Error('Yield asset is outside its market');
   const state = side === 'base' ? market.baseSide : market.quoteSide;
+  const receivableIncome = income?.pendingHistory ? 0n : projectHolderIncome({holder:{tokenKind:account.tokenKind,incomeInitialized:account.incomeInitialized===true,escrowBalance:unsigned(account.escrowBalance??0,U64_MAX),income:account.income},books:market.income.books,asset:side==='base'?0:1,walletBalance:balance,ends:income?.ends??market.income.juniorEnd,archives:income?.archives});
   let swap: bigint;
   let interest: bigint;
   if (account.tokenKind === 2) {
@@ -95,7 +99,7 @@ export function projectLiveYield(market: LiveYieldMarket, account: LiveYieldAcco
   } else if (account.tokenKind !== 1 && account.tokenKind !== 2) throw new Error('Invalid LP token kind');
   const swapFeeAmount = BigInt(settleRecordedGrowth({ balance, index: swap, checkpoint: account.swapFeeCheckpointQ64,
     remainder: account.swapFeeRemainderQ64, accrued: account.accruedSwapFeeAmount }).amount);
-  const interestAmount = BigInt(settleRecordedGrowth({ balance, index: interest, checkpoint: account.interestCheckpointQ64,
-    remainder: account.interestRemainderQ64, accrued: account.accruedInterestAmount }).amount);
+  const interestAmount = unsigned(BigInt(settleRecordedGrowth({ balance, index: interest, checkpoint: account.interestCheckpointQ64,
+    remainder: account.interestRemainderQ64, accrued: account.accruedInterestAmount }).amount)+receivableIncome,U64_MAX);
   return { side: side as 'base' | 'quote', swapFeeAmount, interestAmount, totalAmount: unsigned(swapFeeAmount + interestAmount, U64_MAX) };
 }
