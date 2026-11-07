@@ -30,7 +30,7 @@ import {
 } from '@solana/web3.js';
 import type { AccountInfo } from '@solana/web3.js';
 import type { Pool, PoolClient } from 'pg';
-import { deriveJuniorCohortAddress } from '@omnipair/dusk-sdk';
+import { readIncomeArchives, deriveJuniorCohortAddress } from '@omnipair/dusk-sdk';
 import type { Dusk, HlpCohort, JuniorCohort, Market, YieldAccount } from '@omnipair/dusk-sdk';
 
 import pool from '../config/database';
@@ -69,6 +69,7 @@ export interface YieldStream {
   needsGrowth: boolean;
   needsIncomeCatchup?: boolean;
   lpBalance: string;
+  escrowBalance?: string;
   lpDecimals: number;
   assetDecimals: number;
   swapFeeAmount: string;
@@ -245,7 +246,7 @@ export async function captureYieldGroup(
   const balance = token?.amount ?? 0n,
     epoch = clock.data.readBigUInt64LE(16);
   const size = dusk.program.coder.accounts.size('yieldAccount');
-  return assets.map((assetMint, index) => {
+  return Promise.all(assets.map(async (assetMint, index) => {
     const mintInfo = infos[5 + index];
     if (!mintInfo || (!mintInfo.owner.equals(TOKEN_2022_PROGRAM_ID) && !mintInfo.owner.equals(TOKEN_PROGRAM_ID)))
       throw new Error('Invalid yield asset mint');
@@ -262,7 +263,10 @@ export async function captureYieldGroup(
     )
       throw new Error('Yield account identity changed');
     const retiredLedger = cohort?.finalVault ?? juniorCohort?.finalIncome?.[index];
-    const amounts = account ? projectLiveYield(state as any, account, balance, retiredLedger) : { swapFeeAmount: 0n, interestAmount: 0n, totalAmount: 0n };
+    const projectionPending = Boolean(account && group.kind !== 'hlp' && account.incomeInitialized &&
+      [0,1].some(source => BigInt(state.income.books[index+source*2].epoch.toString()) - BigInt(account.income[source].epoch.toString()) > 32n));
+    const archives = account && !projectionPending ? await boundedDuskRpcRead(() => readIncomeArchives({dusk,market,holder:account,books:state.income.books,asset:index as 0|1,minContextSlot:slot}),signal) : undefined;
+    const amounts = account ? projectLiveYield(state as any, account, balance, retiredLedger,{archives,ends:juniorCohort?.incomeEnd,pendingHistory:projectionPending}) : { swapFeeAmount: 0n, interestAmount: 0n, totalAmount: 0n };
     const fees = getTransferFeeConfig(mint);
     const fee = (amount: bigint) => (fees ? calculateEpochFee(fees, epoch, amount) : 0n);
     return {
@@ -279,6 +283,7 @@ export async function captureYieldGroup(
       needsIncomeCatchup: Boolean(account && group.kind !== 'hlp' && account.incomeInitialized &&
         [0,1].some(source => BigInt(account.income[source].epoch.toString()) < BigInt(state.income.books[index+source*2].epoch.toString()))),
       lpBalance: balance.toString(),
+      escrowBalance: account?.escrowBalance.toString() ?? "0",
       lpDecimals: lp.decimals,
       assetDecimals: mint.decimals,
       swapFeeAmount: amounts.swapFeeAmount.toString(),
@@ -286,7 +291,7 @@ export async function captureYieldGroup(
       recipientCredit: (amounts.totalAmount - fee(amounts.swapFeeAmount) - fee(amounts.interestAmount)).toString(),
       sourceSlot: slot,
     };
-  });
+  }));
 }
 
 export const ownerYieldDependencies = { groups: readOwnerYieldGroups, group: captureYieldGroup };

@@ -17,7 +17,7 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import type { AccountInfo, SimulateTransactionConfig } from '@solana/web3.js';
 import { marketLayoutVersion } from '../services/duskProtocolSchema';
 const MARKET_LAYOUT_VERSION = marketLayoutVersion();
-import { deriveJuniorCohortAddress } from '@omnipair/dusk-sdk';
+import { deriveIncomeEpochAddress, deriveJuniorCohortAddress } from '@omnipair/dusk-sdk';
 import type { Dusk, HlpCohort, JuniorCohort, Market, YieldAccount } from '@omnipair/dusk-sdk';
 import { deriveYieldAccountAddress } from '../services/virtualBook/native';
 import { createSdkTestRuntime } from './duskSdkTestRuntime';
@@ -52,6 +52,13 @@ async function fixture(hlp = false, taxed = false, junior = false, retiredJunior
   const simulations: SimulateTransactionConfig[] = [];
   const transactions: import("@solana/web3.js").VersionedTransaction[] = [];
   const connection = {
+    getMultipleAccountsInfoAndContext: async (keys: PublicKey[]) => ({ context: {slot: 1010}, value: keys.map(address => {
+      for (let bookIndex=0; bookIndex<4; bookIndex++) for(let epoch=0n;epoch<32n;epoch++) {
+        const [expected,bump] = deriveIncomeEpochAddress(marketAddress,bookIndex,epoch,dusk.program.programId);
+        if(address.equals(expected)) return encodeAccount('incomeEpoch',{market:marketAddress,bookIndex,bump,book:{...market.income.books[bookIndex],epoch:new BN(epoch.toString())}});
+      }
+      return null;
+    }) }),
     getAccountInfoAndContext: async (key: PublicKey) => ({ context: { slot: 1010 },value: key.equals(marketAddress) ? encodeAccount('market',market) : null }),
     simulateTransaction: async (_tx: unknown, config: SimulateTransactionConfig) => {
       simulations.push(config); transactions.push(_tx as import("@solana/web3.js").VersionedTransaction);
@@ -183,7 +190,7 @@ test('a group is valued in one updated bank with transfer fees applied to fees a
   assert.deepEqual(streams[0], {
     address: f.yields[0].address.toBase58(), holder: f.group.holder, market: f.group.market, lpMint: f.group.lpMint,
     assetMint: f.group.baseMint, kind: 'srlp', retired: false, recipient: f.group.holder, initialized: true, needsGrowth: false, needsIncomeCatchup: false,
-    lpBalance: '3', lpDecimals: 9, assetDecimals: 9, swapFeeAmount: '5', interestAmount: '4', recipientCredit: '7', sourceSlot: 1010,
+    lpBalance: '3', escrowBalance: '0', lpDecimals: 9, assetDecimals: 9, swapFeeAmount: '5', interestAmount: '4', recipientCredit: '7', sourceSlot: 1010,
   });
   assert.equal(streams[1].recipientCredit, '0');
   assert.equal(f.simulations[0].minContextSlot, 1005);
@@ -300,4 +307,16 @@ test('catch-up is identified per asset without hiding historical zero-balance ho
   const streams=(await captureYieldGroup(f.dusk,f.group,f.payer,1005))!;
   assert.equal(streams[0].needsIncomeCatchup,true);
   assert.equal(streams[1].needsIncomeCatchup,false);
+});
+
+
+test('large historical gaps retain actionable receipts without reporting a complete claim', async () => {
+  const f = await fixture();
+  f.yields[0].account.incomeInitialized = true;
+  f.market.income.books[0].epoch = new BN(33);
+  f.encode();
+  const rows = (await captureYieldGroup(f.dusk,f.group,f.payer,1005))!;
+  assert.equal(rows[0].needsIncomeCatchup,true);
+  assert.equal(rows[0].initialized,true);
+  assert.equal(rows[1].needsIncomeCatchup,false);
 });
