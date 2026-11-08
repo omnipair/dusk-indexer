@@ -149,10 +149,15 @@ export async function currentMarketSnapshot(market: PublicKey, discovery: unknow
   return snapshot;
 }
 
-function marketConfigPayload(marketAccount: unknown): Record<string, unknown> {
+export function marketConfigPayload(marketAccount: unknown): Record<string, unknown> {
   const config = field<Record<string, unknown>>(marketAccount, 'config');
   const amm = field<Record<string, unknown>>(config, 'amm');
   const irm = field<Record<string, unknown>>(config, 'irm');
+  const lowerUtilization = field(irm, 'lowerUtilizationBps', 'lower_utilization_bps');
+  const upperUtilization = field(irm, 'upperUtilizationBps', 'upper_utilization_bps');
+  const hasUtilizationBand = lowerUtilization !== undefined || upperUtilization !== undefined;
+  if (hasUtilizationBand && (lowerUtilization === undefined || upperUtilization === undefined))
+    throw new Error('Incomplete Dusk utilization target band');
 
   return {
     swapFeeBps: numberValue(field(config, 'swapFeeBps', 'swap_fee_bps')),
@@ -240,7 +245,15 @@ function marketConfigPayload(marketAccount: unknown): Record<string, unknown> {
         (field<number[]>(amm, 'reserved') ?? []) as number[],
       ).map((byte) => Number(byte)),
     },
-    irm: field(irm, 'lowerSignalNad', 'lower_signal_nad') !== undefined ? {
+    irm: hasUtilizationBand ? {
+      model: 'dual-target-bands.v1',
+      lowerSignalNad: stringValue(field(irm, 'lowerSignalNad', 'lower_signal_nad')),
+      upperSignalNad: stringValue(field(irm, 'upperSignalNad', 'upper_signal_nad')),
+      lowerUtilizationBps: numberValue(lowerUtilization),
+      upperUtilizationBps: numberValue(upperUtilization),
+      halfLifeMs: stringValue(field(irm, 'halfLifeMs', 'half_life_ms')),
+      initialAprNad: stringValue(field(irm, 'initialAprNad', 'initial_apr_nad')),
+    } : field(irm, 'lowerSignalNad', 'lower_signal_nad') !== undefined ? {
       model: 'junior-coverage.v1',
       lowerSignalNad: stringValue(field(irm, 'lowerSignalNad', 'lower_signal_nad')),
       upperSignalNad: stringValue(field(irm, 'upperSignalNad', 'upper_signal_nad')),

@@ -1,11 +1,15 @@
 # Junior exit and preview-layout release candidate
 
 Both programs from Dusk PR #78 commit `c5993da973f932d270714afea588fc5bc981a242`
-are deployed on devnet. `candidate.json` records the finalized slots, payload and
+were deployed and verified on devnet before subsequent upgrades superseded
+them. `candidate.json` records those historical finalized slots, payload and
 allocated binary hashes, unchanged authorities, and generated IDL hashes. The
 IDL files are copied directly from that tested Anchor build.
 
-This is an **inactive candidate**. The active protocol lock, history boundary,
+This is a **historical inactive candidate**, retained with its public fixture
+and original identity. The combined layout-14 release is staged separately in
+`../devnet-2026-11-09-combined-layout14`; this older candidate must not be activated.
+The active protocol lock, history boundary,
 SDK dependency and quote runtime are unchanged. SDK `2.19.0-next.20261109` must
 first be published through the program repository's workflow after its required
 independent review. Use the real registry artifact to prepare the dependency
