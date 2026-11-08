@@ -2,7 +2,7 @@
 
 The active revision is `devnet-2026-11-06-operators`, with operator/manager authority, junior-first losses and no core LP governance or separate insurance fund. Dusk is `B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2`; the delegate is `B315E6hHTgDjHgCCPungLop2mkgv9SHkcBc9ZzALNxNY`. Continuous event history begins at slot **519164380**.
 
-The compatible Dusk upgrade at finalized slot **519241008** preserves both generated IDLs, program IDs, accounts and event history. `compatible-deployment.json` records the verified allocated executable; `quote-runtime/` carries its matching payload. The original `protocol.lock.json` remains the immutable history boundary. The published SDK remains `2.18.0-next.20261106`.
+The compatible Dusk upgrade at finalized slot **519909294** preserves both generated IDLs, program IDs, accounts and event history. `compatible-deployment.json` records the verified allocated executable; `quote-runtime/` carries its matching payload. The original `protocol.lock.json` remains the immutable history boundary. The API uses the published SDK `2.18.1-next.20261106`.
 
 [Upgrade evidence](../docs/evidence/devnet-operators-e2e-20261106/deployment.json) records the finalized signature, source commit, binary sizes and hashes.
 

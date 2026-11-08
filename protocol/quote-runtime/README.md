@@ -1,6 +1,6 @@
 # Native leverage-capacity candidate runtime
 
-`dusk.so` is the verified 4,781,904-byte payload from Dusk commit `fda084dce13fdb99da0731d8c74861eefd7432fc`, upgraded under the same devnet program identity at finalized slot 519241008. Its SHA-256 is `3db2f56071c6bbe513a90b54f8a5816af102664f258089be29ce59a8c93384cc`. The 4,791,536-byte on-chain allocation includes zero padding and hashes to `c6df2029bc428a13697fbc7260e125d8d53cdc623a63cd8ba122e6db5fb5f276`.
+`dusk.so` is the verified 4,773,152-byte payload from Dusk commit `fd5a2948e5aaaa8cfa84fb2e0899a084a9fc2184`, upgraded under the same devnet program identity at finalized slot 519909294. Its SHA-256 is `85dc31b286e58869ef5ddf9f0ac411f57383723e2bcb671d3d6d04186c91b16d`. The 4,791,536-byte on-chain allocation includes zero padding and hashes to `fa19c1ff8677e3ac9f798acf8f88948ee3803a886edb25c3d779c777984cb3a6`.
 
 The manifest pins both hashes; `compatible-deployment.json` pins the complete on-chain allocation. Future compatible upgrades must update these artifacts together. A mismatched runtime refuses quotes.
 

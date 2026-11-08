@@ -2,8 +2,8 @@
   "eventRevision": "devnet-2026-11-06-operators",
   "programId": "B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2",
   "idlCanonicalSha256": "ce1c819b539c9a9ab526e84dd37b21326d6c0cdcfe7ab2af1fa05f9707d99e6d",
-  "sourceCommit": "fda084dce13fdb99da0731d8c74861eefd7432fc",
-  "deploySlot": 519241008,
-  "binarySha256": "c6df2029bc428a13697fbc7260e125d8d53cdc623a63cd8ba122e6db5fb5f276",
+  "sourceCommit": "fd5a2948e5aaaa8cfa84fb2e0899a084a9fc2184",
+  "deploySlot": 519909294,
+  "binarySha256": "fa19c1ff8677e3ac9f798acf8f88948ee3803a886edb25c3d779c777984cb3a6",
   "allocatedBinaryBytes": 4791536
 }
