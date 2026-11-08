@@ -1,0 +1,62 @@
+{
+  "schemaVersion": "dusk-protocol-candidate.v1",
+  "status": "awaiting-sdk-publication-and-compatibility-review",
+  "revision": "devnet-2026-11-09-junior-exits",
+  "source": {
+    "repository": "https://github.com/omnipair/dusk",
+    "branch": "feat/junior-exit-replacement",
+    "gitCommit": "c5993da973f932d270714afea588fc5bc981a242",
+    "pullRequest": 78
+  },
+  "programs": [
+    {
+      "name": "dusk",
+      "programId": "B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2",
+      "idl": {
+        "path": "idl/dusk.json",
+        "sha256": "7892acceb09bfe5dc12eabf2adf39bbec4a90bd516f05875bf060f96b8f12812",
+        "canonicalSha256": "0b861cab965118936f5da285b0a9f65cec7697b35ee76034efc6c67902dc1055"
+      },
+      "verifiedDeployment": {
+        "programId": "B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2",
+        "programData": "C6AN9yEBoq5MUGWBXCeMSudEj7fo8pkRwwiJAgZYkcDY",
+        "authority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+        "previousSlot": 520122336,
+        "finalizedSlot": 520137755,
+        "payloadBytes": 4807728,
+        "payloadSha256": "4a2a717db1e6277801ada6c2f9df134f4cae4fe695239277259bb0879f7a182a",
+        "allocatedBytes": 4808456,
+        "allocatedSha256": "4016b3cfa0bfbf833e8ba85bb1a8910c81c0b1b6d86362ec583b70024f3d1f78",
+        "idlCanonicalSha256": "0b861cab965118936f5da285b0a9f65cec7697b35ee76034efc6c67902dc1055",
+        "idlRawSha256": "7892acceb09bfe5dc12eabf2adf39bbec4a90bd516f05875bf060f96b8f12812"
+      }
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "B315E6hHTgDjHgCCPungLop2mkgv9SHkcBc9ZzALNxNY",
+      "idl": {
+        "path": "idl/leverage_delegate.json",
+        "sha256": "7f6c650ee1036db07dee404bd2124faea7689b68fc46e402bc8bbec527e4e43c",
+        "canonicalSha256": "a5636ba1efcc16352f6bdd3d8bf8e401344daa111d1ed4a7c4adaad6f42ae0bc"
+      },
+      "verifiedDeployment": {
+        "programId": "B315E6hHTgDjHgCCPungLop2mkgv9SHkcBc9ZzALNxNY",
+        "programData": "9DVnTaGJRYRoFKodC21vPpx6JUcBx6XfeHVReKKTWc7t",
+        "authority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+        "previousSlot": 520123408,
+        "finalizedSlot": 520138818,
+        "payloadBytes": 1412944,
+        "payloadSha256": "ee6fc067ebb2bdcccbbea6cb3d30cb43fabc68f600acd4f4c417d266bf65b761",
+        "allocatedBytes": 1423144,
+        "allocatedSha256": "22ba9b3c94d45cc55cbf6d075151cdd2196f71ab683b4ff4a97543853363b083",
+        "idlCanonicalSha256": "a5636ba1efcc16352f6bdd3d8bf8e401344daa111d1ed4a7c4adaad6f42ae0bc",
+        "idlRawSha256": "7f6c650ee1036db07dee404bd2124faea7689b68fc46e402bc8bbec527e4e43c"
+      }
+    }
+  ],
+  "sdk": {
+    "version": "2.19.0-next.20261109",
+    "publication": "pending the required independent review and normal merge of Dusk PR #78"
+  },
+  "activation": "Do not activate until the exact SDK is published, its registry artifact and lock are verified, and the new revision passes replay and compatibility review. Preserve the current lock, IDLs, quote runtime, historical observations and cursors under their recorded revision."
+}
