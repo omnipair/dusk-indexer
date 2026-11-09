@@ -340,10 +340,22 @@ mod tests {
 
     /// A real devnet swap, delivered the way the Helius datasource delivers it
     /// (base64 transaction, meta converted to Carbon's types, no block), comes
-    /// back out of the pinned decoder with its hLP adjustment and swap events.
+    /// back out of the pinned decoder with the native swap event.
     #[test]
     fn a_streamed_devnet_swap_decodes_its_event() {
-        let source = include_str!("../fixtures/swap-executed-devnet.json");
+        let source = include_str!("../fixtures/swap-executed-fresh-devnet.json");
+        let expected: serde_json::Value = serde_json::from_str(include_str!(
+            "../fixtures/swap-executed-fresh-devnet.expected.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            expected["programId"],
+            dusk_indexer_foundation::DUSK_PROGRAM_ID
+        );
+        assert_eq!(
+            expected["protocolRevision"],
+            dusk_indexer_foundation::PROTOCOL_REVISION
+        );
         let fixture: EncodedConfirmedTransactionWithStatusMeta =
             serde_json::from_str(source).unwrap();
         let streamed = TransactionMetadata {
@@ -367,7 +379,12 @@ mod tests {
         .unwrap();
         assert_eq!(
             observed.event_names(),
-            vec!["HlpRebalanced", "SwapExecuted"]
+            expected["eventNames"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect::<Vec<_>>()
         );
         assert!(observed.orders.is_empty());
         let records = observed
@@ -384,12 +401,16 @@ mod tests {
             .unwrap();
         assert_eq!(record.commitment, Commitment::Confirmed);
         assert_eq!(record.blockhash, STREAM_BLOCKHASH);
-        assert_eq!(record.slot, 519_166_984);
+        assert_eq!(record.slot, expected["slot"].as_u64().unwrap());
         let payload = record.decoded_payload.as_ref().unwrap();
-        assert_eq!(payload["base"]["spot_price_nad"], "998008977");
-        assert_eq!(payload["quote"]["spot_price_nad"], "1001994995");
-        assert_eq!(payload["base"]["price_ema_nad"], "1000000000");
-        assert_eq!(payload["quote"]["price_ema_nad"], "1000000000");
+        for (side, field, key) in [
+            ("base", "spot_price_nad", "baseSpotPriceNad"),
+            ("quote", "spot_price_nad", "quoteSpotPriceNad"),
+            ("base", "price_ema_nad", "basePriceEmaNad"),
+            ("quote", "price_ema_nad", "quotePriceEmaNad"),
+        ] {
+            assert_eq!(payload[side][field], expected[key]);
+        }
         assert!(record.event_key.contains(&signature));
     }
 }

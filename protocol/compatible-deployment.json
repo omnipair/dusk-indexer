@@ -1,9 +1,9 @@
 {
-  "eventRevision": "devnet-2026-11-09-combined-layout14",
-  "programId": "B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2",
-  "idlCanonicalSha256": "9d011975469d745457f1b310e06bf0149ed685f7c1570fd479990912f82a8d78",
-  "sourceCommit": "a99091ddfea26af1a1fe0c775d55b628beff5300",
-  "deploySlot": 520272736,
-  "binarySha256": "203b84a68af65be247ebff7c9357751c0e658f847baab7c43378a8c8f46878cd",
-  "allocatedBinaryBytes": 4808456
+  "eventRevision": "devnet-2026-11-09-fresh-layout14",
+  "programId": "2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y",
+  "idlCanonicalSha256": "b8f7378f0f53c2e9cae1cc1ac08cfe5acc5ca62122e2880f14aabe6e60131b6c",
+  "sourceCommit": "2b6311f4b4f8c1678edee72e8a3dbd1ff3f467b5",
+  "deploySlot": 520349136,
+  "binarySha256": "e53a4f57a9b2f7e7b7a891c82205acb235d077874508361b302c4f906cc67782",
+  "allocatedBinaryBytes": 5042536
 }

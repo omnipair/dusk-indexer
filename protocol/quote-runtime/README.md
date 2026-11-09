@@ -1,6 +1,10 @@
 # Native leverage-capacity runtime
 
-`dusk.so` is the verified 4,802,408-byte payload from Dusk commit `a99091ddfea26af1a1fe0c775d55b628beff5300`, upgraded under the same devnet program identity at finalized slot 520272736. Its SHA-256 is `73168adc4affd13454e41e10cecc5ed90bab63640bce21a5a1367352a1bc98fe`. The 4,808,456-byte on-chain allocation includes zero padding and hashes to `203b84a68af65be247ebff7c9357751c0e658f847baab7c43378a8c8f46878cd`.
+`dusk.so` is the verified 4,802,408-byte payload from Dusk commit
+`2b6311f4b4f8c1678edee72e8a3dbd1ff3f467b5`, deployed to `2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y` at finalized slot
+520349136. Payload SHA-256:
+`bb7571578097997a177c4ed819df06a76d856a7d4473fe8a227816607b793844`. The complete 5,042,536-byte on-chain
+allocation hashes to `e53a4f57a9b2f7e7b7a891c82205acb235d077874508361b302c4f906cc67782`.
 
 The manifest pins both hashes; `compatible-deployment.json` pins the complete on-chain allocation. Future compatible upgrades must update these artifacts together. A mismatched runtime refuses quotes.
 
@@ -31,8 +35,9 @@ charging the trade owner's snapshot. Larger sets, or a payer-owner collision,
 use a bounded read-only batch retry and require Clock.slot == context.slot.
 
 Fixtures in `api/src/tests/fixtures/leverage-maximum-*.json.gz` contain public
-account data, unsigned transactions and expected results. The live fixture is the
-existing 3A9o devnet market. The eight offline cases were generated through the
+account data, unsigned transactions and expected results. Current live fixtures cover the fresh constant-product and concentrated
+markets in both debt directions. Historical fixtures retain their original
+identities. The eight offline cases were generated through the
 Dusk smoke harness's real market creation, liquidity and both hLP deposit paths:
 CPMM/concentrated (3x, 250-bps core, 500-bps shoulder), both debt directions,
 classic/Token-2022 transfer fees and 50% swap-fee compounding. The independent

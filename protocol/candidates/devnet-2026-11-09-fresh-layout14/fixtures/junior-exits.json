@@ -1,0 +1,150 @@
+{
+  "revision": "2b6311f4b4f8c1678edee72e8a3dbd1ff3f467b5",
+  "wallet": "ACM12AhNeLRbtVNk4ZyLPwopDZTfwQ9UJLMymAgGnMhz",
+  "steps": {
+    "layout14-primary-20261109-initialize-junior": {
+      "signature": "4QP5yNcH9FuYoqKzuU8SDDQsiBRxkjZng9ihaWFLhCF2gi8M5n66QWeEqaoPAk9fY7CLjyFDSaz7EVF9b6a8yuRu",
+      "lastValidBlockHeight": 507495231,
+      "status": "finalized",
+      "slot": 520352629
+    },
+    "layout14-primary-20261109-fund-junior": {
+      "signature": "4pLL8yHg2iQ24PU4WVTCUfFfy4kpjmTQCgtrH4Ctg3yTBRrmEHtD2GdrEfy5rcF5tkbFJzGYVifzAmNMkDARvkA7",
+      "lastValidBlockHeight": 507495268,
+      "status": "finalized",
+      "slot": 520352666
+    },
+    "layout14-concentrated-20261109-initialize-junior": {
+      "signature": "23r9QmAbtf2k7jyvapm8iW79XvjknAgwMRXe1EphfyyLuGDx7zP783xCBM5eYiFbr3ZHEnH7e1XL5Tk2myMyf6Qh",
+      "lastValidBlockHeight": 507495301,
+      "status": "finalized",
+      "slot": 520352699
+    },
+    "layout14-concentrated-20261109-fund-junior": {
+      "signature": "czQabohWMq9qrvgRFpY9oSeUxzq6DfhiawBHBtG9oembkmbB45tguDvh99pq4wezmbgRMKA6WzB45dWBF91uEM6",
+      "lastValidBlockHeight": 507495339,
+      "status": "finalized",
+      "slot": 520352737
+    },
+    "fund-acceptance-wallet": {
+      "signature": "Fw6udnAq9CmoMaE1rQ4gnUiCufa7v3Ls18ZXjeUzMhhzcuFRxi6viVtamMoGgWShyGeB95ypbwbaepATsxxnph3",
+      "lastValidBlockHeight": 507495371,
+      "status": "finalized",
+      "slot": 520352769
+    },
+    "create-acceptance-token-accounts": {
+      "signature": "2w4dbKSfEx4B3iJHVcsqtYjZeuSYzasHy98UAM5VcS2YUALPbpvnCmA2WFgRdup5VtB5iesEQHS4WWtpd4mA6p8x",
+      "lastValidBlockHeight": 507495407,
+      "status": "finalized",
+      "slot": 520352804
+    },
+    "mint-test-asset-0": {
+      "signature": "x3BxzRPY2bNVhjgw9ahotRwTfULWPCZXUnBAZ2gGLJnH9cXLiMzrfDL6dKNi19BpkXicDtT2WKBtAEW6bSRk7QT",
+      "lastValidBlockHeight": 507495441,
+      "status": "finalized",
+      "slot": 520352839
+    },
+    "mint-test-asset-1": {
+      "signature": "55BvWw5StSCniacrJVi8QhDcDUR8xhUUmZr4qf3GA954UaZbSe4KpkFaJiypGuE3Mxa8pcEc6JUn7tKCQPx8sB5X",
+      "lastValidBlockHeight": 507495475,
+      "status": "finalized",
+      "slot": 520352872
+    },
+    "add-acceptance-liquidity": {
+      "signature": "61yc86hGWncr9tS3NfJbcv4XXaLvpEpRrxuEwzZ52A1oUYDm7rhvBRG9nVGUiDUYz6Fnw6r4MTts4QMrChy6hfxb",
+      "lastValidBlockHeight": 507495512,
+      "status": "finalized",
+      "slot": 520352909
+    },
+    "enter-acceptance-junior": {
+      "signature": "2qdQPKuRfa9fHGxsukFrApAthFwY6aq86Ri4gcuMzc78rTpT6HCFfWog76nF94QBoAxNsN8Yd6XyTwqF7a6Bn4t9",
+      "lastValidBlockHeight": 507495561,
+      "status": "finalized",
+      "slot": 520352960
+    },
+    "request-during-notice": {
+      "signature": "2z3HL5qXzAMy6hpRgtf1pffEPULYjBduymCNYNVWFpYoiQuRJpHpAe2BAntW7NZHEkEiZZNNFVj7pKbHJxeojVhr",
+      "lastValidBlockHeight": 507495596,
+      "status": "finalized",
+      "slot": 520352993
+    },
+    "cancel-during-notice": {
+      "signature": "NfePzrkDdj7dSgBaTPQwvzUdzLtnzHfZxE9scFaE3miEcarhPVgkJytgnF5hxmVufwoeakYGFLqMyScDcjGDL3T",
+      "lastValidBlockHeight": 507495687,
+      "status": "finalized",
+      "slot": 520353084
+    },
+    "fresh-request": {
+      "signature": "2U6A5vvtodN2rhye7SbmvohanTmauGXu1StYSGYjnKtGAqVYiBmK5MJMSszQnw62NemPAVCbtZdYtn4kztMuoc5B",
+      "lastValidBlockHeight": 507495755,
+      "status": "finalized",
+      "slot": 520353152
+    },
+    "atomic-larger-replacement": {
+      "signature": "4cvLwqVi9eUZs89UgdrQjXQsGjYS3Kh3CJKnYUPgej6Hd9HEKzvZD86bVCn1MFXyhq72vaLae3bqnWrTaBQSGtaX",
+      "lastValidBlockHeight": 507495797,
+      "status": "finalized",
+      "slot": 520353195
+    },
+    "atomic-smaller-replacement": {
+      "signature": "J48Qi32mFUiAsAroJiZiwqxYM8kyzhR7LunW9x8i5e9XDQXkcjxToPVjskhCH4JBUA1MGJm6nwCPGJkzeg6sP8T",
+      "lastValidBlockHeight": 507495844,
+      "status": "finalized",
+      "slot": 520353241
+    },
+    "cancel-final-request": {
+      "signature": "2XfGs2YngnzGJDA6XfqvszzAhy91Sg7r5Zgcr7PsUfZHZfM7r6FsM9DpQCybophrBrEHcqL6nfwfWRhSop6XEHmA",
+      "lastValidBlockHeight": 507495879,
+      "status": "finalized",
+      "slot": 520353276
+    }
+  },
+  "checks": [
+    {
+      "label": "request-during-notice",
+      "receipts": "995000",
+      "readyAt": "523378817",
+      "submissionSlot": 520352993,
+      "minimumNoticeSlots": "3024000",
+      "juniorCapital": "707246500"
+    },
+    {
+      "label": "overwrite-is-forbidden",
+      "rejectedWith": "InvalidArgument"
+    },
+    {
+      "label": "early-conversion-is-forbidden",
+      "rejectedWith": "InvalidArgument"
+    },
+    {
+      "label": "zero-request-is-forbidden",
+      "rejectedWith": "AmountZero"
+    },
+    {
+      "label": "fresh-request",
+      "receipts": "995000",
+      "readyAt": "523378976",
+      "submissionSlot": 520353152,
+      "minimumNoticeSlots": "3024000",
+      "juniorCapital": "707246500"
+    },
+    {
+      "label": "atomic-larger-replacement",
+      "receipts": "1492500",
+      "readyAt": "523379930",
+      "submissionSlot": 520353195,
+      "minimumNoticeSlots": "3024000",
+      "juniorCapital": "707246500"
+    },
+    {
+      "label": "atomic-smaller-replacement",
+      "receipts": "497500",
+      "readyAt": "523378153",
+      "submissionSlot": 520353241,
+      "minimumNoticeSlots": "3024000",
+      "juniorCapital": "707246500"
+    }
+  ],
+  "completed": true,
+  "completedAt": "2026-11-09T10:34:11.601Z"
+}

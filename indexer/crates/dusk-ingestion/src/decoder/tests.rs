@@ -953,8 +953,5 @@ fn oracle_candidate_matches_sdk_wire_bytes_without_promoting_the_pin() {
             )
             .is_err()
     );
-    assert_eq!(
-        crate::PROTOCOL_REVISION,
-        "devnet-2026-11-09-combined-layout14"
-    );
+    assert_eq!(crate::PROTOCOL_REVISION, "devnet-2026-11-09-fresh-layout14");
 }

@@ -21,7 +21,8 @@ const ROTATED_PROGRAM_REVISION = 'devnet-2026-11-01-tranches';
 const PREVIOUS_ACTIVE_REVISION = 'devnet-2026-11-01-tranches-fresh';
 const PREVIOUS_GOVERNANCE_REVISION = 'devnet-2026-11-02-governable-tranches';
 const OPERATORS_REVISION = 'devnet-2026-11-06-operators';
-const ACTIVE_REVISION = 'devnet-2026-11-09-combined-layout14';
+const COMBINED_REVISION = 'devnet-2026-11-09-combined-layout14';
+const ACTIVE_REVISION = 'devnet-2026-11-09-fresh-layout14';
 const ARCHIVED_DUSK_PROGRAM_ID = 'JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X';
 const successors: Record<string, string> = {
   [ARCHIVED_QUOTE_REVISION]: PREVIOUS_QUOTE_REVISION,
@@ -35,7 +36,8 @@ const successors: Record<string, string> = {
   [ROTATED_PROGRAM_REVISION]: PREVIOUS_ACTIVE_REVISION,
   [PREVIOUS_ACTIVE_REVISION]: PREVIOUS_GOVERNANCE_REVISION,
   [PREVIOUS_GOVERNANCE_REVISION]: OPERATORS_REVISION,
-  [OPERATORS_REVISION]: ACTIVE_REVISION,
+  [OPERATORS_REVISION]: COMBINED_REVISION,
+  [COMBINED_REVISION]: ACTIVE_REVISION,
 };
 
 /** Historical display only. Each release keeps its original tuple, envelope,
@@ -53,8 +55,9 @@ export async function readArchivedQuoteHistory(client: PoolClient,query: QuoteHi
   const coder = new BorshCoder(JSON.parse(readFileSync(resolve(root,'idl/dusk.json'),'utf8')) as Idl);
   const successor = successors[revision] === active.revision ? active
     : loadProtocolAt(resolve(root, '..', successors[revision]));
-  const intentionalProgramRotation = revision === ROTATED_PROGRAM_REVISION
-    && successor.revision === PREVIOUS_ACTIVE_REVISION;
+  const intentionalProgramRotation = (revision === ROTATED_PROGRAM_REVISION
+    && successor.revision === PREVIOUS_ACTIVE_REVISION)
+    || (revision === COMBINED_REVISION && successor.revision === ACTIVE_REVISION);
   if (successor.revision !== successors[revision] || successor.cluster !== pin.cluster
     || successor.genesisHash !== pin.genesisHash
     || (!intentionalProgramRotation && successor.dusk.programId !== pin.dusk.programId)

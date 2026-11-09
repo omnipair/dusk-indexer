@@ -1,0 +1,62 @@
+{
+  "schemaVersion": "dusk-protocol-candidate.v1",
+  "status": "published-sdk-compatibility-validation",
+  "revision": "devnet-2026-11-09-fresh-layout14",
+  "source": {
+    "repository": "https://github.com/omnipair/dusk",
+    "branch": "feat/fresh-devnet-programs",
+    "gitCommit": "2b6311f4b4f8c1678edee72e8a3dbd1ff3f467b5"
+  },
+  "programs": [
+    {
+      "name": "dusk",
+      "programId": "2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y",
+      "idl": {
+        "path": "idl/dusk.json",
+        "sha256": "d3922f16803a915297585637b9ec42815d53fe2c1c2ce767ba0a905bbf069f48",
+        "canonicalSha256": "b8f7378f0f53c2e9cae1cc1ac08cfe5acc5ca62122e2880f14aabe6e60131b6c"
+      },
+      "verifiedDeployment": {
+        "name": "dusk",
+        "programId": "2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y",
+        "programData": "J5CdybdVhnLVx5fAKGioQTkDt1apnppNVLK5E9Kwvdpt",
+        "authority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+        "finalizedSlot": 520349136,
+        "payloadBytes": 4802408,
+        "payloadSha256": "bb7571578097997a177c4ed819df06a76d856a7d4473fe8a227816607b793844",
+        "allocatedBytes": 5042536,
+        "allocatedSha256": "e53a4f57a9b2f7e7b7a891c82205acb235d077874508361b302c4f906cc67782",
+        "idlCanonicalSha256": "b8f7378f0f53c2e9cae1cc1ac08cfe5acc5ca62122e2880f14aabe6e60131b6c",
+        "idlRawSha256": "d3922f16803a915297585637b9ec42815d53fe2c1c2ce767ba0a905bbf069f48"
+      }
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "AXUucZuwuCu6voVQGf6tYMQ5LoRwLr9u4ESLpiPqqHbX",
+      "idl": {
+        "path": "idl/leverage_delegate.json",
+        "sha256": "785946bbea41d2e227c9f65735c94032f31e2fb86b4e087fd5eacdc3e51752ed",
+        "canonicalSha256": "e4262a4307d82c4ef8ec737e28ce7f471a5854a6a1624c6a30e18851ce899206"
+      },
+      "verifiedDeployment": {
+        "name": "leverage_delegate",
+        "programId": "AXUucZuwuCu6voVQGf6tYMQ5LoRwLr9u4ESLpiPqqHbX",
+        "programData": "6vKp7krBBWw8xS43N3sEdDpABMQoJEoEbnu9MgSo58pZ",
+        "authority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+        "finalizedSlot": 520350149,
+        "payloadBytes": 1413424,
+        "payloadSha256": "d836cf738a598f214d0f81b41decdb3663d8fd170342676b9186f8e55a3cd22c",
+        "allocatedBytes": 1484096,
+        "allocatedSha256": "0bc237839c24b1629493299f501855dd8ee9ad1abbd21ec8e4785c2255ef389b",
+        "idlCanonicalSha256": "e4262a4307d82c4ef8ec737e28ce7f471a5854a6a1624c6a30e18851ce899206",
+        "idlRawSha256": "785946bbea41d2e227c9f65735c94032f31e2fb86b4e087fd5eacdc3e51752ed"
+      }
+    }
+  ],
+  "sdk": {
+    "package": "@omnipair/dusk-sdk",
+    "version": "2.21.0-next.20261109",
+    "sha256": "645f872b2d786195f9153f5b784776159400ec7ca6d735d442875be70e9b7116"
+  },
+  "firstSlot": 520350150
+}
