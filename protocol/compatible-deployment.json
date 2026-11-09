@@ -1,9 +1,9 @@
 {
-  "eventRevision": "devnet-2026-11-06-operators",
+  "eventRevision": "devnet-2026-11-09-combined-layout14",
   "programId": "B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2",
-  "idlCanonicalSha256": "ce1c819b539c9a9ab526e84dd37b21326d6c0cdcfe7ab2af1fa05f9707d99e6d",
-  "sourceCommit": "fd5a2948e5aaaa8cfa84fb2e0899a084a9fc2184",
-  "deploySlot": 519909294,
-  "binarySha256": "fa19c1ff8677e3ac9f798acf8f88948ee3803a886edb25c3d779c777984cb3a6",
-  "allocatedBinaryBytes": 4791536
+  "idlCanonicalSha256": "9d011975469d745457f1b310e06bf0149ed685f7c1570fd479990912f82a8d78",
+  "sourceCommit": "a99091ddfea26af1a1fe0c775d55b628beff5300",
+  "deploySlot": 520272736,
+  "binarySha256": "203b84a68af65be247ebff7c9357751c0e658f847baab7c43378a8c8f46878cd",
+  "allocatedBinaryBytes": 4808456
 }

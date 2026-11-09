@@ -10170,6 +10170,111 @@
       ]
     },
     {
+      "name": "update_lp_metadata",
+      "discriminator": [
+        189,
+        1,
+        111,
+        232,
+        230,
+        30,
+        12,
+        245
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "signer": true
+        },
+        {
+          "name": "market",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "lp_mint"
+        },
+        {
+          "name": "token_metadata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "token_metadata_program"
+              },
+              {
+                "kind": "account",
+                "path": "lp_mint"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "token_metadata_program"
+            }
+          }
+        },
+        {
+          "name": "token_metadata_program",
+          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "InitializeLpMetadataArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "update_protocol_auction_config",
       "discriminator": [
         4,
@@ -14664,22 +14769,22 @@
             "type": "u128"
           },
           {
-            "name": "base_rate_at_target_nad",
+            "name": "base_borrow_apr_nad",
             "type": "u128"
           },
           {
-            "name": "quote_rate_at_target_nad",
+            "name": "quote_borrow_apr_nad",
             "type": "u128"
           },
           {
-            "name": "base_rate_fraction_e18",
+            "name": "base_borrow_apr_fraction_e18",
             "docs": [
               "Fractional NAD APR carried by the exponential controller (scale 1e9)."
             ],
             "type": "u64"
           },
           {
-            "name": "quote_rate_fraction_e18",
+            "name": "quote_borrow_apr_fraction_e18",
             "type": "u64"
           },
           {
@@ -20803,10 +20908,6 @@
             "type": "u128"
           },
           {
-            "name": "rate_at_target_nad",
-            "type": "u128"
-          },
-          {
             "name": "borrow_apr_nad",
             "type": "u128"
           },
@@ -21903,7 +22004,7 @@
     {
       "name": "RiskRateConfig",
       "docs": [
-        "Coverage controller configuration. Initial APR is creation-only."
+        "Coverage-and-utilization controller configuration. Initial APR is creation-only."
       ],
       "type": {
         "kind": "struct",
@@ -21917,16 +22018,20 @@
             "type": "u64"
           },
           {
+            "name": "lower_utilization_bps",
+            "type": "u16"
+          },
+          {
+            "name": "upper_utilization_bps",
+            "type": "u16"
+          },
+          {
             "name": "half_life_ms",
             "type": "u64"
           },
           {
             "name": "initial_apr_nad",
             "type": "u64"
-          },
-          {
-            "name": "borrow_utilization_limit_bps",
-            "type": "u16"
           }
         ]
       }
@@ -21949,12 +22054,16 @@
             "type": "u64"
           },
           {
-            "name": "half_life_ms",
-            "type": "u64"
+            "name": "lower_utilization_bps",
+            "type": "u16"
           },
           {
-            "name": "borrow_utilization_limit_bps",
+            "name": "upper_utilization_bps",
             "type": "u16"
+          },
+          {
+            "name": "half_life_ms",
+            "type": "u64"
           }
         ]
       }
@@ -22668,7 +22777,7 @@
             "name": "RequestExit",
             "fields": [
               {
-                "name": "additional_junior",
+                "name": "junior_amount",
                 "type": "u64"
               }
             ]
@@ -22846,7 +22955,7 @@
     {
       "name": "TranchePolicy",
       "docs": [
-        "Operator-configured junior income allocation. Exit timing and the request/renewal and",
+        "Operator-configured junior income allocation. Exit timing and the request and",
         "liquidation fees remain fixed by the protocol."
       ],
       "type": {
@@ -23505,12 +23614,12 @@
       "docs": [
         "Serialized `Market` account layout discriminator.",
         "",
-        "Layout 12 replaces core LP governance with operator authority and removes",
-        "configurable interest-rate floors/ceilings and redundant centering inputs.",
-        "Aggregate virtual reserves use u128; physical token amounts remain u64."
+        "Layout 14 replaces the former utilization admission threshold with",
+        "independent lower/upper utilization rate targets. Aggregate virtual",
+        "reserves use u128; physical token amounts remain u64."
       ],
       "type": "u8",
-      "value": "13"
+      "value": "14"
     },
     {
       "name": "MARKET_RESERVE_VAULT_SEED_PREFIX",

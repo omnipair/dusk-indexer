@@ -1,6 +1,6 @@
 {
   "schemaVersion": "dusk-protocol-candidate.v1",
-  "status": "awaiting-sdk-publication-and-compatibility-review",
+  "status": "published-sdk-compatibility-validation",
   "revision": "devnet-2026-11-09-combined-layout14",
   "source": {
     "repository": "https://github.com/omnipair/dusk",
@@ -86,7 +86,10 @@
   ],
   "sdk": {
     "version": "2.19.0-next.20261109",
-    "publication": "pending coordinated combined deployment, required review and repository publishing workflow"
+    "sha256": "086ea70869c175e1fefcd5c062d693e92d699479dcc6602732ab0f857e14590a",
+    "integrity": "sha512-XBhOPX/AW8tnBWGK/CbOZ+rr/cBCK9qft71xWej8mmlXInbiw8UsIf5FXiQYtEJRV4luyzAg1tkfLODe6GTtJg==",
+    "publication": "https://github.com/omnipair/dusk/actions/runs/42578419048",
+    "publishedSourceCommit": "cc380898e709bd57390a7a81df66db50e5ffc45d"
   },
   "activation": "Inactive until the exact published SDK artifact is verified and replay/compatibility, quote-runtime parity and consumer acceptance pass. Both current combined executables and uploaded IDLs are finalized and match the tested source. Archive prior locks, IDLs, runtimes, observations and cursors under their original identities before activation; do not relabel or delete history.",
   "cleanSlate": {

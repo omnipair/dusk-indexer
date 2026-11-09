@@ -1,10 +1,23 @@
 # Dusk devnet protocol pin
 
-The active revision is `devnet-2026-11-06-operators`, with operator/manager authority, junior-first losses and no core LP governance or separate insurance fund. Dusk is `B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2`; the delegate is `B315E6hHTgDjHgCCPungLop2mkgv9SHkcBc9ZzALNxNY`. Continuous event history begins at slot **519164380**.
+The active revision is `devnet-2026-11-09-combined-layout14`. Dusk is
+`B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2`; the delegate is
+`B315E6hHTgDjHgCCPungLop2mkgv9SHkcBc9ZzALNxNY`. The complete revision
+begins at slot **520273795**, after finalized upgrades at 520272736/520273794.
+The API uses the registry-published SDK `2.19.0-next.20261109`.
 
-The compatible Dusk upgrade at finalized slot **519909294** preserves both generated IDLs, program IDs, accounts and event history. `compatible-deployment.json` records the verified allocated executable; `quote-runtime/` carries its matching payload. The original `protocol.lock.json` remains the immutable history boundary. The API uses the published SDK `2.18.2-next.20261108`.
+This release combines junior exit cancellation/replacement, independent risk
+and utilization target bands, and LP metadata repair. Layout-13 accounts are
+archived; fresh funded markets use layout 14. Cancellation keeps capital junior,
+and a replacement request starts a full notice. No in-place increase or renewal
+path remains. The current IRM DTO is `dual-target-bands.v1`.
 
-[Upgrade evidence](../docs/evidence/devnet-operators-e2e-20261106/deployment.json) records the finalized signature, source commit, binary sizes and hashes.
+The preceding lock, generated IDLs, compatible deployment, price references,
+quote executable and feature manifest are preserved under
+`archive/devnet-2026-11-06-operators/`. Existing observations and cursors keep
+their original identities. New ingestion starts with the new complete tuple.
+[Deployment and compatibility evidence](candidates/devnet-2026-11-09-combined-layout14/README.md)
+includes both fresh markets, finalized junior exit acceptance and decoder regressions.
 
 ## Historical November 2 deployment
 

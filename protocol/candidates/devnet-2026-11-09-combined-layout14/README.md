@@ -1,6 +1,6 @@
 # Combined layout-14 devnet candidate
 
-Inactive candidate for Dusk PR #78 at `a99091ddfea26af1a1fe0c775d55b628beff5300`.
+Reviewed release candidate for merged Dusk PR #78 at `a99091ddfea26af1a1fe0c775d55b628beff5300`.
 It combines #77's LP metadata repair, #78's junior exit cancellation/replacement
 and #79's independent risk/utilization target bands. The generated IDLs are
 copied byte for byte from that commit's Anchor build.
@@ -12,8 +12,11 @@ Prior verification at slots 520157693/520158740 remains in deploymentHistory;
 those records retain their original observations. PR #79 is closed as superseded
 by the combined release.
 
-This candidate is still inactive in the indexer. SDK 2.19.0-next.20261109 is not
-published yet, and no local tarball is represented as a registry artifact.
+The local release pin now selects this revision. SDK 2.19.0-next.20261109 was
+published by the repository workflow on merged commit cc380898. Its registry
+integrity and both packaged generated IDLs were verified; the archive SHA-256 is
+`086ea70869c175e1fefcd5c062d693e92d699479dcc6602732ab0f857e14590a`.
+Service activation follows CI and replay/compatibility checks.
 The new revision's first slot is 520273795. Existing observations and cursors
 remain scoped to their recorded identities.
 
@@ -66,9 +69,8 @@ as request fees remain paid after cancellation.
 
 ## Activation still required
 
-1. Obtain the required program PR approval and publish through the repository
-   workflow. Verify the real npm artifact, integrity and generated interfaces
-   before locking it.
+1. Program merge, workflow publication and registry artifact verification are
+   complete. Both uploaded IDLs and exact tested executable hashes match devnet.
 2. Archive the active lock, both IDLs, quote runtime, price references and
    deployment envelope. Start replay and new cursors under the new revision;
    preserve existing observations, projections and cursor identities.

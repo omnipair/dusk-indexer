@@ -20,7 +20,8 @@ const LAYOUT_V8_REVISION = 'next-2026-10-31-layouts';
 const ROTATED_PROGRAM_REVISION = 'devnet-2026-11-01-tranches';
 const PREVIOUS_ACTIVE_REVISION = 'devnet-2026-11-01-tranches-fresh';
 const PREVIOUS_GOVERNANCE_REVISION = 'devnet-2026-11-02-governable-tranches';
-const ACTIVE_REVISION = 'devnet-2026-11-06-operators';
+const OPERATORS_REVISION = 'devnet-2026-11-06-operators';
+const ACTIVE_REVISION = 'devnet-2026-11-09-combined-layout14';
 const ARCHIVED_DUSK_PROGRAM_ID = 'JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X';
 const successors: Record<string, string> = {
   [ARCHIVED_QUOTE_REVISION]: PREVIOUS_QUOTE_REVISION,
@@ -33,7 +34,8 @@ const successors: Record<string, string> = {
   [LAYOUT_V8_REVISION]: ROTATED_PROGRAM_REVISION,
   [ROTATED_PROGRAM_REVISION]: PREVIOUS_ACTIVE_REVISION,
   [PREVIOUS_ACTIVE_REVISION]: PREVIOUS_GOVERNANCE_REVISION,
-  [PREVIOUS_GOVERNANCE_REVISION]: ACTIVE_REVISION,
+  [PREVIOUS_GOVERNANCE_REVISION]: OPERATORS_REVISION,
+  [OPERATORS_REVISION]: ACTIVE_REVISION,
 };
 
 /** Historical display only. Each release keeps its original tuple, envelope,
