@@ -13,8 +13,8 @@ export interface JuniorExitPosition {
 }
 
 /** Burned jrLP remains a live junior claim while it waits. The event fold is
- * generation-scoped and includes request fees, additions, renewals, cancels
- * and completed conversions. */
+ * generation-scoped and includes request fees, cancellations and completed
+ * conversions. */
 export async function readJuniorExitPositions(
   owner: string,
   client: Pool | PoolClient = pool,

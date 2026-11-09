@@ -1,0 +1,62 @@
+{
+  "$schema": "./protocol/schemas/protocol-lock.schema.json",
+  "schemaVersion": 1,
+  "revision": "devnet-2026-11-06-operators",
+  "status": "deployed",
+  "generatedAt": "2026-11-06T03:45:09.308Z",
+  "source": {
+    "repository": "https://github.com/omnipair/dusk",
+    "branch": "main",
+    "gitCommit": "d8c7f89534b734792ec32af6914e53c3efeb04a9",
+    "note": "Both generated IDLs match the reviewed candidate. Finalized ProgramData executable bytes match the local release payload plus zero allocation padding."
+  },
+  "cluster": {
+    "name": "devnet",
+    "genesisHash": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
+  },
+  "programs": [
+    {
+      "name": "dusk",
+      "programId": "B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2",
+      "binary": {
+        "path": "on-chain (devnet)",
+        "sha256": "f3e9fe0e2de5244592831bfb5689dc705dfc6d9747daffc58b07bef3d7f26bd9"
+      },
+      "idl": {
+        "path": "protocol/idl/dusk.json",
+        "sha256": "f84a03e73952f39e9055019a4595b482ee3e487fc561551d183380b13fabb3dc",
+        "canonicalSha256": "ce1c819b539c9a9ab526e84dd37b21326d6c0cdcfe7ab2af1fa05f9707d99e6d"
+      },
+      "deployment": {
+        "programData": "C6AN9yEBoq5MUGWBXCeMSudEj7fo8pkRwwiJAgZYkcDY",
+        "deploySlot": 519164140,
+        "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+        "allocatedBinaryBytes": 4791536
+      }
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "B315E6hHTgDjHgCCPungLop2mkgv9SHkcBc9ZzALNxNY",
+      "binary": {
+        "path": "on-chain (devnet)",
+        "sha256": "01aef2d292131b5c93b5c23fd4e6deb6e4f0fdbd7f17e46f5279e55f7028a001"
+      },
+      "idl": {
+        "path": "protocol/idl/leverage_delegate.json",
+        "sha256": "9ec94b37072bbabe76f585ff600debb3163097ceca4755bccd68334e491e3147",
+        "canonicalSha256": "b3066a5badc7006b9379d750581c9014671f9bb56c411aea552710b84ffcbc9e"
+      },
+      "deployment": {
+        "programData": "9DVnTaGJRYRoFKodC21vPpx6JUcBx6XfeHVReKKTWc7t",
+        "deploySlot": 519164379,
+        "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+        "allocatedBinaryBytes": 1412904
+      }
+    }
+  ],
+  "sdk": {
+    "package": "@omnipair/dusk-sdk",
+    "version": "2.18.0-next.20261106",
+    "sha256": "f78066543b0605720115c04a0b9c5b54f383e953944b84476a3fa3127194caff"
+  }
+}

@@ -18,6 +18,8 @@ if (!/^[A-Za-z0-9._-]{1,128}$/.test(candidateRevision)) throw Error('Invalid can
 const candidateDir = resolve(protocol, 'candidates', candidateRevision);
 const candidate = json(resolve(candidateDir, 'candidate.json'));
 if (candidate.revision !== candidateRevision) throw Error('Candidate directory/revision mismatch');
+if (typeof candidate.sdk?.version !== 'string' || !/^[0-9a-f]{64}$/.test(candidate.sdk?.sha256 ?? ''))
+  throw Error('Candidate must pin the verified published SDK version and archive SHA-256 before promotion');
 const old = json(resolve(protocol, 'protocol.lock.json'));
 if (old.revision === candidate.revision) throw Error('Already promoted; inspect existing release instead of overwriting it');
 const rpc = new Connection(endpoint, 'finalized');
