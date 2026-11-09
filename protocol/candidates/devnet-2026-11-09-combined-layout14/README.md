@@ -5,13 +5,37 @@ It combines #77's LP metadata repair, #78's junior exit cancellation/replacement
 and #79's independent risk/utilization target bands. The generated IDLs are
 copied byte for byte from that commit's Anchor build.
 
-The recorded finalized deployment at slots 520157693/520158740 was verified
-against the exact tested payloads plus zero allocation padding. It was then
-superseded by another Dusk deployment at slot 520163931; the recorded evidence
-is historical. It does not authorize activation or claim that the candidate is
-currently deployed. Reverify both binaries and uploaded IDLs after release
-coordination. SDK 2.19.0-next.20261109 is not published yet; no local tarball is
-represented as a registry artifact.
+Both combined programs and uploaded IDLs are now finalized and verified at
+slots 520272736/520273794, matching the exact tested payloads plus zero
+allocation padding. The refreshed program PR deployment-match check passes.
+Prior verification at slots 520157693/520158740 remains in deploymentHistory;
+those records retain their original observations. PR #79 is closed as superseded
+by the combined release.
+
+This candidate is still inactive in the indexer. SDK 2.19.0-next.20261109 is not
+published yet, and no local tarball is represented as a registry artifact.
+The new revision's first slot is 520273795. Existing observations and cursors
+remain scoped to their recorded identities.
+
+## Live acceptance and captured observations
+
+Both fresh markets are seeded and have initialized, funded junior tranches.
+`fixtures/markets.json` contains public finalized account observations and
+unsigned read-only market previews, with each source slot recorded separately.
+Both markets report zero debt, 4% APR and the intended independent target bands.
+The prior decoder fabricates debt from these same preview bytes and misreads the
+new account's IRM half-life; regression tests retain that failure evidence.
+
+`fixtures/junior-exits.json` records dedicated-wallet acceptance using the local
+SDK built from the tested commit, funded with 0.4 devnet SOL. Finalized writes
+cover early cancellation and atomic larger/smaller replacements. Each ready_at
+exactly matches submission slot plus the full crowding-adjusted notice. Senior
+balance and funded junior reserve shares remain unchanged during requests and
+cancellations. One-shot simulations reject overwrites, zero requests and early
+conversion. The final pending exit is cancelled. This is program/local-SDK
+acceptance; published-SDK/frontend acceptance remains pending.
+Finalized receipt balances also confirm that all 20,000 receipt units charged
+as request fees remain paid after cancellation.
 
 ## Compatibility review
 
@@ -42,15 +66,12 @@ represented as a registry artifact.
 
 ## Activation still required
 
-1. Coordinate one stable combined deployment, then reverify exact executables
-   and IDL accounts at finalized commitment.
-2. Publish through the repository workflow and verify the real npm artifact,
-   integrity and generated source/compiled interfaces before locking it.
-3. Finish fresh market and junior bootstrap with dedicated-wallet cancellation
-   and larger/smaller replacement acceptance. Capture fresh account/preview
-   evidence under the new identity.
-4. Archive the active lock, both IDLs, quote runtime, price references and
-   deployment envelope. Start replay and new cursors under a new revision;
+1. Obtain the required program PR approval and publish through the repository
+   workflow. Verify the real npm artifact, integrity and generated interfaces
+   before locking it.
+2. Archive the active lock, both IDLs, quote runtime, price references and
+   deployment envelope. Start replay and new cursors under the new revision;
    preserve existing observations, projections and cursor identities.
-5. Pass replay, quote-runtime parity, API integration and identity rejection
-   gates before activating services or the frontend.
+3. Pass replay, quote-runtime parity, API integration and identity rejection
+   gates before activating services or the frontend. Complete live frontend
+   read/write acceptance using the published SDK and matching indexer revision.

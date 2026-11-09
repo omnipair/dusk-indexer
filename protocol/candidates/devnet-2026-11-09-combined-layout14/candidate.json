@@ -1,6 +1,6 @@
 {
   "schemaVersion": "dusk-protocol-candidate.v1",
-  "status": "inactive-deployment-superseded-awaiting-coordinated-release",
+  "status": "awaiting-sdk-publication-and-compatibility-review",
   "revision": "devnet-2026-11-09-combined-layout14",
   "source": {
     "repository": "https://github.com/omnipair/dusk",
@@ -21,15 +21,30 @@
         "programId": "B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2",
         "programData": "C6AN9yEBoq5MUGWBXCeMSudEj7fo8pkRwwiJAgZYkcDY",
         "authority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
-        "previousSlot": 520141659,
-        "finalizedSlot": 520157693,
+        "previousSlot": 520163931,
+        "finalizedSlot": 520272736,
         "payloadBytes": 4802408,
         "payloadSha256": "73168adc4affd13454e41e10cecc5ed90bab63640bce21a5a1367352a1bc98fe",
         "allocatedBytes": 4808456,
         "allocatedSha256": "203b84a68af65be247ebff7c9357751c0e658f847baab7c43378a8c8f46878cd",
         "idlCanonicalSha256": "9d011975469d745457f1b310e06bf0149ed685f7c1570fd479990912f82a8d78",
         "idlRawSha256": "b901508ec480bbbee9b9ad3ce42a82d94b24dee81b6e1c381ede8e0136671d10"
-      }
+      },
+      "deploymentHistory": [
+        {
+          "programId": "B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2",
+          "programData": "C6AN9yEBoq5MUGWBXCeMSudEj7fo8pkRwwiJAgZYkcDY",
+          "authority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+          "previousSlot": 520141659,
+          "finalizedSlot": 520157693,
+          "payloadBytes": 4802408,
+          "payloadSha256": "73168adc4affd13454e41e10cecc5ed90bab63640bce21a5a1367352a1bc98fe",
+          "allocatedBytes": 4808456,
+          "allocatedSha256": "203b84a68af65be247ebff7c9357751c0e658f847baab7c43378a8c8f46878cd",
+          "idlCanonicalSha256": "9d011975469d745457f1b310e06bf0149ed685f7c1570fd479990912f82a8d78",
+          "idlRawSha256": "b901508ec480bbbee9b9ad3ce42a82d94b24dee81b6e1c381ede8e0136671d10"
+        }
+      ]
     },
     {
       "name": "leverage_delegate",
@@ -43,22 +58,37 @@
         "programId": "B315E6hHTgDjHgCCPungLop2mkgv9SHkcBc9ZzALNxNY",
         "programData": "9DVnTaGJRYRoFKodC21vPpx6JUcBx6XfeHVReKKTWc7t",
         "authority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
-        "previousSlot": 520142783,
-        "finalizedSlot": 520158740,
+        "previousSlot": 520165023,
+        "finalizedSlot": 520273794,
         "payloadBytes": 1413424,
         "payloadSha256": "0755c1e2391987a85c626c55006b446aeb58081a1e7e423a6a74694039cdf3f8",
         "allocatedBytes": 1423144,
         "allocatedSha256": "f4507703bc9eb71176d151027e2653d8f39aba0724840d53d3b1e25cb4414f19",
         "idlCanonicalSha256": "73def736ebd30755052e3f38fd24e95750314c1b56fdb1ebfb0bdf6d43266111",
         "idlRawSha256": "ec1ccda652725902210bcb03e0db7ec6d51348d84c3f3f714028355590c459ed"
-      }
+      },
+      "deploymentHistory": [
+        {
+          "programId": "B315E6hHTgDjHgCCPungLop2mkgv9SHkcBc9ZzALNxNY",
+          "programData": "9DVnTaGJRYRoFKodC21vPpx6JUcBx6XfeHVReKKTWc7t",
+          "authority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+          "previousSlot": 520142783,
+          "finalizedSlot": 520158740,
+          "payloadBytes": 1413424,
+          "payloadSha256": "0755c1e2391987a85c626c55006b446aeb58081a1e7e423a6a74694039cdf3f8",
+          "allocatedBytes": 1423144,
+          "allocatedSha256": "f4507703bc9eb71176d151027e2653d8f39aba0724840d53d3b1e25cb4414f19",
+          "idlCanonicalSha256": "73def736ebd30755052e3f38fd24e95750314c1b56fdb1ebfb0bdf6d43266111",
+          "idlRawSha256": "ec1ccda652725902210bcb03e0db7ec6d51348d84c3f3f714028355590c459ed"
+        }
+      ]
     }
   ],
   "sdk": {
     "version": "2.19.0-next.20261109",
     "publication": "pending coordinated combined deployment, required review and repository publishing workflow"
   },
-  "activation": "Inactive. Deployment evidence is historical: Dusk was subsequently overwritten at slot 520163931 by PR #79. Reverify both binaries and uploaded IDLs before promotion. Require the real published SDK artifact and matching identity, fresh layout-14 markets, replay and compatibility review. Archive prior revisions, observations and cursors without relabeling or deleting them.",
+  "activation": "Inactive until the exact published SDK artifact is verified and replay/compatibility, quote-runtime parity and consumer acceptance pass. Both current combined executables and uploaded IDLs are finalized and match the tested source. Archive prior locks, IDLs, runtimes, observations and cursors under their original identities before activation; do not relabel or delete history.",
   "cleanSlate": {
     "marketLayout": 14,
     "retainProgramIds": true,
@@ -71,8 +101,22 @@
       {
         "label": "layout14-primary-20261109",
         "market": "34aLHzhpq3xWNnuqjXtyVpLf7Nuai2jkT2HrxXivAnWs",
-        "activation": "pending combined release and indexer revision"
+        "seededLiquidity": true,
+        "juniorMint": "HEpfK17RhsnA7FWYhvMFHm2jEop2LPRMbM8MHdwBFpGm",
+        "juniorInitialized": true,
+        "fundedJunior": true,
+        "activation": "pending published SDK and indexer revision"
+      },
+      {
+        "label": "layout14-concentrated-20261109",
+        "market": "g7Dgdw2wMjjJLXD7ML3me4EVh7N2WCQ3YHgc1KaQjj5",
+        "seededLiquidity": true,
+        "juniorMint": "AAXU2kCmSBJBVagk9vBtKpWdqKtA4EbmMgTUzdaPgwGJ",
+        "juniorInitialized": true,
+        "fundedJunior": true,
+        "activation": "pending published SDK and indexer revision"
       }
     ]
-  }
+  },
+  "firstSlot": 520273795
 }

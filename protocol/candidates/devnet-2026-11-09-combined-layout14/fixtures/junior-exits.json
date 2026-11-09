@@ -1,0 +1,167 @@
+{
+  "schemaVersion": "dusk-live-junior-exit-acceptance.v1",
+  "cluster": "devnet",
+  "programId": "B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2",
+  "idlCanonicalSha256": "9d011975469d745457f1b310e06bf0149ed685f7c1570fd479990912f82a8d78",
+  "protocolRevision": "devnet-2026-11-09-combined-layout14",
+  "sourceCommit": "a99091ddfea26af1a1fe0c775d55b628beff5300",
+  "sdk": {
+    "version": "2.19.0-next.20261109",
+    "artifact": "local build from tested commit; registry publication pending"
+  },
+  "fundingLamports": "400000000",
+  "revision": "a99091ddfea26af1a1fe0c775d55b628beff5300",
+  "wallet": "A9UKnVgQW8pasbwE8Z6jfAD5zDydBr7Tfw3xiCmzqbKT",
+  "steps": {
+    "layout14-primary-20261109-initialize-junior": {
+      "signature": "3rU3E28j6pf6hjmb7pGiRMSxPpKmKsHBh9jQYutCg4ZNG7zdvv19BiJMdRFzNSKLNH5EhigaVycSXjqy5TCgVP4F",
+      "lastValidBlockHeight": 507418114,
+      "status": "finalized",
+      "slot": 520274795
+    },
+    "layout14-primary-20261109-fund-junior": {
+      "signature": "4NMi98QAibEH31DvztpLPXbVsUtnJuG24xbyNTfcNS8ph1UED5md7JNxysgKH1DVKH4k5bp7yUTnND3CUrkxjcLi",
+      "lastValidBlockHeight": 507418152,
+      "status": "finalized",
+      "slot": 520274832
+    },
+    "layout14-concentrated-20261109-initialize-junior": {
+      "signature": "5igG7QqH5KmfJQuDY1Kn9xLbD3qgw5ZqFNdzQqENVTNJBSsEre44JavJ19s8g9FcgHrQQFQv4AvqcgsBEtGWgPVC",
+      "lastValidBlockHeight": 507418181,
+      "status": "finalized",
+      "slot": 520274862
+    },
+    "layout14-concentrated-20261109-fund-junior": {
+      "signature": "cXVuhg9WZUZoa1awhbqW4X4YogfvFE97JFQzYejYAqGeKRNbwoz5sZpt6ehA11xEAWTByUcHynnnb9VzeZmv1Kg",
+      "lastValidBlockHeight": 507418224,
+      "status": "finalized",
+      "slot": 520274904
+    },
+    "fund-acceptance-wallet": {
+      "signature": "2JXgS7fRv2J7tvJwRH8haJatxmUyB62G7CTQCVWwHb4BCYTZbGz8fApUFGUQE5cHoXscXKmwekBWB67FbcGRJYV8",
+      "lastValidBlockHeight": 507418260,
+      "status": "finalized",
+      "slot": 520274940
+    },
+    "create-acceptance-token-accounts": {
+      "signature": "4vMgvPU7YLrLZZfuYfo4BiXyrg1dvdXF7XY1rGwbnie7dkPZS75Vz64cVV3bAqpMPE3EwS3Mby8suGi7TECdXFXm",
+      "lastValidBlockHeight": 507418294,
+      "status": "finalized",
+      "slot": 520274974
+    },
+    "mint-test-asset-0": {
+      "signature": "2q6bxTeSVtpksfjAgbWC8cSLYWtSeGeJvPJ2yLx9uSKjPzKYPCkswjbbNBmSKVZ1wSvw4z1ZcquBgzgyD3ZLgyLG",
+      "lastValidBlockHeight": 507418329,
+      "status": "finalized",
+      "slot": 520275010
+    },
+    "mint-test-asset-1": {
+      "signature": "62CCKKeYXDrwoCbwkMHTNoPtyQ33U8zwXUroUHgbJHqyVohCWdDnk6aKnpHRDW7Sm4JyX1n2Gg1bp3zN6gsw5KqU",
+      "lastValidBlockHeight": 507418362,
+      "status": "finalized",
+      "slot": 520275043
+    },
+    "add-acceptance-liquidity": {
+      "signature": "29tnPu9jn5oVxZ7fRBRrmrgYNzVdNqdRon2vxx8LaNueysdztvHwKuKLwPw1gALES6Ettuj9J8qzZ9PRzFm315bg",
+      "lastValidBlockHeight": 507418398,
+      "status": "finalized",
+      "slot": 520275080
+    },
+    "enter-acceptance-junior": {
+      "signature": "5kL32n6dwj1W2khFtX4Yhi6gc6EsWiXv3ZoxLemxQRVnN6htktRwBeU7j4THbVd78MGwunNnCb1BAty9abLyoqHP",
+      "lastValidBlockHeight": 507418436,
+      "status": "finalized",
+      "slot": 520275117
+    },
+    "request-during-notice": {
+      "signature": "Fwur7odp8LzHn2wVSUEjmpT3QAr9zVWWpoTqHVtRSamdrjGeBQWxRY1uDCDK2GQbNYEY1YfrA9w7ECyewb6YDgM",
+      "lastValidBlockHeight": 507418480,
+      "status": "finalized",
+      "slot": 520275160
+    },
+    "cancel-during-notice": {
+      "signature": "3gDQtAhmohdFzmYKwQ3AdkmjNMk4re3shz9vwobFAPsaRB1fGauro8MiMRV8LP815kbATR2PvCZwe2AHLbketSQk",
+      "lastValidBlockHeight": 507418582,
+      "status": "finalized",
+      "slot": 520275264
+    },
+    "fresh-request": {
+      "signature": "wvWV2R3iJE82HegNnVPqRUk8kiFJYwpvFPvtE6Ad9UQrUU1H5uN79mRdyzWULxaKkyVCnvB4uGF9q4MrJfTka3V",
+      "lastValidBlockHeight": 507418646,
+      "status": "finalized",
+      "slot": 520275328
+    },
+    "atomic-larger-replacement": {
+      "signature": "JMmuG6czDJLdfY8UugJ7HMHdm7cGBbsebEDKtn6ffiQMdfWsJNA8TEaqYtpKF2jmPGTdAxgh6bocBTzW5GgPF2G",
+      "lastValidBlockHeight": 507418690,
+      "status": "finalized",
+      "slot": 520275370
+    },
+    "atomic-smaller-replacement": {
+      "signature": "4PGRr7kUkfqr8pXjctQdLiBvTfdLJt4cV1AsTg1mfW9KMJPhhnKzXCGmsYGHkkTGfFAqYCVidbkJ2aYEoe7bLVv6",
+      "lastValidBlockHeight": 507418733,
+      "status": "finalized",
+      "slot": 520275413
+    },
+    "cancel-final-request": {
+      "signature": "iawRBFeSe8kcUpuj8t2w81d25tzbM6uPbqjVwttX7Wv32yCV1FXwSzmTaWLJbDs9FXNfp4pPdNtTB1LKo3NsLiv",
+      "lastValidBlockHeight": 507418769,
+      "status": "finalized",
+      "slot": 520275450
+    }
+  },
+  "checks": [
+    {
+      "label": "request-during-notice",
+      "receipts": "995000",
+      "readyAt": "523300984",
+      "submissionSlot": 520275160,
+      "minimumNoticeSlots": "3024000",
+      "juniorCapital": "707246500"
+    },
+    {
+      "label": "overwrite-is-forbidden",
+      "rejectedWith": "InvalidArgument"
+    },
+    {
+      "label": "early-conversion-is-forbidden",
+      "rejectedWith": "InvalidArgument"
+    },
+    {
+      "label": "zero-request-is-forbidden",
+      "rejectedWith": "AmountZero"
+    },
+    {
+      "label": "fresh-request",
+      "receipts": "995000",
+      "readyAt": "523301152",
+      "submissionSlot": 520275328,
+      "minimumNoticeSlots": "3024000",
+      "juniorCapital": "707246500"
+    },
+    {
+      "label": "atomic-larger-replacement",
+      "receipts": "1492500",
+      "readyAt": "523302105",
+      "submissionSlot": 520275370,
+      "minimumNoticeSlots": "3024000",
+      "juniorCapital": "707246500"
+    },
+    {
+      "label": "atomic-smaller-replacement",
+      "receipts": "497500",
+      "readyAt": "523300325",
+      "submissionSlot": 520275413,
+      "minimumNoticeSlots": "3024000",
+      "juniorCapital": "707246500"
+    },
+    {
+      "label": "request-fees-not-refunded",
+      "initialJuniorReceipts": "20539595",
+      "finalJuniorReceipts": "20519595",
+      "retainedRequestFees": "20000"
+    }
+  ],
+  "completed": true,
+  "completedAt": "2026-11-09T05:23:58.263Z"
+}
