@@ -1,0 +1,9 @@
+{
+  "eventRevision": "devnet-2026-11-09-combined-layout14",
+  "programId": "B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2",
+  "idlCanonicalSha256": "9d011975469d745457f1b310e06bf0149ed685f7c1570fd479990912f82a8d78",
+  "sourceCommit": "a99091ddfea26af1a1fe0c775d55b628beff5300",
+  "deploySlot": 520272736,
+  "binarySha256": "203b84a68af65be247ebff7c9357751c0e658f847baab7c43378a8c8f46878cd",
+  "allocatedBinaryBytes": 4808456
+}

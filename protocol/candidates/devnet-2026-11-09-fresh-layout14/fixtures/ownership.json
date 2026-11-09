@@ -1,0 +1,35 @@
+{
+  "protocolRevision": "devnet-2026-11-09-fresh-layout14",
+  "firstSlot": 520350150,
+  "wallet": "ACM12AhNeLRbtVNk4ZyLPwopDZTfwQ9UJLMymAgGnMhz",
+  "sourceSlot": 520355732,
+  "marketsCreated": [
+    {
+      "market": "ErW95UhxqJ3zF1KodfVJQodnDAb6p1aPHNCEywMwMjW6",
+      "slot": "520351094"
+    },
+    {
+      "market": "4zNcg5ezkdivtuYjdr4Hi42zdZK3wDcU3a39uRpJg2CD",
+      "slot": "520351278"
+    }
+  ],
+  "balances": [
+    {
+      "market": "ErW95UhxqJ3zF1KodfVJQodnDAb6p1aPHNCEywMwMjW6",
+      "kind": "srlp",
+      "lpMint": "5fMRvMw2uYBSmLxUtEAAjGWuD8cxCAr3iacMcKAuqVti",
+      "amount": "6846532",
+      "chainAmount": "6846532",
+      "matches": true
+    },
+    {
+      "market": "ErW95UhxqJ3zF1KodfVJQodnDAb6p1aPHNCEywMwMjW6",
+      "kind": "junior",
+      "lpMint": "AQXMuAyqgwcbwXpYXhFCSkSufq6ynbUi2qazffjn4FFC",
+      "amount": "20519595",
+      "chainAmount": "20519595",
+      "matches": true
+    }
+  ],
+  "source": "Canonical ingester replay and production wallet-balance service; no bootstrap or relabelled events."
+}

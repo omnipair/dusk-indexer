@@ -1,10 +1,24 @@
 # Dusk devnet protocol pin
 
-The active revision is `devnet-2026-11-09-combined-layout14`. Dusk is
+The active revision is `devnet-2026-11-09-fresh-layout14`. Dusk is
+`2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y`; the delegate is
+`AXUucZuwuCu6voVQGf6tYMQ5LoRwLr9u4ESLpiPqqHbX`. The complete revision begins at slot
+**520350150**. Both fresh markets are created after this boundary; their creation,
+initial liquidity and wallet ownership events belong to the same identity.
+The API uses registry-published SDK `2.21.0-next.20261109`.
+
+The preceding programs and IDL accounts are closed after archival to reclaim
+rent. Their lock, generated IDLs, executable and observations retain the original
+`devnet-2026-11-09-combined-layout14` identity. No observations are relabelled,
+no old cursor is reused, and no ownership bootstrap or migration fallback is added.
+
+## Previous combined deployment
+
+The previous revision was `devnet-2026-11-09-combined-layout14`. Dusk was
 `B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2`; the delegate is
 `B315E6hHTgDjHgCCPungLop2mkgv9SHkcBc9ZzALNxNY`. The complete revision
 begins at slot **520273795**, after finalized upgrades at 520272736/520273794.
-The API uses the registry-published SDK `2.19.0-next.20261109`.
+The API used the registry-published SDK `2.19.0-next.20261109`.
 
 This release combines junior exit cancellation/replacement, independent risk
 and utilization target bands, and LP metadata repair. Layout-13 accounts are

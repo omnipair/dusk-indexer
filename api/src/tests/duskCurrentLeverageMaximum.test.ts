@@ -10,7 +10,7 @@ import { FrozenLeverageBank, LeverageMaximumInput, quoteRuntimeBytes, searchFroz
 const root = resolve(__dirname, '../../../protocol');
 const idl = JSON.parse(readFileSync(resolve(root, 'idl/dusk.json'), 'utf8')) as Idl;
 const pin = loadPinnedProtocol();
-const suite = JSON.parse(gunzipSync(readFileSync(resolve(__dirname, '../../src/tests/fixtures/leverage-maximum-devnet-20261109.json.gz'))).toString()) as {
+const suite = JSON.parse(gunzipSync(readFileSync(resolve(__dirname, '../../src/tests/fixtures/leverage-maximum-fresh-devnet-20261109.json.gz'))).toString()) as {
   protocolRevision: string; commonAccounts: FrozenLeverageBank['accounts']; fixtures: {
     input: LeverageMaximumInput; bank: FrozenLeverageBank; expected: { multiplierBps: string; candidates: number };
     deployment: { programBinarySha256: string; idlSha256: string }; rpcAcceptance: { err: unknown; unitsConsumed: number };
