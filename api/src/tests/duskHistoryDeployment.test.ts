@@ -18,6 +18,8 @@ test('history accepts program upgrades while keeping the protocol identity',() =
     sourceSlot: sourceFloor,
     programDataSlot: String(current.dusk.deployment.deploySlot),
     programBinarySha256: current.dusk.binarySha256,
+    leverageDelegateProgramDataSlot: String(current.leverageDelegate.deployment.deploySlot),
+    leverageDelegateBinarySha256: current.leverageDelegate.binarySha256,
   };
   const upgradedEnvelope = {
     ...upgraded,

@@ -157,9 +157,38 @@ export function loadPinnedProtocol(): DuskPinnedProtocol {
   return cached = loadProtocolAt(protocolDir());
 }
 
+function applyCompatibleProgram(pinned: DuskPinnedProgram, value: unknown): DuskPinnedProgram {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('Missing compatible program deployment');
+  const compatible = value as Record<string, unknown>;
+  const { deploySlot, allocatedBinaryBytes, binarySha256 } = compatible;
+  const original = pinned.deployment;
+  if (
+    compatible.programId !== pinned.programId ||
+    compatible.idlCanonicalSha256 !== pinned.idlCanonicalSha256 ||
+    typeof deploySlot !== 'number' ||
+    !Number.isSafeInteger(deploySlot) ||
+    deploySlot < original.deploySlot ||
+    deploySlot >= Number.MAX_SAFE_INTEGER ||
+    typeof allocatedBinaryBytes !== 'number' ||
+    !Number.isSafeInteger(allocatedBinaryBytes) ||
+    allocatedBinaryBytes < 4 ||
+    allocatedBinaryBytes > 16 * 1024 * 1024 ||
+    typeof binarySha256 !== 'string' ||
+    !/^[0-9a-f]{64}$/.test(binarySha256) ||
+    (deploySlot === original.deploySlot &&
+      (allocatedBinaryBytes !== original.allocatedBinaryBytes || binarySha256 !== pinned.binarySha256))
+  ) throw new Error('Compatible deployment differs from the event revision or IDL');
+  return {
+    ...pinned,
+    binarySha256,
+    deployment: { ...original, deploySlot, allocatedBinaryBytes },
+  };
+}
+
 let currentCached: DuskPinnedProtocol | undefined;
 
-/** Last recorded compatible executable for the same IDL/event revision. The
+/** Last recorded compatible executables for the same IDL/event revision. The
  * historical lock remains the database identity and event cursor boundary. */
 export function loadCurrentProtocol(): DuskPinnedProtocol {
   if (currentCached) return currentCached;
@@ -167,40 +196,14 @@ export function loadCurrentProtocol(): DuskPinnedProtocol {
   const compatible = JSON.parse(
     readFileSync(resolve(protocolDir(), 'compatible-deployment.json'), 'utf8'),
   ) as Record<string, unknown>;
-  const { dusk } = pinned;
-  const slot = compatible.deploySlot;
-  const bytes = compatible.allocatedBinaryBytes;
-  const hash = compatible.binarySha256;
-  const isPinnedDeployment =
-    slot === dusk.deployment.deploySlot &&
-    bytes === dusk.deployment.allocatedBinaryBytes &&
-    hash === dusk.binarySha256;
-  if (
-    compatible.eventRevision !== pinned.revision ||
-    compatible.programId !== dusk.programId ||
-    compatible.idlCanonicalSha256 !== dusk.idlCanonicalSha256 ||
-    typeof slot !== 'number' ||
-    !Number.isSafeInteger(slot) ||
-    (slot < dusk.deployment.deploySlot ||
-      (slot === dusk.deployment.deploySlot && !isPinnedDeployment)) ||
-    typeof bytes !== 'number' ||
-    !Number.isSafeInteger(bytes) ||
-    bytes < 4 ||
-    bytes > 16 * 1024 * 1024 ||
-    typeof hash !== 'string' ||
-    !/^[0-9a-f]{64}$/.test(hash)
-  ) throw new Error('Compatible deployment differs from the event revision or IDL');
+  if (compatible.eventRevision !== pinned.revision)
+    throw new Error('Compatible deployment differs from the event revision or IDL');
   return currentCached = {
     ...pinned,
-    dusk: {
-      ...dusk,
-      binarySha256: hash,
-      deployment: {
-        ...dusk.deployment,
-        deploySlot: slot,
-        allocatedBinaryBytes: bytes,
-      },
-    },
+    dusk: applyCompatibleProgram(pinned.dusk, compatible),
+    leverageDelegate: compatible.leverageDelegate == null
+      ? pinned.leverageDelegate
+      : applyCompatibleProgram(pinned.leverageDelegate, compatible.leverageDelegate),
   };
 }
 
