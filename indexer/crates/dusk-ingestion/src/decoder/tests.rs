@@ -291,7 +291,7 @@ fn registry_classifies_every_pinned_event_and_instruction() {
         actual_delegate_events,
         DELEGATE_EVENTS.into_iter().collect()
     );
-    assert_eq!(decoder.instruction_names(PinnedProgram::Dusk).len(), 80);
+    assert_eq!(decoder.instruction_names(PinnedProgram::Dusk).len(), 79);
     let actual_delegate: BTreeSet<_> = decoder
         .instruction_names(PinnedProgram::LeverageDelegate)
         .into_iter()
@@ -306,7 +306,7 @@ fn anchor_tags_and_every_idl_discriminator_are_cryptographically_verified() {
     assert_eq!(anchor_event_digest, ANCHOR_EVENT_CPI_TAG);
     let decoder = decoder();
     assert_eq!(decoder.dusk.events.len(), 59);
-    assert_eq!(decoder.dusk.instructions.len(), 80);
+    assert_eq!(decoder.dusk.instructions.len(), 79);
     assert_eq!(decoder.delegate.events.len(), 2);
     assert_eq!(decoder.delegate.instructions.len(), 18);
 
@@ -953,5 +953,5 @@ fn oracle_candidate_matches_sdk_wire_bytes_without_promoting_the_pin() {
             )
             .is_err()
     );
-    assert_eq!(crate::PROTOCOL_REVISION, "devnet-2026-11-09-fresh-layout14");
+    assert_eq!(crate::PROTOCOL_REVISION, "devnet-2026-11-12-fresh-layout15");
 }

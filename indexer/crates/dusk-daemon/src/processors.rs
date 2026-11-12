@@ -343,9 +343,9 @@ mod tests {
     /// back out of the pinned decoder with the native swap event.
     #[test]
     fn a_streamed_devnet_swap_decodes_its_event() {
-        let source = include_str!("../fixtures/swap-executed-fresh-devnet.json");
+        let source = include_str!("../fixtures/swap-executed-layout15-devnet.json");
         let expected: serde_json::Value = serde_json::from_str(include_str!(
-            "../fixtures/swap-executed-fresh-devnet.expected.json"
+            "../fixtures/swap-executed-layout15-devnet.expected.json"
         ))
         .unwrap();
         assert_eq!(

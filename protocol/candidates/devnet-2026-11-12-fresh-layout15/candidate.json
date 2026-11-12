@@ -1,0 +1,58 @@
+{
+  "schemaVersion": "dusk-protocol-candidate.v1",
+  "status": "local-staging",
+  "revision": "devnet-2026-11-12-fresh-layout15",
+  "cluster": "devnet",
+  "marketLayoutVersion": 15,
+  "minimumAmountDecimals": 12,
+  "source": {
+    "repository": "https://github.com/omnipair/dusk",
+    "branch": "refactor/core-code-hygiene",
+    "gitCommit": "5733739e7b1e1de389ccd86c964638aa145c5dd7"
+  },
+  "programs": [
+    {
+      "name": "dusk",
+      "programId": "G6VzihcGWCxt1nujxtKPB4oUYz36GPR2t5mLdXEH8yYN",
+      "idl": {
+        "path": "idl/dusk.json",
+        "sha256": "015c09d86e5474202102e1256a8ee8df0ea8da71a8feaeda4f46d06c09b1ecf3",
+        "canonicalSha256": "131336c58922b3aad3f77c02906cf46db7e37dd0b9c4d26764705f81d5ae5934"
+      },
+      "localBuild": {
+        "format": "SBPF v0",
+        "path": "programs/dusk.so",
+        "payloadSha256": "2289b2726a6c7d564600d363255dc5ea47b7ca66e2ea4c04527c9552d10addd7",
+        "payloadBytes": 4773600
+      }
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "A1aX1f3fx9x43FVYunRp25pu6HBczmYz1obEW9jZCf2B",
+      "idl": {
+        "path": "idl/leverage_delegate.json",
+        "sha256": "ba0ef0708f479a8270c62a5a1056bab7807d8645fcd22b30f9ea58dacba35d1d",
+        "canonicalSha256": "d08fc7989b1faf6698cbac18f78be6bb7a0099b425fa0cd28b42764224a0c1e4"
+      },
+      "localBuild": {
+        "format": "SBPF v0",
+        "path": "programs/leverage_delegate.so",
+        "payloadSha256": "55ccf30ceffc2b660ff53c59d1b3b0417f8f3a6697d6acc850bb05b709902f8d",
+        "payloadBytes": 1395552
+      }
+    }
+  ],
+  "sdk": {
+    "package": "@omnipair/dusk-sdk",
+    "version": "2.21.0-next.20261112",
+    "sha256": "a4350f7def0665b730ecab0b050695efe2da4cfb4451ef03ecab52e34e030faf",
+    "integrity": "sha512-o4YlBNA/mRJ0FmMSJ/UKAk7ue+cX2ARUM+VTwozXu73ODrBsmCnTXhsx4s/n71AdAdf8p7wa1YUlidwRxd4kQg==",
+    "localPath": "omnipair-dusk-sdk-2.21.0-next.20261112.tgz"
+  },
+  "quoteRuntime": {
+    "payloadPath": "quote-runtime/dusk.so",
+    "featureSetPath": "quote-runtime/feature-set.json",
+    "featureSetSha256": "84956b860fe38fdeb69b3d65e8e2e88352a12a40a00dd35a5253309e411626e8",
+    "payloadSha256": "2289b2726a6c7d564600d363255dc5ea47b7ca66e2ea4c04527c9552d10addd7"
+  }
+}

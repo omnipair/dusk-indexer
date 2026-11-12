@@ -1,3 +1,4 @@
+import { MIN_AMOUNT_DECIMALS } from '@omnipair/dusk-sdk';
 import { cache } from '../utils/cache';
 import { listTrailingSrlpRate, TrailingSrlpMarket, TrailingSrlpRate } from './duskYieldRates';
 
@@ -65,7 +66,7 @@ function percent(value: number | null): string | null {
  */
 export function projectHlpVaultRates(input: HlpVaultRateInput): HlpVaultRates {
   const opposite: Side = input.side === 'base' ? 'quote' : 'base';
-  const scale = BigInt(Math.max(9, input.baseDecimals, input.quoteDecimals));
+  const scale = BigInt(Math.max(MIN_AMOUNT_DECIMALS, input.baseDecimals, input.quoteDecimals));
   const oppositeDecimals = BigInt(opposite === 'base' ? input.baseDecimals : input.quoteDecimals);
   const supply = amount(input.vault.hlpSupply), mintSupply = amount(input.vault.mintSupply);
   const nav = amount(input.vault.lastNavNad);

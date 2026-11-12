@@ -197,13 +197,14 @@ test('a group is valued in one updated bank with transfer fees applied to fees a
   assert.equal((f.simulations[0].accounts as { addresses: string[] }).addresses.length, 8);
 });
 
-test('missing ledgers, the repaired old layout, rejected previews and changed identities', async () => {
+test('missing ledgers, unsupported layouts, rejected previews and changed identities', async () => {
   const f = await fixture();
   const old = Buffer.from(f.response.value.accounts[3]!.data[0], 'base64').subarray(0, 234);
   f.response.value.accounts[3]!.data[0] = old.toString('base64');
-  f.response.value.accounts[4] = null;
-  const [repaired, missing] = (await captureYieldGroup(f.dusk, f.group, f.payer, 1005))!;
-  assert.equal(repaired.initialized, true); assert.equal(repaired.needsGrowth, true); assert.equal(repaired.swapFeeAmount, '5');
+  await assert.rejects(captureYieldGroup(f.dusk, f.group, f.payer, 1005), /Unsupported yield account layout/);
+  const current = await fixture();
+  current.response.value.accounts[4] = null;
+  const [, missing] = (await captureYieldGroup(current.dusk, current.group, current.payer, 1005))!;
   assert.equal(missing.initialized, false); assert.equal(missing.swapFeeAmount, '0');
   const rejected = await fixture();
   rejected.response.value.err = { InstructionError: [2, { Custom: 6010 }] };
@@ -272,7 +273,7 @@ test('the SDK market layout version is required by yield capture', async () => {
   const f = await fixture();
   f.market.version = MARKET_LAYOUT_VERSION - 1;
   f.encode();
-  await assert.rejects(captureYieldGroup(f.dusk, f.group, f.payer, 1005), /market, LP mint or bank changed/);
+  await assert.rejects(captureYieldGroup(f.dusk, f.group, f.payer, 1005), /Unsupported Dusk market layout/);
 });
 
 

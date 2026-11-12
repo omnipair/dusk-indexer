@@ -79,7 +79,7 @@ test('hLP principal subtracts indexed funding debt and excludes unrealized lendi
   Object.assign(debt,{ fixed_base_shares: 20n*NAD,fixed_base_principal: 20n*NAD });
   const value = hlpPortfolioPrincipal(sample.market,sample.preview,'base',100_000n);
   // 19 base + 50 quote / 2.5 - 11 quote / 2.5 = 34.6 base in vault; holder owns 10%.
-  assert.equal(value.signedVaultNav,'34600000000');
+  assert.equal(value.signedVaultNav,'34600000000000');
   assert.equal(value.amount,3_460_000_000n);
   assert.equal(sample.component('base_hlp').valuation.netUsd,'8.65');
 });
@@ -107,7 +107,7 @@ test('underwater hLP is visible with zero limited-liability principal and signed
   Object.assign(nativeFields(sample.market.base_hlp_vault),{ hlp_supply: 1_000_000n,srlp_shares: 0n,debt_shares: 10_000_000n });
   const component = sample.component('base_hlp');
   assert.equal(component.valuation.netUsd,'0');
-  assert.equal(component.hlpNav?.signedVaultNav,'-4400000000');
+  assert.equal(component.hlpNav?.signedVaultNav,'-4400000000000');
   assert.ok(component.issues.includes('hlp-underwater'));
 });
 test('unavailable previews and missing prices never become a complete zero portfolio',() => {

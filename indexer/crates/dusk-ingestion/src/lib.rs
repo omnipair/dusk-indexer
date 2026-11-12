@@ -13,18 +13,18 @@ use {
     thiserror::Error,
 };
 
-pub const PROTOCOL_REVISION: &str = "devnet-2026-11-09-fresh-layout14";
-pub const DUSK_PROGRAM_ID: &str = "2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y";
+pub const PROTOCOL_REVISION: &str = "devnet-2026-11-12-fresh-layout15";
+pub const DUSK_PROGRAM_ID: &str = "G6VzihcGWCxt1nujxtKPB4oUYz36GPR2t5mLdXEH8yYN";
 pub const DUSK_IDL_RAW_SHA256: &str =
-    "d3922f16803a915297585637b9ec42815d53fe2c1c2ce767ba0a905bbf069f48";
-pub const LEVERAGE_DELEGATE_PROGRAM_ID: &str = "AXUucZuwuCu6voVQGf6tYMQ5LoRwLr9u4ESLpiPqqHbX";
+    "015c09d86e5474202102e1256a8ee8df0ea8da71a8feaeda4f46d06c09b1ecf3";
+pub const LEVERAGE_DELEGATE_PROGRAM_ID: &str = "A1aX1f3fx9x43FVYunRp25pu6HBczmYz1obEW9jZCf2B";
 pub const LEVERAGE_DELEGATE_IDL_RAW_SHA256: &str =
-    "785946bbea41d2e227c9f65735c94032f31e2fb86b4e087fd5eacdc3e51752ed";
+    "ba0ef0708f479a8270c62a5a1056bab7807d8645fcd22b30f9ea58dacba35d1d";
 
 pub const DUSK_IDL_SHA256: &str =
-    "b8f7378f0f53c2e9cae1cc1ac08cfe5acc5ca62122e2880f14aabe6e60131b6c";
+    "131336c58922b3aad3f77c02906cf46db7e37dd0b9c4d26764705f81d5ae5934";
 pub const LEVERAGE_DELEGATE_IDL_SHA256: &str =
-    "e4262a4307d82c4ef8ec737e28ce7f471a5854a6a1624c6a30e18851ce899206";
+    "d08fc7989b1faf6698cbac18f78be6bb7a0099b425fa0cd28b42764224a0c1e4";
 
 const DUSK_IDL: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
