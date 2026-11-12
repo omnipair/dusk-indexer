@@ -130,7 +130,41 @@ pub fn pinned_deployment() -> Result<DeploymentPin, FoundationError> {
     DeploymentPin::from_value(vendored_protocol_lock())
 }
 
-/// The current, byte-verified executable for the same event/IDL revision.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CompatibleProgram {
+    program_id: String,
+    idl_canonical_sha256: String,
+    deploy_slot: u64,
+    binary_sha256: String,
+    allocated_binary_bytes: usize,
+}
+
+impl CompatibleProgram {
+    fn apply(self, program: &mut ProgramPin) -> Result<(), FoundationError> {
+        let original = &program.deployment;
+        if self.program_id != program.program_id
+            || self.idl_canonical_sha256 != program.idl.canonical_sha256
+            || self.deploy_slot < original.deploy_slot
+            || self.deploy_slot >= 9_007_199_254_740_991
+            || !crate::is_sha256(&self.binary_sha256)
+            || !(4..=16 * 1024 * 1024).contains(&self.allocated_binary_bytes)
+            || (self.deploy_slot == original.deploy_slot
+                && (self.binary_sha256 != program.binary.sha256
+                    || self.allocated_binary_bytes != original.allocated_binary_bytes))
+        {
+            return Err(FoundationError::InvalidProtocolLock(
+                "compatible deployment differs from the event revision or IDL".into(),
+            ));
+        }
+        program.deployment.deploy_slot = self.deploy_slot;
+        program.deployment.allocated_binary_bytes = self.allocated_binary_bytes;
+        program.binary.sha256 = self.binary_sha256;
+        Ok(())
+    }
+}
+
+/// The current, byte-verified executables for the same event/IDL revision.
 /// The original lock remains immutable because its first slot and stored
 /// observations identify the beginning of the continuous event history.
 pub fn current_deployment() -> Result<DeploymentPin, FoundationError> {
@@ -138,11 +172,9 @@ pub fn current_deployment() -> Result<DeploymentPin, FoundationError> {
     #[serde(rename_all = "camelCase")]
     struct CompatibleDeployment {
         event_revision: String,
-        program_id: String,
-        idl_canonical_sha256: String,
-        deploy_slot: u64,
-        binary_sha256: String,
-        allocated_binary_bytes: usize,
+        #[serde(flatten)]
+        dusk: CompatibleProgram,
+        leverage_delegate: Option<CompatibleProgram>,
     }
 
     let mut pin = pinned_deployment()?;
@@ -150,30 +182,16 @@ pub fn current_deployment() -> Result<DeploymentPin, FoundationError> {
         "../../../../protocol/compatible-deployment.json"
     ))
     .map_err(|error| FoundationError::InvalidProtocolLock(error.to_string()))?;
-    let dusk = pin
-        .programs
-        .iter_mut()
-        .find(|program| program.name == "dusk")
-        .expect("validated Dusk pin");
-    let same_deployment = upgrade.deploy_slot == dusk.deployment.deploy_slot;
-    if upgrade.event_revision != pin.revision
-        || upgrade.program_id != dusk.program_id
-        || upgrade.idl_canonical_sha256 != dusk.idl.canonical_sha256
-        || upgrade.deploy_slot < dusk.deployment.deploy_slot
-        || upgrade.deploy_slot >= 9_007_199_254_740_991
-        || !crate::is_sha256(&upgrade.binary_sha256)
-        || !(4..=16 * 1024 * 1024).contains(&upgrade.allocated_binary_bytes)
-        || (same_deployment
-            && (upgrade.binary_sha256 != dusk.binary.sha256
-                || upgrade.allocated_binary_bytes != dusk.deployment.allocated_binary_bytes))
-    {
+    if upgrade.event_revision != pin.revision {
         return Err(FoundationError::InvalidProtocolLock(
             "compatible deployment differs from the event revision or IDL".into(),
         ));
     }
-    dusk.deployment.deploy_slot = upgrade.deploy_slot;
-    dusk.deployment.allocated_binary_bytes = upgrade.allocated_binary_bytes;
-    dusk.binary.sha256 = upgrade.binary_sha256;
+    // from_value validates the complete, sorted two-program pin.
+    upgrade.dusk.apply(&mut pin.programs[0])?;
+    if let Some(delegate) = upgrade.leverage_delegate {
+        delegate.apply(&mut pin.programs[1])?;
+    }
     Ok(pin)
 }
 
@@ -210,16 +228,73 @@ mod tests {
         let historical = pinned_deployment().unwrap();
         let current = current_deployment().unwrap();
         assert_eq!(historical.revision, current.revision);
-        assert_eq!(
-            historical.programs[0].idl.canonical_sha256,
-            current.programs[0].idl.canonical_sha256
-        );
         assert_eq!(historical.first_slot(), 521_376_644);
-        assert_eq!(current.programs[0].deployment.deploy_slot, 521_372_176);
-        assert_eq!(
-            current.programs[0].binary.sha256,
-            "2289b2726a6c7d564600d363255dc5ea47b7ca66e2ea4c04527c9552d10addd7"
-        );
+        let metadata: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../protocol/compatible-deployment.json"
+        ))
+        .unwrap();
+        for (index, (before, after)) in historical
+            .programs
+            .iter()
+            .zip(&current.programs)
+            .enumerate()
+        {
+            assert_eq!(before.program_id, after.program_id);
+            assert_eq!(before.idl.canonical_sha256, after.idl.canonical_sha256);
+            assert_eq!(
+                before.deployment.program_data,
+                after.deployment.program_data
+            );
+            let entry = if index == 0 {
+                &metadata
+            } else {
+                &metadata["leverageDelegate"]
+            };
+            if entry.is_null() {
+                assert_eq!(before.deployment.deploy_slot, after.deployment.deploy_slot);
+                assert_eq!(before.binary.sha256, after.binary.sha256);
+            } else {
+                assert_eq!(
+                    Some(after.deployment.deploy_slot),
+                    entry["deploySlot"].as_u64()
+                );
+                assert_eq!(
+                    Some(after.binary.sha256.as_str()),
+                    entry["binarySha256"].as_str()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn compatible_program_rejects_changed_identity_and_conflicting_original_slot() {
+        let pin = pinned_deployment().unwrap();
+        let dusk = &pin.programs[0];
+        let delegate = &pin.programs[1];
+        let original = serde_json::json!({
+            "programId": delegate.program_id,
+            "idlCanonicalSha256": delegate.idl.canonical_sha256,
+            "deploySlot": delegate.deployment.deploy_slot,
+            "binarySha256": delegate.binary.sha256,
+            "allocatedBinaryBytes": delegate.deployment.allocated_binary_bytes,
+        });
+        for (field, value) in [
+            ("programId", serde_json::json!(dusk.program_id)),
+            (
+                "idlCanonicalSha256",
+                serde_json::json!(dusk.idl.canonical_sha256),
+            ),
+            (
+                "deploySlot",
+                serde_json::json!(delegate.deployment.deploy_slot - 1),
+            ),
+            ("binarySha256", serde_json::json!(dusk.binary.sha256)),
+        ] {
+            let mut metadata = original.clone();
+            metadata[field] = value;
+            let upgrade: CompatibleProgram = serde_json::from_value(metadata).unwrap();
+            assert!(upgrade.apply(&mut delegate.clone()).is_err(), "{field}");
+        }
     }
     #[test]
     fn incomplete_or_foreign_deployment_metadata_is_rejected() {

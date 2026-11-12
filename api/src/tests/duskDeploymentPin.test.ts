@@ -1,14 +1,33 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { loadPinnedProtocol,loadProtocolAt,parseProgramDeployment } from '../config/duskProtocol';
+import { loadCurrentProtocol,loadPinnedProtocol,loadProtocolAt,parseProgramDeployment } from '../config/duskProtocol';
 
 test('deployment starts after both pinned upgrades and preserves exact on-chain identity',() => {
   const pin=loadPinnedProtocol();
   assert.equal(pin.historyFirstSlot,Math.max(pin.dusk.deployment.deploySlot,pin.leverageDelegate.deployment.deploySlot)+1);
   assert.deepEqual(parseProgramDeployment(pin.dusk.deployment,pin.dusk.programId),pin.dusk.deployment);
 });
+test('current binary pins follow both compatible upgrades while history retains the original slots', () => {
+  const pin = loadPinnedProtocol();
+  const current = loadCurrentProtocol();
+  const metadata = JSON.parse(readFileSync(resolve(__dirname,'../../../protocol/compatible-deployment.json'),'utf8'));
+  assert.equal(current.revision, pin.revision);
+  assert.equal(current.historyFirstSlot, pin.historyFirstSlot);
+  for (const [original, deployed, compatible] of [
+    [pin.dusk, current.dusk, metadata],
+    [pin.leverageDelegate, current.leverageDelegate, metadata.leverageDelegate],
+  ] as const) {
+    assert.equal(deployed.programId, original.programId);
+    assert.equal(deployed.idlCanonicalSha256, original.idlCanonicalSha256);
+    assert.equal(deployed.deployment.programData, original.deployment.programData);
+    assert.equal(deployed.deployment.deploySlot, compatible?.deploySlot ?? original.deployment.deploySlot);
+    assert.equal(deployed.binarySha256, compatible?.binarySha256 ?? original.binarySha256);
+    assert.equal(deployed.deployment.allocatedBinaryBytes, compatible?.allocatedBinaryBytes ?? original.deployment.allocatedBinaryBytes);
+  }
+});
+
 test('missing authority and invalid ProgramData, deployment slot or allocation cannot form a pin',() => {
   const pin=loadPinnedProtocol().dusk;
   for (const change of [{programData:pin.programId},{deploySlot:0},{deploySlot:Number.MAX_SAFE_INTEGER},
