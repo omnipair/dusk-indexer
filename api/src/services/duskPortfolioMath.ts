@@ -1,3 +1,4 @@
+import { MIN_AMOUNT_DECIMALS } from '@omnipair/dusk-sdk';
 import { PublicKey } from '@solana/web3.js';
 import { DuskPinnedProtocol } from '../config/duskProtocol';
 import { priceMarketBindings, projectMarketPrices } from './duskPriceMath';
@@ -95,7 +96,7 @@ export function hlpPortfolioPrincipal(market: Record<string,unknown>,preview: Re
   if (holding>supply || srlp>srlpSupply) throw new Error('hLP holding exceeds its share backing');
   const targetDecimals = Number(unsigned(sideOf(market,target).asset_decimals,255n));
   const oppositeDecimals = Number(unsigned(sideOf(market,opposite).asset_decimals,255n));
-  const scale = Math.max(9,targetDecimals,oppositeDecimals);
+  const scale = Math.max(MIN_AMOUNT_DECIMALS,targetDecimals,oppositeDecimals);
   const underlying = (side: 'base'|'quote') => srlp === 0n ? 0n : unsigned(multiplyDivide(srlp,curveReserve(market,side),srlpSupply),U64);
   const borrowed = unsigned(indexedPortfolioDebt(vault.debt_shares,indexOf(market,opposite)),U64);
   const basePrice = unsigned(nativeFields(preview.base).spot_price_nad,U64);

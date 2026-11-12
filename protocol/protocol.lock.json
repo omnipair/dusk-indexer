@@ -1,14 +1,14 @@
 {
   "$schema": "./protocol/schemas/protocol-lock.schema.json",
   "schemaVersion": 1,
-  "revision": "devnet-2026-11-09-fresh-layout14",
+  "revision": "devnet-2026-11-12-fresh-layout15",
   "status": "deployed",
-  "generatedAt": "2026-11-09T10:39:07.808Z",
+  "generatedAt": "2026-11-12T07:17:48.097Z",
   "source": {
     "repository": "https://github.com/omnipair/dusk",
-    "branch": "feat/fresh-devnet-programs",
-    "gitCommit": "2b6311f4b4f8c1678edee72e8a3dbd1ff3f467b5",
-    "note": "Both generated IDLs match the reviewed candidate. Finalized ProgramData executable bytes match the local release payload plus zero allocation padding."
+    "branch": "refactor/core-code-hygiene",
+    "gitCommit": "5733739e7b1e1de389ccd86c964638aa145c5dd7",
+    "note": "Finalized ProgramData and both Anchor IDLs match the signed release payloads."
   },
   "cluster": {
     "name": "devnet",
@@ -17,46 +17,46 @@
   "programs": [
     {
       "name": "dusk",
-      "programId": "2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y",
+      "programId": "G6VzihcGWCxt1nujxtKPB4oUYz36GPR2t5mLdXEH8yYN",
       "binary": {
         "path": "on-chain (devnet)",
-        "sha256": "e53a4f57a9b2f7e7b7a891c82205acb235d077874508361b302c4f906cc67782"
+        "sha256": "2289b2726a6c7d564600d363255dc5ea47b7ca66e2ea4c04527c9552d10addd7"
       },
       "idl": {
         "path": "protocol/idl/dusk.json",
-        "sha256": "d3922f16803a915297585637b9ec42815d53fe2c1c2ce767ba0a905bbf069f48",
-        "canonicalSha256": "b8f7378f0f53c2e9cae1cc1ac08cfe5acc5ca62122e2880f14aabe6e60131b6c"
+        "sha256": "015c09d86e5474202102e1256a8ee8df0ea8da71a8feaeda4f46d06c09b1ecf3",
+        "canonicalSha256": "131336c58922b3aad3f77c02906cf46db7e37dd0b9c4d26764705f81d5ae5934"
       },
       "deployment": {
-        "programData": "J5CdybdVhnLVx5fAKGioQTkDt1apnppNVLK5E9Kwvdpt",
-        "deploySlot": 520349136,
+        "programData": "2ML7GeSMY3he5fRaPWXrVDDJVm2TXkfCkybUbn9CLVR9",
+        "deploySlot": 521372176,
         "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
-        "allocatedBinaryBytes": 5042536
+        "allocatedBinaryBytes": 4773600
       }
     },
     {
       "name": "leverage_delegate",
-      "programId": "AXUucZuwuCu6voVQGf6tYMQ5LoRwLr9u4ESLpiPqqHbX",
+      "programId": "A1aX1f3fx9x43FVYunRp25pu6HBczmYz1obEW9jZCf2B",
       "binary": {
         "path": "on-chain (devnet)",
-        "sha256": "0bc237839c24b1629493299f501855dd8ee9ad1abbd21ec8e4785c2255ef389b"
+        "sha256": "55ccf30ceffc2b660ff53c59d1b3b0417f8f3a6697d6acc850bb05b709902f8d"
       },
       "idl": {
         "path": "protocol/idl/leverage_delegate.json",
-        "sha256": "785946bbea41d2e227c9f65735c94032f31e2fb86b4e087fd5eacdc3e51752ed",
-        "canonicalSha256": "e4262a4307d82c4ef8ec737e28ce7f471a5854a6a1624c6a30e18851ce899206"
+        "sha256": "ba0ef0708f479a8270c62a5a1056bab7807d8645fcd22b30f9ea58dacba35d1d",
+        "canonicalSha256": "d08fc7989b1faf6698cbac18f78be6bb7a0099b425fa0cd28b42764224a0c1e4"
       },
       "deployment": {
-        "programData": "6vKp7krBBWw8xS43N3sEdDpABMQoJEoEbnu9MgSo58pZ",
-        "deploySlot": 520350149,
+        "programData": "HjYHFmDXFgg6mKiAM6pYYDffptK7fqEJC15c2xWvJ9Q4",
+        "deploySlot": 521376643,
         "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
-        "allocatedBinaryBytes": 1484096
+        "allocatedBinaryBytes": 1395552
       }
     }
   ],
   "sdk": {
     "package": "@omnipair/dusk-sdk",
-    "version": "2.21.0-next.20261109",
-    "sha256": "645f872b2d786195f9153f5b784776159400ec7ca6d735d442875be70e9b7116"
+    "version": "2.21.0-next.20261112",
+    "sha256": "a4350f7def0665b730ecab0b050695efe2da4cfb4451ef03ecab52e34e030faf"
   }
 }

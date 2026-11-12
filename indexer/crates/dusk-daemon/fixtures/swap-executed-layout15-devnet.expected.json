@@ -1,0 +1,13 @@
+{
+  "protocolRevision": "devnet-2026-11-12-fresh-layout15",
+  "programId": "G6VzihcGWCxt1nujxtKPB4oUYz36GPR2t5mLdXEH8yYN",
+  "signature": "2UWhi8ENGrvJbELau4zWS7g4qumSbKxBDUbeYR8g6LPHVN54AX6fYR5VQxEaXCrZjJkd18jyE7LXP44fEcJCYr4C",
+  "slot": 521387732,
+  "eventNames": [
+    "SwapExecuted"
+  ],
+  "baseSpotPriceNad": "999800629",
+  "quoteSpotPriceNad": "1000199410",
+  "basePriceEmaNad": "1000000000",
+  "quotePriceEmaNad": "1000000000"
+}

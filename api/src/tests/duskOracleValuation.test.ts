@@ -21,6 +21,11 @@ test('symmetric quote EMA and mixed decimals are used directly, never inverted',
   assert.equal(result.pnlRaw, '-800000');
   assert.equal(result.underwater, false);
 });
+test('market precision preserves individual atoms of high-decimal collateral', () => {
+  const result = oraclePositionValue({ ...position, collateralRaw: '1001',
+    collateralDecimals: 12, debtDecimals: 12, oraclePriceNad: '1000000000' });
+  assert.equal(result.collateralValueRaw, '1001');
+});
 test('full repayment uses aggregate burn rounding and zero equity remains explicit', () => {
   const value = oraclePositionValue({ ...position, collateralRaw: '2', marginRaw: '1', debtShares: '1',
     aggregateShares: '2', borrowIndexNad: '1500000000', oraclePriceNad: '1000000000' });

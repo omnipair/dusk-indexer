@@ -4,13 +4,14 @@ import { HLP_RATE_WINDOW_MS, HlpVaultRateInput, projectHlpVaultRates, withHlpRat
 
 // The devnet META/USDC base vault on 2026-10-05: 200 hLP backed by ~199.9 META
 // of equity, owing ~174.4 USDC of funding at 1.1462 META per USDC.
+// NAV is expressed in the layout-15 market amount scale.
 function metaVault(overrides: Partial<HlpVaultRateInput> = {}): HlpVaultRateInput {
   return {
     side: 'base',
     baseDecimals: 6,
     quoteDecimals: 6,
     targetLeverageBps: 20000,
-    vault: { hlpSupply: '200000000', mintSupply: '200000000', lastNavNad: '199915032083',
+    vault: { hlpSupply: '200000000', mintSupply: '200000000', lastNavNad: '199915032083000',
       fundingAprEmaNad: '2457112', fundingAprEmaLastSlot: '507640024' },
     state: { baseHlpFundingDebt: '0', quoteHlpFundingDebt: '174426578',
       baseSpotPriceNad: '872438227', quoteSpotPriceNad: '1146212957',

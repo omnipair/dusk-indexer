@@ -1,3 +1,4 @@
+import { MIN_AMOUNT_DECIMALS } from '@omnipair/dusk-sdk';
 import { BorshCoder } from '@coral-xyz/anchor';
 import type { Dusk, LeveragePosition } from '@omnipair/dusk-sdk';
 import { captureLiveMarketSimulation, duskRawIdl } from './duskMarketSimulation';
@@ -28,9 +29,10 @@ export function oraclePositionValue(input: {
   if (!oracle || !shares || shares > aggregate) throw new Error('Invalid oracle valuation state');
   const debt = indexedPortfolioDebt(aggregate, input.borrowIndexNad)
     - indexedPortfolioDebt(aggregate - shares, input.borrowIndexNad);
-  const normalized = checked(collateral * NAD) / (10n ** BigInt(cd));
-  const valueNad = checked(normalized * oracle) / NAD;
-  const value = checked(valueNad * (10n ** BigInt(dd))) / NAD;
+  const scale = Math.max(MIN_AMOUNT_DECIMALS, cd, dd);
+  const normalized = checked(collateral * 10n ** BigInt(scale - cd));
+  const valueInMarketUnits = checked(normalized * oracle / NAD);
+  const value = unsigned(valueInMarketUnits / 10n ** BigInt(scale - dd), U64);
   const equity = value - debt;
   return { collateralValueRaw: value.toString(), debtRaw: debt.toString(),
     equityRaw: equity.toString(), pnlRaw: (equity - margin).toString(),

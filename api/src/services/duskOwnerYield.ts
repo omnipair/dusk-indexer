@@ -146,18 +146,6 @@ export async function readOwnerYieldGroups(
 }
 
 /** Known legacy layouts omit only zero-default trailing fields. */
-function decodeYield(dusk: Dusk, data: Buffer): YieldAccount {
-  const size = dusk.program.coder.accounts.size('yieldAccount');
-  const compatible =
-    (data.length === 234 || data.length === 235) && data.length < size
-      ? Buffer.concat([data, Buffer.alloc(size - data.length)])
-      : data;
-  return dusk.program.coder.accounts.decode<YieldAccount>(
-    'yieldAccount',
-    compatible,
-  );
-}
-
 /** One group in one simulated bank. A rejected market preview is `null`. */
 export async function captureYieldGroup(
   dusk: Dusk,
@@ -254,7 +242,10 @@ export async function captureYieldGroup(
     if (!mint.isInitialized || mint.decimals !== (index === 0 ? state.baseSide : state.quoteSide).assetDecimals)
       throw new Error('Yield token decimals changed');
     const info = infos[3 + index];
-    const account = info ? decodeYield(dusk, owned(info, program).data) : null;
+    if (info && info.data.length < size) throw new Error('Unsupported yield account layout');
+    const account = info
+      ? dusk.program.coder.accounts.decode<YieldAccount>('yieldAccount', owned(info, program).data)
+      : null;
     if (
       account &&
       (!account.owner.equals(holder) || !account.market.equals(market) || !account.lpMint.equals(lpMint) ||
@@ -279,7 +270,7 @@ export async function captureYieldGroup(
       retired,
       recipient: account?.recipient.toBase58() ?? group.holder,
       initialized: account !== null,
-      needsGrowth: info !== null && info.data.length < size,
+      needsGrowth: false,
       needsIncomeCatchup: Boolean(account && group.kind !== 'hlp' && account.incomeInitialized &&
         [0,1].some(source => BigInt(account.income[source].epoch.toString()) < BigInt(state.income.books[index+source*2].epoch.toString()))),
       lpBalance: balance.toString(),

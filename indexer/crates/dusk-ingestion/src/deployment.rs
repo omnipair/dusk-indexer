@@ -183,7 +183,7 @@ mod tests {
     #[test]
     fn interval_starts_after_both_programs_are_active() {
         let pin = pinned_deployment().unwrap();
-        assert_eq!(pin.first_slot(), 520_350_150);
+        assert_eq!(pin.first_slot(), 521_376_644);
         let archived: serde_json::Value = serde_json::from_str(include_str!(
             "../../../../protocol/archive/next-2026-10-31-layouts/protocol.lock.json"
         ))
@@ -214,11 +214,11 @@ mod tests {
             historical.programs[0].idl.canonical_sha256,
             current.programs[0].idl.canonical_sha256
         );
-        assert_eq!(historical.first_slot(), 520_350_150);
-        assert_eq!(current.programs[0].deployment.deploy_slot, 520_349_136);
+        assert_eq!(historical.first_slot(), 521_376_644);
+        assert_eq!(current.programs[0].deployment.deploy_slot, 521_372_176);
         assert_eq!(
             current.programs[0].binary.sha256,
-            "e53a4f57a9b2f7e7b7a891c82205acb235d077874508361b302c4f906cc67782"
+            "2289b2726a6c7d564600d363255dc5ea47b7ca66e2ea4c04527c9552d10addd7"
         );
     }
     #[test]
