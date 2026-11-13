@@ -2,9 +2,9 @@
   "eventRevision": "devnet-2026-11-12-fresh-layout15",
   "programId": "G6VzihcGWCxt1nujxtKPB4oUYz36GPR2t5mLdXEH8yYN",
   "idlCanonicalSha256": "131336c58922b3aad3f77c02906cf46db7e37dd0b9c4d26764705f81d5ae5934",
-  "sourceCommit": "20ec7d04e2ee3d497e1c84a6d91a7736b62a3065",
-  "deploySlot": 521708901,
-  "binarySha256": "6cefd492df0519c4b71a2e3ee205e2724701e84540445eec306a1933f56cd157",
+  "sourceCommit": "3b4260e6810b963672fec5a2eda6e2bdf624546d",
+  "deploySlot": 521804480,
+  "binarySha256": "30cdbf1346038c2326ef18dd96f5443920af88c69a99356a5e7d49796f6e2ad8",
   "allocatedBinaryBytes": 4773600,
   "leverageDelegate": {
     "programId": "A1aX1f3fx9x43FVYunRp25pu6HBczmYz1obEW9jZCf2B",
