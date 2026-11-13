@@ -1,3 +1,4 @@
+import { previewDuskExitOrderMark } from './duskExitOrderMark';
 import { marketLayoutVersion } from './duskProtocolSchema';
 // Backend display capture; ported from the reviewed webapp adapter.
 import {
@@ -38,6 +39,7 @@ export type DuskOrderRow<N extends Name> = {
   unixTimestamp: bigint;
   slot: number;
   trigger?: Awaited<ReturnType<typeof previewDuskHlpOrderTrigger>>['value'];
+  exitMark?: Awaited<ReturnType<typeof previewDuskExitOrderMark>>;
   entryMark?: Awaited<ReturnType<typeof previewDuskEntryOrder>>;
   retiredHlp?: { targetAsset: 0 | 1 };
 };
@@ -338,6 +340,15 @@ export async function readDuskOrders(options: {
   const exit = await readKind('leverageOrder'),
     entry = await readKind('leverageEntryOrder'),
     hlp = await readKind('hlpOrder');
+  // Preserve the old after-cost contract until the new identity is promoted.
+  if (options.previewPayer && marketLayoutVersion() >= 17)
+    for (const row of exit) {
+      row.exitMark = row.position ? await previewDuskExitOrderMark(
+        dusk, row.account.market, row.market, row.position.debtAsset,
+        options.previewPayer, Math.max(floor, row.slot), signal,
+      ).catch(() => null) : null;
+      if (row.exitMark) floor = Math.max(floor, row.exitMark.slot);
+    }
   if (options.previewPayer)
     for (const row of entry) {
       // A failed price read must not remove the owner's escrowed order.

@@ -1,0 +1,39 @@
+diff --git a/api/package-lock.json b/api/package-lock.json
+index dd1b9a5..c4efeed 100644
+--- a/api/package-lock.json
++++ b/api/package-lock.json
+@@ -14,7 +14,7 @@
+         "@metaplex-foundation/umi": "^1.4.1",
+         "@metaplex-foundation/umi-bundle-defaults": "^1.4.1",
+         "@metaplex-foundation/umi-web3js-adapters": "^1.4.1",
+-        "@omnipair/dusk-sdk": "2.21.0-next.20261112",
++        "@omnipair/dusk-sdk": "2.23.1-next.20261114",
+         "@omnipair/program-interface": "^0.10.0",
+         "@solana/kit": "8.5.0",
+         "@solana/spl-token": "^0.4.14",
+@@ -375,9 +375,9 @@
+       }
+     },
+     "node_modules/@omnipair/dusk-sdk": {
+-      "version": "2.21.0-next.20261112",
+-      "resolved": "https://registry.npmjs.org/@omnipair/dusk-sdk/-/dusk-sdk-2.21.0-next.20261112.tgz",
+-      "integrity": "sha512-o4YlBNA/mRJ0FmMSJ/UKAk7ue+cX2ARUM+VTwozXu73ODrBsmCnTXhsx4s/n71AdAdf8p7wa1YUlidwRxd4kQg==",
++      "version": "2.23.1-next.20261114",
++      "resolved": "https://registry.npmjs.org/@omnipair/dusk-sdk/-/dusk-sdk-2.23.1-next.20261114.tgz",
++      "integrity": "sha512-P2xMi+/QSRscO39Ua4o3AwdHu4qaPhK6kexrdd4g/n9hPseDS2KOOIvV10KbTUiY5oGqsqEXuFcitEncfJticg==",
+       "license": "MIT",
+       "dependencies": {
+         "@coral-xyz/anchor": ">=0.30.0",
+diff --git a/api/package.json b/api/package.json
+index cf3df28..bae65d4 100644
+--- a/api/package.json
++++ b/api/package.json
+@@ -49,7 +49,7 @@
+     "@metaplex-foundation/umi": "^1.4.1",
+     "@metaplex-foundation/umi-bundle-defaults": "^1.4.1",
+     "@metaplex-foundation/umi-web3js-adapters": "^1.4.1",
+-    "@omnipair/dusk-sdk": "2.21.0-next.20261112",
++    "@omnipair/dusk-sdk": "2.23.1-next.20261114",
+     "@omnipair/program-interface": "^0.10.0",
+     "@solana/kit": "8.5.0",
+     "@solana/spl-token": "^0.4.14",

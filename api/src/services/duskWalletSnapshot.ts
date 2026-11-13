@@ -212,6 +212,7 @@ export async function captureWalletSnapshot(
       unixTimestamp: row.unixTimestamp.toString(),
       slot: row.slot,
       ...(row.retiredHlp ? { retiredHlp: row.retiredHlp } : {}),
+      exitMark: row.exitMark ? { ...row.exitMark, priceNad: row.exitMark.priceNad.toString() } : null,
       entryMark: row.entryMark
         ? { ...row.entryMark, priceNad: row.entryMark.priceNad.toString() }
         : null,

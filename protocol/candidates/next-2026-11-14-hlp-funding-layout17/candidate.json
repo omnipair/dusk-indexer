@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "dusk-protocol-candidate.v1",
+  "status": "undeployed",
+  "revision": "next-2026-11-14-hlp-funding-layout17",
+  "marketLayoutVersion": 17,
+  "source": {
+    "repository": "https://github.com/omnipair/dusk",
+    "branch": "fix/hlp-funding-pricing",
+    "gitCommit": "c24e143f0fd16fa72772fe0c78e149309cf47738"
+  },
+  "programs": [
+    {
+      "name": "dusk",
+      "programId": "G6VzihcGWCxt1nujxtKPB4oUYz36GPR2t5mLdXEH8yYN",
+      "idl": {
+        "path": "idl/dusk.json",
+        "sha256": "1691f5c98c762dd7bc7d43d94cca8465f169a77bff9a6fced033c7f75dfa80fe",
+        "canonicalSha256": "08f307b8147a12836b771f2339ba3d9139c2793f7a02728d59e84ae08b93d8bb"
+      },
+      "localBuild": {
+        "payloadSha256": "a630ea4654ba1e137eb60bf9ea26d07aa2c42348d8baea449e403a13d5b85eb4",
+        "payloadBytes": 4032840
+      }
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "A1aX1f3fx9x43FVYunRp25pu6HBczmYz1obEW9jZCf2B",
+      "idl": {
+        "path": "idl/leverage_delegate.json",
+        "sha256": "7d8fd81abd39e08d287aae1c0fe445fa670a6ce55fdf829bab1389b48c8aa654",
+        "canonicalSha256": "8b6327f9f8873dc1910db1993c4e750ff56f9e3e2b0fd396ce77cf0dddb66527"
+      },
+      "localBuild": {
+        "payloadSha256": "52db0b6a8a534d8aac9513e5ee90dca5adbfcf1f2367bf9e9c298fc084418b1f",
+        "payloadBytes": 1271640
+      }
+    }
+  ],
+  "sdk": {
+    "package": "@omnipair/dusk-sdk",
+    "version": "2.23.1-next.20261114",
+    "path": "api/vendor/dusk-sdk-2.23.1-next.20261114.tgz",
+    "sha256": "c517e82afb77ecff50a877230effeb8052a6261b0c24ad9c232a17c346e54c16",
+    "integrity": "sha512-P2xMi+/QSRscO39Ua4o3AwdHu4qaPhK6kexrdd4g/n9hPseDS2KOOIvV10KbTUiY5oGqsqEXuFcitEncfJticg=="
+  },
+  "activation": "Requires published SDK, verified finalized program/delegate deployment, replay compatibility review and active-pin promotion. No deployment evidence or active identity is asserted by this bundle."
+}

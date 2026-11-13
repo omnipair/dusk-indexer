@@ -79,10 +79,25 @@ pub struct ProtocolAuctionLaneProjection {
     pub sold_asset_mint: String,
     pub destination: AuctionDestination,
     pub revenue_source: RevenueSource,
-    pub reference_market: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reference_market: Option<String>,
     pub liability: UnsignedInteger,
-    pub epoch_start_slot: UnsignedInteger,
-    pub tracked_inventory: UnsignedInteger,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub epoch_start_slot: Option<UnsignedInteger>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tracked_inventory: Option<UnsignedInteger>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub continuous: Option<ProtocolAuctionCurveProjection>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProtocolAuctionCurveProjection {
+    pub accepted_mint: String,
+    pub virtual_sold_reserve: UnsignedInteger,
+    pub virtual_payment_reserve: UnsignedInteger,
+    pub sold_rate_per_day: UnsignedInteger,
+    pub last_update_slot: UnsignedInteger,
+    pub stream_remainder: UnsignedInteger,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -188,7 +203,12 @@ pub struct LeverageOrderPortfolioProjection {
     pub position: String,
     pub order_id: UnsignedInteger,
     pub kind_code: u8,
-    pub trigger_closeout_price_nad: UnsignedInteger,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trigger_closeout_price_nad: Option<UnsignedInteger>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trigger_price_nad: Option<UnsignedInteger>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_owner_payout: Option<UnsignedInteger>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -248,8 +268,16 @@ pub struct LeverageOrderDiscoveryProjection {
     pub position: String,
     pub order_id: UnsignedInteger,
     pub kind_code: u8,
-    pub trigger_closeout_price_nad: UnsignedInteger,
-    pub staged_margin: UnsignedInteger,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trigger_closeout_price_nad: Option<UnsignedInteger>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trigger_price_nad: Option<UnsignedInteger>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_owner_payout: Option<UnsignedInteger>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub staged_margin: Option<UnsignedInteger>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub staged_collateral_amount: Option<UnsignedInteger>,
     pub staged_owner_token_account: String,
     pub staged_output_mint: String,
     pub staged_output_amount: UnsignedInteger,
@@ -441,19 +469,58 @@ fn auction_lanes(
         .into_iter()
         .map(
             |(destination, revenue_source, reference, liability, epoch)| {
+                let current = epoch.trim_end_matches("_epoch");
+                let continuous = fields[side_field]["fees"]
+                    .get(current)
+                    .map(|_| {
+                        Ok::<_, String>(ProtocolAuctionCurveProjection {
+                            accepted_mint: pubkey(
+                                fields,
+                                &[side_field, "fees", current, "accepted_mint"],
+                            )?,
+                            virtual_sold_reserve: unsigned(
+                                fields,
+                                &[side_field, "fees", current, "virtual_sold_reserve"],
+                            )?,
+                            virtual_payment_reserve: unsigned(
+                                fields,
+                                &[side_field, "fees", current, "virtual_payment_reserve"],
+                            )?,
+                            sold_rate_per_day: unsigned(
+                                fields,
+                                &[side_field, "fees", current, "sold_rate_per_day"],
+                            )?,
+                            last_update_slot: unsigned(
+                                fields,
+                                &[side_field, "fees", current, "last_update_slot"],
+                            )?,
+                            stream_remainder: unsigned(
+                                fields,
+                                &[side_field, "fees", current, "stream_remainder"],
+                            )?,
+                        })
+                    })
+                    .transpose()?;
+                let legacy = continuous.is_none();
                 Ok(ProtocolAuctionLaneProjection {
                     market: market.to_owned(),
                     sold_asset_side: side,
                     sold_asset_mint: sold_asset_mint.to_owned(),
                     destination,
                     revenue_source,
-                    reference_market: pubkey(fields, &[side_field, "fees", reference])?,
+                    reference_market: legacy
+                        .then(|| pubkey(fields, &[side_field, "fees", reference]))
+                        .transpose()?,
                     liability: unsigned(fields, &[side_field, "fees", liability])?,
-                    epoch_start_slot: unsigned(fields, &[side_field, "fees", epoch, "start_slot"])?,
-                    tracked_inventory: unsigned(
-                        fields,
-                        &[side_field, "fees", epoch, "tracked_inventory"],
-                    )?,
+                    epoch_start_slot: legacy
+                        .then(|| unsigned(fields, &[side_field, "fees", epoch, "start_slot"]))
+                        .transpose()?,
+                    tracked_inventory: legacy
+                        .then(|| {
+                            unsigned(fields, &[side_field, "fees", epoch, "tracked_inventory"])
+                        })
+                        .transpose()?,
+                    continuous,
                 })
             },
         )
@@ -616,7 +683,18 @@ fn project_leverage_order(account: &str, fields: &Value) -> Result<AccountProjec
         position: pubkey(fields, &["position"])?,
         order_id: unsigned(fields, &["order_id"])?,
         kind_code: small_u8(fields, &["kind"])?,
-        trigger_closeout_price_nad: unsigned(fields, &["trigger_closeout_price_nad"])?,
+        trigger_closeout_price_nad: fields
+            .get("trigger_closeout_price_nad")
+            .map(|_| unsigned(fields, &["trigger_closeout_price_nad"]))
+            .transpose()?,
+        min_owner_payout: fields
+            .get("min_owner_payout")
+            .map(|_| unsigned(fields, &["min_owner_payout"]))
+            .transpose()?,
+        trigger_price_nad: fields
+            .get("trigger_price_nad")
+            .map(|_| unsigned(fields, &["trigger_price_nad"]))
+            .transpose()?,
     };
     let keeper = LeverageOrderDiscoveryProjection {
         account: portfolio.account.clone(),
@@ -626,7 +704,16 @@ fn project_leverage_order(account: &str, fields: &Value) -> Result<AccountProjec
         order_id: portfolio.order_id.clone(),
         kind_code: portfolio.kind_code,
         trigger_closeout_price_nad: portfolio.trigger_closeout_price_nad.clone(),
-        staged_margin: unsigned(fields, &["staged_margin"])?,
+        trigger_price_nad: portfolio.trigger_price_nad.clone(),
+        min_owner_payout: portfolio.min_owner_payout.clone(),
+        staged_margin: fields
+            .get("staged_margin")
+            .map(|_| unsigned(fields, &["staged_margin"]))
+            .transpose()?,
+        staged_collateral_amount: fields
+            .get("staged_collateral_amount")
+            .map(|_| unsigned(fields, &["staged_collateral_amount"]))
+            .transpose()?,
         staged_owner_token_account: pubkey(fields, &["staged_owner_token_account"])?,
         staged_output_mint: pubkey(fields, &["staged_output_mint"])?,
         staged_output_amount: unsigned(fields, &["staged_output_amount"])?,

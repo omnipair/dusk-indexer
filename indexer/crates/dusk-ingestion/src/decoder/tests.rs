@@ -955,3 +955,80 @@ fn oracle_candidate_matches_sdk_wire_bytes_without_promoting_the_pin() {
     );
     assert_eq!(crate::PROTOCOL_REVISION, "devnet-2026-11-12-fresh-layout15");
 }
+
+/// Candidate registries never authorize writes under the active identity.
+#[test]
+fn funding_layout17_candidate_preserves_signed_fields_and_product_projections() {
+    let idl: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../protocol/candidates/next-2026-11-14-hlp-funding-layout17/idl/dusk.json"
+    )))
+    .unwrap();
+    let registry =
+        ProgramRegistry::from_bytes(&serde_json::to_vec(&idl).unwrap(), DUSK_PROGRAM_ID).unwrap();
+    let bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../protocol/candidates/next-2026-11-14-hlp-funding-layout17/fixtures/signed-market.bin"
+    ));
+    let (fields, padding) = registry
+        .types
+        .decode_named_account_type("Market", &bytes[8..], DecodeLimits::default())
+        .unwrap();
+    assert_eq!(padding, 0);
+    assert_eq!(fields["version"], "17");
+    assert_eq!(
+        fields["amm"]["hlp_funding_base_pricing_offset_nad"],
+        "-1267650600228229401496703205393"
+    );
+    assert_eq!(
+        fields["amm"]["hlp_funding_quote_pricing_offset_nad"],
+        "79228162514264337593543950355"
+    );
+    assert_eq!(fields["last_update_slot"], "123456789012345");
+    assert_eq!(fields["operator"]["epoch"], "987654321");
+    let projection =
+        projections::build_product_projections("Market", DUSK_PROGRAM_ID, &fields).unwrap();
+    let market = projection.market.unwrap();
+    assert_eq!(
+        market.base.live_reserve.as_str(),
+        fields["base_side"]["reserves"]["live_reserve"]
+            .as_str()
+            .unwrap()
+    );
+    assert_eq!(market.auction_lanes.len(), 8);
+    for lane in market.auction_lanes {
+        assert!(lane.continuous.is_some());
+        assert!(lane.reference_market.is_none());
+        assert!(lane.epoch_start_slot.is_none());
+    }
+    assert_eq!(crate::PROTOCOL_REVISION, "devnet-2026-11-12-fresh-layout15");
+}
+
+#[test]
+fn funding_layout17_delegate_projects_ema_threshold_without_relabelling_old_closeout_orders() {
+    let idl: Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"),
+        "/../../../protocol/candidates/next-2026-11-14-hlp-funding-layout17/idl/leverage_delegate.json"))).unwrap();
+    let registry = ProgramRegistry::from_bytes(
+        &serde_json::to_vec(&idl).unwrap(),
+        LEVERAGE_DELEGATE_PROGRAM_ID,
+    )
+    .unwrap();
+    let bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../protocol/candidates/next-2026-11-14-hlp-funding-layout17/fixtures/leverage-order.bin"
+    ));
+    let (fields, _) = registry
+        .types
+        .decode_named_account_type("LeverageOrder", &bytes[8..], DecodeLimits::default())
+        .unwrap();
+    let projection =
+        projections::build_product_projections("LeverageOrder", DUSK_PROGRAM_ID, &fields).unwrap();
+    match projection.portfolio.unwrap() {
+        PortfolioProjection::LeverageOrder(order) => {
+            assert_eq!(order.trigger_price_nad.unwrap().as_str(), "1234567890");
+            assert_eq!(order.min_owner_payout.unwrap().as_str(), "42");
+            assert!(order.trigger_closeout_price_nad.is_none());
+        }
+        _ => panic!("wrong portfolio projection"),
+    }
+}
