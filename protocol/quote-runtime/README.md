@@ -1,8 +1,8 @@
 # Native leverage-capacity runtime
 
-`dusk.so` is the verified 4,019,608-byte payload from Dusk commit
-`109580f668fe38318969c1278e58b7337ef10660`, upgraded in place on devnet at finalized slot
-521463779. The compatible deployment records both program upgrade slots
+`dusk.so` is the verified 4,019,640-byte payload from Dusk commit
+`3b4260e6810b963672fec5a2eda6e2bdf624546d`, upgraded in place on devnet at finalized slot
+521804480. The compatible deployment records both program upgrade slots
 and their full on-chain allocation hashes. The layout-15 event revision and its
 original history boundary remain in `protocol.lock.json`.
 
