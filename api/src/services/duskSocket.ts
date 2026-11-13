@@ -117,15 +117,20 @@ export function createDuskSocketServer(
             channel === 'virtual-book' &&
             isRecord(request.selection) &&
             Object.keys(request.selection).every((key) =>
-              ['market', 'groupingBps'].includes(key),
+              ['market', 'groupingBps', 'levels'].includes(key),
             )
           ) {
-            const { market, groupingBps } = request.selection;
+            const { market, groupingBps, levels } = request.selection;
             selection = virtualBookSelection(
               market,
               typeof groupingBps === 'number'
                 ? String(groupingBps)
                 : groupingBps,
+              levels === undefined
+                ? '12'
+                : typeof levels === 'number'
+                  ? String(levels)
+                  : levels,
             );
           } else throw new Error();
         } catch {

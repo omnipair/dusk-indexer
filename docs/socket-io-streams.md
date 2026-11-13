@@ -46,10 +46,11 @@ characters), a `channel`, and the corresponding `selection`:
 | `payload` | `{kind: "statistics", range: "24h" \| "all"}` | `dusk-payload` |
 | `payload` | `{kind: "trades", market}` | `dusk-payload` |
 | `payload` | `{kind: "candles", market, side: "base" \| "quote", resolutionSeconds}` | `dusk-payload` |
-| `virtual-book` | `{market, groupingBps}` | `dusk-virtual-book` |
+| `virtual-book` | `{market, groupingBps, levels?}` | `dusk-virtual-book` |
 
 Subscription acknowledgement is `{ok: true}` or `{ok: false, code}`. Numeric
-resolutions and grouping sizes use the same allowlists as the existing endpoints.
+resolutions, grouping sizes and book depths use the same allowlists as the
+existing endpoints; a book selection without `levels` reads twelve a side.
 Each `dusk:frame` packet is `{id, event, data}`, where `data` is the original JSON
 envelope string with `streamId` and `sequence`. The client acknowledges receipt
 immediately, then applies its existing deployment/freshness/continuity validation.
