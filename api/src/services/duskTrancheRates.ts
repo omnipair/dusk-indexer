@@ -36,14 +36,14 @@ function scale(value: string | null | undefined, numerator: bigint, denominator:
  * governed income share of every LP swap fee and interest credit and grows the
  * srLP indexes with the senior rest, so the recorded market rate is the senior
  * rate. Junior earns share / (1 - share) times senior's income over its own
- * live capital, so its display estimate scales by both ratios. */
+ * live capital, so its display estimate scales by both ratios. Publish srLP
+ * earnings independently: a market need not have initialized a junior mint. */
 export async function withTrancheRates(
   payload: Record<string, unknown>,
   deploymentIdentitySha256: string,
   read: typeof trailingSrlpRate = trailingSrlpRate,
 ): Promise<Record<string, unknown>> {
   const tranches = payload.tranches as TrancheProjection | null | undefined;
-  if (!tranches) return payload;
   try {
     const rates = await read(deploymentIdentitySha256, {
       market: String(payload.marketAddress),
@@ -53,6 +53,20 @@ export async function withTrancheRates(
       baseDecimals: Number(payload.baseDecimals),
       quoteDecimals: Number(payload.quoteDecimals),
     });
+    const senior = {
+      growth: rates.growth,
+      swapRatePct: rates.swapRatePct,
+      interestRatePct: rates.interestRatePct,
+      totalRatePct: add(rates.swapRatePct, rates.interestRatePct),
+    };
+    const srlpRates = {
+      schemaVersion: 'dusk-srlp-rates.v1',
+      basis: 'recorded-claimable-srlp-rate.v1',
+      annualization: 'simple-365-day',
+      windowSeconds: HLP_RATE_WINDOW_MS / 1000,
+      ...senior,
+    };
+    if (!tranches) return { ...payload, srlpRates };
     const seniorShares = BigInt(tranches.seniorReserveShares);
     const juniorShares = BigInt(tranches.juniorReserveShares);
     const share = juniorIncomeShareBps(tranches);
@@ -62,6 +76,7 @@ export async function withTrancheRates(
     const juniorInterest = scale(rates.interestRatePct, numerator, denominator);
     return {
       ...payload,
+      srlpRates,
       tranches: {
         ...tranches,
         rates: {
@@ -69,12 +84,7 @@ export async function withTrancheRates(
           basis: 'recorded-income-live-capital.v1',
           annualization: 'simple-365-day',
           windowSeconds: HLP_RATE_WINDOW_MS / 1000,
-          senior: {
-            growth: rates.growth,
-            swapRatePct: rates.swapRatePct,
-            interestRatePct: rates.interestRatePct,
-            totalRatePct: add(rates.swapRatePct, rates.interestRatePct),
-          },
+          senior,
           junior:
             juniorShares === 0n || share === null
               ? null
@@ -90,7 +100,7 @@ export async function withTrancheRates(
       },
     };
   } catch (error) {
-    console.warn('tranche rate read failed', error instanceof Error ? error.message : error);
-    return payload;
+    console.warn('market LP rate read failed', error instanceof Error ? error.message : error);
+    return { ...payload, srlpRates: null };
   }
 }

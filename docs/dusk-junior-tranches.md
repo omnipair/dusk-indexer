@@ -5,6 +5,18 @@ This change indexes the tranche interface from Dusk PR #60 under the verified
 
 ## Published market state
 
+Every market payload publishes `srlpRates` independently of junior initialization.
+The `dusk-srlp-rates.v1` object has basis `recorded-claimable-srlp-rate.v1`,
+`annualization: simple-365-day`, `windowSeconds: 604800`, and `growth`,
+`swapRatePct`, `interestRatePct`, and `totalRatePct`. It uses the same recorded
+srLP growth as hLP and tranche rates. A failed read returns `srlpRates: null`;
+unpriced components remain null, and `growth: none` is not measured zero yield.
+These are claimable APR components, excluding compounded fees and unpaid interest.
+
+Markets without a junior mint keep `tranches: null`. Clients use `srlpRates`
+for Market APY and keep junior unavailable. During rollout, clients may fall
+back to `tranches.rates.senior` when the standalone field is absent.
+
 When the pinned Market account contains tranche fields, each market payload
 adds `tranches` with:
 

@@ -39,6 +39,13 @@ test('at the default 50% share, junior earns senior income over its own live cap
   const result = await withTrancheRates(market, '0'.repeat(64), recorded);
   const rates = (result.tranches as any).rates;
   assert.equal(rates.senior.totalRatePct, '5');
+  assert.deepEqual(result.srlpRates, {
+    schemaVersion: 'dusk-srlp-rates.v1',
+    basis: 'recorded-claimable-srlp-rate.v1',
+    annualization: 'simple-365-day',
+    windowSeconds: 604800,
+    ...rates.senior,
+  });
   assert.deepEqual(rates.junior, {
     growth: 'recorded',
     estimate: 'governed-income-share-over-live-capital',
@@ -47,6 +54,51 @@ test('at the default 50% share, junior earns senior income over its own live cap
     interestRatePct: '8',
     totalRatePct: '20',
   });
+});
+
+test('publishes recorded srLP earnings before junior initialization', async () => {
+  const payload = { ...market, juniorMint: null, tranches: null };
+  const result = await withTrancheRates(payload, '0'.repeat(64), async (identity, meta) => {
+    assert.equal(identity, '0'.repeat(64));
+    assert.equal(meta.market, payload.marketAddress);
+    assert.equal(meta.srlpMint, payload.srlpMint);
+    return { market: meta.market, growth: 'recorded', swapRatePct: '1.50133052', interestRatePct: '0' };
+  });
+  assert.equal(result.tranches, null);
+  assert.equal(result.juniorMint, null);
+  assert.deepEqual(result.srlpRates, {
+    schemaVersion: 'dusk-srlp-rates.v1',
+    basis: 'recorded-claimable-srlp-rate.v1',
+    annualization: 'simple-365-day',
+    windowSeconds: 604800,
+    growth: 'recorded',
+    swapRatePct: '1.50133052',
+    interestRatePct: '0',
+    totalRatePct: '1.50133052',
+  });
+});
+
+test('preserves no-growth, unpriced and measured-zero rates without junior', async () => {
+  for (const [growth, swapRatePct, interestRatePct, totalRatePct] of [
+    ['none', '0', '0', '0'],
+    ['recorded', null, '0', null],
+    ['recorded', '0', '0', '0'],
+  ] as const) {
+    const result = await withTrancheRates({ ...market, tranches: null }, '0'.repeat(64), async () => ({
+      market: market.marketAddress, growth, swapRatePct, interestRatePct,
+    }));
+    assert.equal(result.tranches, null);
+    assert.equal((result.srlpRates as any).growth, growth);
+    assert.equal((result.srlpRates as any).totalRatePct, totalRatePct);
+  }
+});
+
+test('a failed srLP read leaves the market available and its rate null', async () => {
+  const payload = { ...market, tranches: null };
+  const result = await withTrancheRates(payload, '0'.repeat(64), async () => {
+    throw new Error('rate unavailable');
+  });
+  assert.deepEqual(result, { ...payload, srlpRates: null });
 });
 
 test('scales junior income by the governed share against senior', async () => {
