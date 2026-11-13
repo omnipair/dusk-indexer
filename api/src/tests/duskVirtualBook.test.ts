@@ -19,7 +19,7 @@ import { DuskVirtualBookSnapshot, readDuskVirtualBook } from '../services/virtua
 import {
   type Dusk,
 } from '@omnipair/dusk-sdk';
-import fixture from './fixtures/virtual-book-batch-fresh-devnet-20261112.json';
+import fixture from './fixtures/virtual-book-layout16.json';
 import { currentVirtualBook, VirtualBookDependencies, VirtualBookEnvelope, virtualBookSelection } from '../services/duskVirtualBook';
 import type { DuskDeploymentEnvelope } from '../services/duskDeploymentService';
 

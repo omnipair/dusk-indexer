@@ -1,10 +1,10 @@
 # Native leverage-capacity runtime
 
-`dusk.so` is the verified 4,019,640-byte payload from Dusk commit
-`3b4260e6810b963672fec5a2eda6e2bdf624546d`, upgraded in place on devnet at finalized slot
-521804480. The compatible deployment records both program upgrade slots
-and their full on-chain allocation hashes. The layout-15 event revision and its
-original history boundary remain in `protocol.lock.json`.
+`dusk.so` is the verified 4,017,680-byte payload from Dusk commit
+`474ddcf4fcaecd1ed055238f1105a0a1323d7313`, deployed under the fresh devnet
+program ID at finalized slot 521965404. The delegate deployed at slot 521967168,
+so the layout-16 revision starts at slot 521967169. The previous layout-15
+release and its runtime remain archived under their original identity.
 
 The manifest pins both hashes; `compatible-deployment.json` pins the complete on-chain allocation. Future compatible upgrades must update these artifacts together. A mismatched runtime refuses quotes.
 

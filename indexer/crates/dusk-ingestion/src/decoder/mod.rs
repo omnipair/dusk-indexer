@@ -35,9 +35,10 @@ pub use {
         LeverageOrderDiscoveryProjection, LeverageOrderPortfolioProjection,
         LeveragePortfolioProjection, MarketAssetProjection, MarketProjection,
         OperatorExecutionDiscoveryProjection, PortfolioProjection,
-        ProtocolAuctionConfigDiscoveryProjection, ProtocolAuctionLaneProjection,
-        ReferralAccrualPortfolioProjection, ReferralPartnerPortfolioProjection, RevenueSource,
-        SignedInteger, UnsignedInteger, YieldPortfolioProjection,
+        ProtocolAuctionConfigDiscoveryProjection, ProtocolAuctionCurveProjection,
+        ProtocolAuctionLaneProjection, ReferralAccrualPortfolioProjection,
+        ReferralPartnerPortfolioProjection, RevenueSource, SignedInteger, UnsignedInteger,
+        YieldPortfolioProjection,
     },
 };
 

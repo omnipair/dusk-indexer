@@ -1,17 +1,9 @@
 {
-  "eventRevision": "devnet-2026-11-12-fresh-layout15",
-  "programId": "G6VzihcGWCxt1nujxtKPB4oUYz36GPR2t5mLdXEH8yYN",
-  "idlCanonicalSha256": "131336c58922b3aad3f77c02906cf46db7e37dd0b9c4d26764705f81d5ae5934",
-  "sourceCommit": "3b4260e6810b963672fec5a2eda6e2bdf624546d",
-  "deploySlot": 521804480,
-  "binarySha256": "30cdbf1346038c2326ef18dd96f5443920af88c69a99356a5e7d49796f6e2ad8",
-  "allocatedBinaryBytes": 4773600,
-  "leverageDelegate": {
-    "programId": "A1aX1f3fx9x43FVYunRp25pu6HBczmYz1obEW9jZCf2B",
-    "idlCanonicalSha256": "d08fc7989b1faf6698cbac18f78be6bb7a0099b425fa0cd28b42764224a0c1e4",
-    "sourceCommit": "109580f668fe38318969c1278e58b7337ef10660",
-    "deploySlot": 521465623,
-    "binarySha256": "11925fccccce0966cd97532b3572adcbd55226b13190b826487823637da51967",
-    "allocatedBinaryBytes": 1395552
-  }
+  "eventRevision": "devnet-2026-11-14-main-grid",
+  "programId": "9gEvWS1Vqxmd9qr9w5KpEN2PGcn9DN1rE5NptD1ZcqXH",
+  "idlCanonicalSha256": "41514930e6b50197ea124cbeb2bea395286aca6935597b2945f92efb5affbdd1",
+  "sourceCommit": "474ddcf4fcaecd1ed055238f1105a0a1323d7313",
+  "deploySlot": 521965404,
+  "binarySha256": "c55950bd00435270afd8a1a92aad1660660a25826a8ff108c787f6304298a899",
+  "allocatedBinaryBytes": 4017680
 }

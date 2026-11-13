@@ -50,7 +50,7 @@ const DUSK_EVENTS: [&str; 59] = [
     "OperatorRevenueClaimed",
     "ProtocolAuctionConfigUpdated",
     "ProtocolAuctionRecipientsUpdated",
-    "ProtocolAuctionRouteUpdated",
+    "ProtocolAuctionConfigured",
     "ProtocolAuctionSettled",
     "ProtocolAuctionSplitUpdated",
     "ProtocolInterestMarkupCheckpointed",
@@ -953,5 +953,40 @@ fn oracle_candidate_matches_sdk_wire_bytes_without_promoting_the_pin() {
             )
             .is_err()
     );
-    assert_eq!(crate::PROTOCOL_REVISION, "devnet-2026-11-12-fresh-layout15");
+    assert_eq!(crate::PROTOCOL_REVISION, "devnet-2026-11-14-main-grid");
+}
+
+#[test]
+fn layout16_market_projects_continuous_auctions_without_moving_reserves() {
+    let idl = include_bytes!(
+        "../../../../../protocol/candidates/devnet-2026-11-14-main-grid/idl/dusk.json"
+    );
+    let registry = ProgramRegistry::from_bytes(idl, DUSK_PROGRAM_ID).unwrap();
+    let bytes = include_bytes!("../../../../../api/src/tests/fixtures/market-layout16.bin");
+    let (fields, padding) = registry
+        .types
+        .decode_named_account_type("Market", &bytes[8..], DecodeLimits::default())
+        .unwrap();
+    assert_eq!(padding, 0);
+    assert_eq!(fields["version"], "16");
+    assert!(
+        fields["amm"]
+            .get("hlp_funding_base_pricing_offset_nad")
+            .is_none()
+    );
+    let projection =
+        projections::build_product_projections("Market", DUSK_PROGRAM_ID, &fields).unwrap();
+    let market = projection.market.unwrap();
+    assert_eq!(
+        market.base.live_reserve.as_str(),
+        fields["base_side"]["reserves"]["live_reserve"]
+            .as_str()
+            .unwrap()
+    );
+    assert_eq!(market.auction_lanes.len(), 8);
+    for lane in market.auction_lanes {
+        assert!(lane.continuous.is_some());
+        assert!(lane.reference_market.is_none());
+        assert!(lane.epoch_start_slot.is_none());
+    }
 }
