@@ -138,12 +138,15 @@ export async function readDuskVirtualBookQuotes({
   snapshot,
   boundary,
   groupingBps = 10,
+  levels = 12,
   signal,
 }: {
   dusk: Dusk;
   snapshot: DuskVirtualBookSnapshot;
   boundary: Pick<DuskReadBoundary, 'assertCompatibleForRead'>;
   groupingBps?: number;
+  /** Price levels a side; the SDK's one-call capture samples twelve. */
+  levels?: number;
   signal?: AbortSignal;
 }): Promise<DuskVirtualBookQuotes> {
   const { deployment } = snapshot;
@@ -156,18 +159,12 @@ export async function readDuskVirtualBookQuotes({
     before.observedSlot,
     minimumDuskReadSlot(deployment),
   );
-  let quotes: NativeQuotes;
-  try {
-    quotes = await dusk.get.previewVirtualBookQuotes(nativeSnapshot, {
-      groupingBps,
-      minContextSlot,
-      signal,
-    });
-  } catch (error) {
-    if (!unquotableAmount(error) && !computeExhausted(error)) throw error;
-    const curve = projectDuskVirtualBookCurve(nativeSnapshot, groupingBps);
+  // Samples the SDK's curve at the requested depth and prices every level
+  // through native batches: the recovery path, and the way to a deeper book.
+  const sampled = () => {
+    const curve = projectDuskVirtualBookCurve(nativeSnapshot, groupingBps, levels);
     if (!curve) throw new Error('Market depth curve unavailable');
-    quotes = await recoverExecutableVirtualBookQuotes(
+    return recoverExecutableVirtualBookQuotes(
       dusk,
       snapshot,
       groupingBps,
@@ -175,7 +172,20 @@ export async function readDuskVirtualBookQuotes({
       minContextSlot,
       signal,
     );
-  }
+  };
+  let quotes: NativeQuotes;
+  if (levels !== 12) quotes = await sampled();
+  else
+    try {
+      quotes = await dusk.get.previewVirtualBookQuotes(nativeSnapshot, {
+        groupingBps,
+        minContextSlot,
+        signal,
+      });
+    } catch (error) {
+      if (!unquotableAmount(error) && !computeExhausted(error)) throw error;
+      quotes = await sampled();
+    }
   const after = await boundary.assertCompatibleForRead(deployment, signal, quotes.slot);
   if (signal?.aborted || after.observedSlot < quotes.slot)
     throw new Error('Native market depth was invalidated');

@@ -12,8 +12,11 @@ validation, concentration and fee projection. Client instances are named `dusk`.
 
 ## Scheduling and fan-out
 
-`GET /api/dusk/v1/virtual-book/:market/stream?groupingBps=10` serves named
-`dusk-virtual-book` SSE frames. Supported groupings are 5, 10, 25, 50 and 100 bps.
+`GET /api/dusk/v1/virtual-book/:market/stream?groupingBps=10&levels=12` serves
+named `dusk-virtual-book` SSE frames. Supported groupings are 5, 10, 25, 50 and
+100 bps. `levels` is the price levels a side, 12 (the default), 24 or 36; every
+level is one native swap preview, so a deeper book costs two or three times the
+previews, and each depth is its own topic.
 Each connection receives a new stream UUID and consecutive sequence numbers.
 The first published frame is a complete snapshot; reconnects need no delta log.
 Frames contain the strict `dusk-deployment.v2` envelope plus a

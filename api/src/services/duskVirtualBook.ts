@@ -24,6 +24,8 @@ export interface VirtualBookSnapshot {
   revision: string;
   market: string;
   groupingBps: number;
+  /** Price levels a side the book was captured with. */
+  levels: number;
   firstQuoteSlot: number;
   sourceSlot: number;
   observedAt: number;
@@ -39,24 +41,33 @@ export interface VirtualBookEnvelope {
   data: VirtualBookSnapshot;
   deployment: DuskDeploymentEnvelope;
 }
+/** Price levels a side a book may be captured with: the SDK's twelve, or
+ * twice or three times as many for a taller book. Every level is one native
+ * swap preview, so a deeper capture costs that many more previews; no other
+ * depth is served. */
+export const VIRTUAL_BOOK_LEVELS = ['12', '24', '36'] as const;
 export interface VirtualBookSelection {
   market: string;
   groupingBps: number;
+  levels: number;
 }
 export function virtualBookSelection(
   market: unknown,
   grouping: unknown = '10',
+  levels: unknown = '12',
 ): VirtualBookSelection {
   if (
     typeof market !== 'string' ||
     new PublicKey(market).toBase58() !== market ||
     typeof grouping !== 'string' ||
-    !['5', '10', '25', '50', '100'].includes(grouping)
+    !['5', '10', '25', '50', '100'].includes(grouping) ||
+    typeof levels !== 'string' ||
+    !(VIRTUAL_BOOK_LEVELS as readonly string[]).includes(levels)
   )
     throw Object.assign(new Error('Invalid virtual book selection'), {
       status: 400,
     });
-  return { market, groupingBps: Number(grouping) };
+  return { market, groupingBps: Number(grouping), levels: Number(levels) };
 }
 function intervalMs() {
   const interval = Number(process.env.DUSK_VIRTUAL_BOOK_INTERVAL_MS ?? 2000);
@@ -89,6 +100,7 @@ export async function captureVirtualBook(
       snapshot,
       boundary,
       groupingBps: selection.groupingBps,
+      levels: selection.levels,
       signal: controller.signal,
     });
     const book = projectDuskVirtualBook(quoted);
@@ -145,7 +157,7 @@ export async function currentVirtualBook(
   deps = dependencies,
 ): Promise<VirtualBookEnvelope | null> {
   const before = await boundedDuskRpcRead(() => deps.envelope(0));
-  const key = `virtual-book.v1:${before.deploymentIdentitySha256}:${selection.market}:${selection.groupingBps}`;
+  const key = `virtual-book.v1:${before.deploymentIdentitySha256}:${selection.market}:${selection.groupingBps}:${selection.levels}`;
   const result = await deps.shared({
     key,
     identity: before.deploymentIdentitySha256,

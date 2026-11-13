@@ -195,6 +195,8 @@ test('invalid selections, duplicate ids, and subscription capacity are rejected 
       { kind: 'candles', market, side: 'base', resolutionSeconds: 1 },
     ],
     ['virtual-book', { market, groupingBps: 3 }],
+    ['virtual-book', { market, groupingBps: 10, levels: 13 }],
+    ['virtual-book', { market, groupingBps: 10, levels: 24, depth: 1 }],
     ['changes', { arbitrary: true }],
   ] as const)
     assert.equal(
@@ -217,6 +219,22 @@ test('invalid selections, duplicate ids, and subscription capacity are rejected 
     false,
   );
   assert.equal(h.payload.size, 1);
+});
+
+test('a deeper book is its own topic; a selection without levels reads twelve', async (t) => {
+  const h = await harness(t);
+  for (const [id, selection] of [
+    ['b12', { market, groupingBps: 10 }],
+    ['b12-explicit', { market, groupingBps: 10, levels: 12 }],
+    ['b24', { market, groupingBps: 10, levels: 24 }],
+    ['b36', { market, groupingBps: 10, levels: '36' }],
+  ] as const)
+    assert.equal(
+      (await subscribe(h.socket, id, 'virtual-book', selection)).ok,
+      true,
+    );
+  // Twelve by default and twelve named are one topic; each depth its own.
+  assert.equal(h.book.size, 3);
 });
 
 test('slow readers release their subscription instead of growing an unbounded send queue', async (t) => {
