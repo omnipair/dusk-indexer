@@ -10,6 +10,7 @@ import { cache } from '../utils/cache';
 import { portfolioFixture } from './duskPortfolioFixtures';
 import { encodeFixtureAccount, encodeFixtureType, fixtureKey } from './duskYieldCheckpointFixtures';
 import { leverageCollateralAddress, tokenMetadataAddress } from '../services/duskMarketExtras';
+import { withTrancheRates } from '../services/duskTrancheRates';
 
 function liveFixture() {
   const fixture = portfolioFixture(),group = fixture.source.groups[0],decoder = new BorshCoder(duskRawIdl());
@@ -67,6 +68,46 @@ test('live payload uses one bank and preserves program debt, curve price and exp
   assert.deepEqual(payload.deposits,{ schemaVersion: 'dusk-market-deposits.v1',sourceSlot: sample.snapshot.slot,basis: 'reserve-and-collateral-custody.v1',
     baseReserveAmount: '100',quoteReserveAmount: '100',baseCollateralAmount: '200',quoteCollateralAmount: '200',baseLeverageAmount: '300',quoteLeverageAmount: '300' });
   assert.equal(payload.tokenMetadata.base,null);
+});
+
+test('senior earnings survive funded and wiped permanent seeds, with or without a jrLP mint', async () => {
+  for (const initialized of [false, true]) {
+    for (const backing of ['9999999', '0']) {
+      const sample = liveFixture();
+      sample.market.junior_mint = initialized ? fixtureKey(199) : PublicKey.default;
+      sample.market.base_side.shares.srlp_supply = new BN('10000000000');
+      sample.market.quote_side.shares.srlp_supply = new BN('10000000000');
+      Object.assign(sample.market.tranches, {
+        junior_reserve_shares: new BN(backing),
+        junior_receipt_supply: new BN(9999999),
+        permanent_receipts: new BN(9999999),
+        queued_receipts: new BN(0),
+        generation: new BN(0),
+      });
+      sample.market.tranche_policy.junior_income_share_bps = 5000;
+      const snapshot = { ...sample.snapshot,
+        marketAccount: { ...sample.snapshot.marketAccount,
+          data: encodeFixtureAccount('Market', sample.market).toString('base64') } };
+      const projected = projectMarketSnapshot(snapshot, sample.references);
+      const payload = await withTrancheRates(projected, snapshot.deploymentIdentitySha256, async (_identity, meta) => ({
+        market: meta.market, growth: 'recorded', swapRatePct: '1.50133052', interestRatePct: '0',
+      }));
+      assert.equal((payload.srlpRates as any).totalRatePct, '1.50133052');
+      const tranches = payload.tranches as any;
+      if (!initialized) {
+        // The v1 minted-cohort projection is null even when junior seed
+        // accounting exists. It must not control the senior earnings read.
+        assert.equal(payload.juniorMint, null);
+        assert.equal(tranches, null);
+      } else {
+        assert.equal(tranches.juniorReserveShares, backing);
+        assert.equal(tranches.juniorReceiptSupply, '9999999');
+        assert.equal(tranches.permanentReceipts, '9999999');
+        assert.equal(tranches.rates.senior.totalRatePct, '1.50133052');
+        assert.equal(tranches.rates.junior === null, backing === '0');
+      }
+    }
+  }
 });
 
 test('deposits reject foreign vaults and only an observed absent leverage PDA is zero',() => {

@@ -56,7 +56,7 @@ test('at the default 50% share, junior earns senior income over its own live cap
   });
 });
 
-test('publishes recorded srLP earnings before junior initialization', async () => {
+test('publishes recorded srLP earnings when the junior mint projection is unavailable', async () => {
   const payload = { ...market, juniorMint: null, tranches: null };
   const result = await withTrancheRates(payload, '0'.repeat(64), async (identity, meta) => {
     assert.equal(identity, '0'.repeat(64));
@@ -78,7 +78,7 @@ test('publishes recorded srLP earnings before junior initialization', async () =
   });
 });
 
-test('preserves no-growth, unpriced and measured-zero rates without junior', async () => {
+test('preserves no-growth, unpriced and measured-zero rates without a tranche projection', async () => {
   for (const [growth, swapRatePct, interestRatePct, totalRatePct] of [
     ['none', '0', '0', '0'],
     ['recorded', null, '0', null],
@@ -99,6 +99,28 @@ test('a failed srLP read leaves the market available and its rate null', async (
     throw new Error('rate unavailable');
   });
   assert.deepEqual(result, { ...payload, srlpRates: null });
+});
+
+test('a failed junior estimate preserves recorded senior earnings in both API shapes', async () => {
+  const payload = {
+    ...market,
+    tranches: { ...market.tranches, juniorReserveShares: 'invalid' },
+  };
+  const result = await withTrancheRates(payload, '0'.repeat(64), recorded);
+  assert.equal((result.srlpRates as any).totalRatePct, '5');
+  assert.deepEqual((result.tranches as any).rates.senior, {
+    growth: 'recorded', swapRatePct: '3', interestRatePct: '2', totalRatePct: '5',
+  });
+  assert.equal((result.tranches as any).rates.junior, null);
+});
+
+test('a failed srLP refresh clears previous standalone and tranche rates', async () => {
+  const previous = await withTrancheRates(market, '0'.repeat(64), recorded);
+  const result = await withTrancheRates(previous, '0'.repeat(64), async () => {
+    throw new Error('rate unavailable');
+  });
+  assert.equal(result.srlpRates, null);
+  assert.deepEqual(result.tranches, { ...market.tranches, rates: null });
 });
 
 test('scales junior income by the governed share against senior', async () => {
