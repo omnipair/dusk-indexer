@@ -97,7 +97,8 @@ export function createDuskSnapshotHub<S, T extends SnapshotValue>(
 export function createVirtualBookHub(read = currentVirtualBook) {
   return createDuskSnapshotHub(
     read,
-    (selection) => `${selection.market}:${selection.groupingBps}`,
+    (selection) =>
+      `${selection.market}:${selection.groupingBps}:${selection.levels}`,
   );
 }
 export const virtualBookHub = createVirtualBookHub();
@@ -116,7 +117,11 @@ export async function openVirtualBookStream(
   return openDuskSnapshotStream(
     req,
     res,
-    virtualBookSelection(req.params.market, req.query.groupingBps ?? '10'),
+    virtualBookSelection(
+      req.params.market,
+      req.query.groupingBps ?? '10',
+      req.query.levels ?? '12',
+    ),
     'dusk-virtual-book',
     source,
   );

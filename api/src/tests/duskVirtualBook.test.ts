@@ -326,6 +326,98 @@ test('native depth recovers when the SDK quote batch runs out of compute', async
     projected.mock.restore();
   }
 });
+test('a book is served at twelve, twenty-four or thirty-six levels a side and no other depth', () => {
+  const market = fixture.market;
+  assert.deepEqual(virtualBookSelection(market), {
+    market,
+    groupingBps: 10,
+    levels: 12,
+  });
+  assert.equal(virtualBookSelection(market, '10', '24').levels, 24);
+  assert.equal(virtualBookSelection(market, '25', '36').levels, 36);
+  for (const levels of ['13', '48', '50', '0', 24, 'twelve', ''])
+    assert.throws(() => virtualBookSelection(market, '10', levels), /Invalid virtual book selection/);
+});
+test('a deeper book samples the curve at its depth and prices every level natively', async () => {
+  const h = await setup();
+  const decoded = decodeDuskVirtualBookBatch(
+    h.dusk,
+    h.snapshot,
+    h.requests,
+    fixture.result as unknown as RpcResponseAndContext<SimulatedTransactionResponse>,
+    h.snapshot.slot,
+  );
+  const deployment = {
+    programId: fixture.programId,
+    deploymentIdentitySha256: 'a'.repeat(64),
+    sourceSlot: 100,
+    programDataSlot: '1',
+    leverageDelegateProgramDataSlot: '1',
+  } as DuskDeploymentEnvelope;
+  const boundary = createVirtualBookBoundary(async floor => ({ ...deployment, sourceSlot: floor }));
+  const snapshot = { ...h.snapshot, deployment };
+  let oneCall = 0;
+  const sizes: number[] = [];
+  const dusk = {
+    program: { programId: { toBase58: () => fixture.programId } },
+    get: {
+      previewVirtualBookQuotes: async () => {
+        oneCall++;
+        throw new Error('the SDK samples twelve levels');
+      },
+      previewVirtualBookBatch: async (_snapshot: unknown, batch: VirtualBookQuoteRequest[]) => {
+        sizes.push(batch.length);
+        return echoQuotes(decoded, batch);
+      },
+    },
+  } as unknown as Dusk;
+  const deep = (levels: number) => ({
+    mid: 1,
+    bids: Array.from({ length: levels }, (_, index) => ({ total: index + 1, quoteTotal: index + 1 })),
+    asks: Array.from({ length: levels }, (_, index) => ({ total: index + 1, quoteTotal: index + 1 })),
+  }) as Parameters<typeof recoverExecutableVirtualBookQuotes>[3];
+  const asked: unknown[][] = [];
+  const projected = mock.method(native, 'projectDuskVirtualBookCurve', (...args: unknown[]) => {
+    asked.push(args.slice(1));
+    return deep(args[2] as number);
+  });
+  try {
+    const quotes = await readDuskVirtualBookQuotes({ dusk, snapshot, boundary, groupingBps: 25, levels: 24 });
+    assert.equal(oneCall, 0);
+    assert.deepEqual(asked, [[25, 24]]);
+    assert.equal(quotes.quotes.bids.length, 24);
+    assert.equal(quotes.quotes.asks.length, 24);
+    assert.equal(sizes.length, 12); // forty-eight levels in four-quote batches
+  } finally {
+    projected.mock.restore();
+  }
+});
+test('each depth is cached apart', async () => {
+  const deployment = {
+    programId: fixture.programId,
+    deploymentIdentitySha256: 'a'.repeat(64),
+    sourceSlot: 100,
+    programDataSlot: '1',
+    leverageDelegateProgramDataSlot: '1',
+  } as DuskDeploymentEnvelope;
+  const keys: string[] = [];
+  const deps = {
+    envelope: async () => deployment,
+    shared: async ({ key }: { key: string }) => {
+      keys.push(key);
+      return null;
+    },
+    capture: async () => {
+      throw new Error('not captured');
+    },
+  } as unknown as VirtualBookDependencies;
+  await currentVirtualBook(virtualBookSelection(fixture.market, '10'), deps);
+  await currentVirtualBook(virtualBookSelection(fixture.market, '10', '24'), deps);
+  assert.deepEqual(keys, [
+    `virtual-book.v1:${'a'.repeat(64)}:${fixture.market}:10:12`,
+    `virtual-book.v1:${'a'.repeat(64)}:${fixture.market}:10:24`,
+  ]);
+});
 test('backend rejects old banks, wrong programs, truncated logs and changed input sizes', async () => {
   const h = await setup();
   const cases = [

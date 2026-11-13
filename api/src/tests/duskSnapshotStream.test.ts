@@ -11,6 +11,7 @@ const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 const selection = {
   market: '11111111111111111111111111111111',
   groupingBps: 10,
+  levels: 12,
 };
 function snapshot(revision = 'r1') {
   return {
