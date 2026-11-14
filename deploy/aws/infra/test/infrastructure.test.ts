@@ -106,6 +106,10 @@ test('configuration rejects shared wallets, extra signers and mismatched geograp
   assert.throws(() => validateConfig(extra), /distinct/);
   const wrong = copy(); wrong.primaryRegion = 'us-east-1';
   assert.throws(() => validateConfig(wrong), /Railway/);
+  for (const origin of ['*', 'https://beta.omnipair.fi/path', 'http://beta.omnipair.fi']) {
+    const invalid = copy(); invalid.browserOrigins = [origin];
+    assert.throws(() => validateConfig(invalid), /exact HTTPS/);
+  }
 });
 
 test('approved budget and notification destinations stay separate from source material', () => {

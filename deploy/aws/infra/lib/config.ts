@@ -10,6 +10,7 @@ export interface ReleaseConfig {
   readonly primaryRegion: string;
   readonly indexerRegion: string;
   readonly apiCertificateArn: string;
+  readonly browserOrigins?: readonly string[];
   readonly kms: Readonly<Record<string, KmsIdentity>>;
 }
 
@@ -41,6 +42,10 @@ export function validateConfig(config: ReleaseConfig): void {
     throw new Error('Compute regions must match the captured Railway locations');
   if (!config.apiCertificateArn.startsWith(`arn:aws:acm:${config.primaryRegion}:${config.account}:certificate/`))
     throw new Error('API certificate must belong to the primary region and account');
+  if (config.browserOrigins && (!config.browserOrigins.length || config.browserOrigins.some(origin => {
+    try { const url = new URL(origin); return url.protocol !== 'https:' || url.origin !== origin; }
+    catch { return true; }
+  }))) throw new Error('Browser origins must be exact HTTPS origins');
   const keys = new Set<string>(), wallets = new Set<string>();
   for (const profile of SIGNING_PROFILES) {
     const identity = config.kms[profile];

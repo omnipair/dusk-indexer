@@ -176,11 +176,11 @@ export class ServicesStack extends Stack {
         }
       } else if (kind === 'api') {
         environment.PORT = '3000';
-        environment.CORS_ORIGIN = 'https://beta.omnipair.fi';
+        environment.CORS_ORIGIN = (props.config.browserOrigins ?? ['https://beta.omnipair.fi']).join(',');
       }
       if (kind === 'grpc') {
         environment.GRPC_PORT = '50051'; environment.PORT = '50051';
-        environment.ALLOWED_ORIGINS = 'https://beta.omnipair.fi';
+        environment.ALLOWED_ORIGINS = (props.config.browserOrigins ?? ['https://beta.omnipair.fi']).join(',');
         environment.DUSK_API_URL = 'http://api.dusk-mainnet.internal:3000';
       }
       const logGroup = new logs.LogGroup(this, `${spec.name}Logs`, { retention: logs.RetentionDays.ONE_MONTH, removalPolicy: RemovalPolicy.RETAIN });

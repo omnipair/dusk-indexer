@@ -15,6 +15,7 @@
         "logs:*",
         "acm:*",
         "backup:*",
+        "backup-storage:MountCapsule",
         "servicediscovery:*",
         "route53:*",
         "events:*",
@@ -183,6 +184,17 @@
         "kms:ReEncrypt*"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "BackupKeyGrantRetirement",
+      "Effect": "Allow",
+      "Action": "kms:RetireGrant",
+      "Resource": "arn:aws:kms:ap-southeast-1:009853298730:key/*",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "backup.ap-southeast-1.amazonaws.com"
+        }
+      }
     },
     {
       "Sid": "NoSigningOrKeyAdministration",
