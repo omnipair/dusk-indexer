@@ -34,3 +34,4 @@
 051_dusk_junior_tranches.sql
 052_dusk_senior_lp_names.sql
 053_dusk_junior_yield_claims.sql
+054_dusk_mainnet_deployments.sql

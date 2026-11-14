@@ -363,6 +363,7 @@ mod tests {
             .max()
             .unwrap()
             + 1;
+        let source_slot = source_slot.max(500000000);
         let mut d = json!({ "schemaVersion": "dusk-deployment.v2", "network": pin["cluster"]["name"],
             "genesisHash": pin["cluster"]["genesisHash"], "commitment": "confirmed", "sourceSlot": source_slot,
             "observedAt": now.to_rfc3339(), "deploymentIdentitySha256": "a".repeat(64) });
@@ -472,6 +473,7 @@ mod tests {
             .max()
             .unwrap()
             + 1;
+        let source_slot = source_slot.max(500000000);
         let mut deployment = json!({
             "schemaVersion": "dusk-deployment.v2",
             "network": pin["cluster"]["name"],

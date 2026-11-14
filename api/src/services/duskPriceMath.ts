@@ -53,7 +53,7 @@ let references: PriceReferences | undefined;
 export function activePriceReferences(): PriceReferences {
   if (references) return references;
   const root = process.env.DUSK_PROTOCOL_DIR?.trim() || resolve(__dirname,'../../../protocol');
-  const file = process.env.DUSK_PRICE_REFERENCES_FILE?.trim() || resolve(root,'devnet-price-references.json');
+  const file = process.env.DUSK_PRICE_REFERENCES_FILE?.trim() || resolve(root,'mainnet-price-references.json');
   return references = parsePriceReferences(JSON.parse(readFileSync(file,'utf8')),loadPinnedProtocol());
 }
 

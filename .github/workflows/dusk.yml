@@ -37,8 +37,8 @@ jobs:
       DATABASE_URL: postgresql://dusk_test@localhost:5432/dusk_test?sslmode=disable
       DUSK_ALLOW_DISPOSABLE_DB_TESTS: 'true'
       RUSTUP_TOOLCHAIN: nightly-2025-09-28
-      DUSK_CLUSTER: devnet
-      DUSK_RPC_URL: https://api.devnet.solana.com
+      DUSK_CLUSTER: mainnet-beta
+      DUSK_RPC_URL: https://api.mainnet-beta.solana.com
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -72,7 +72,7 @@ jobs:
       - name: Verify pinned artifacts and migrations in the actual images
         run: |
           docker run --rm --network none --entrypoint sh dusk-indexer:test -c 'while read name; do if ! test -f "/app/migrations/$name"; then echo "Missing packaged migration: $name" >&2; exit 1; fi; done < /app/dusk-migrations.txt'
-          docker run --rm --network none --entrypoint node dusk-api:test -e 'const pin=require("./dist/config/duskProtocol").loadPinnedProtocol(); if(pin.cluster!=="devnet")process.exit(1); console.log(pin.revision)'
+          docker run --rm --network none --entrypoint node dusk-api:test -e 'const pin=require("./dist/config/duskProtocol").loadPinnedProtocol(); if(pin.cluster!=="mainnet-beta")process.exit(1); console.log(pin.revision)'
 
   history-timescale:
     runs-on: ubuntu-latest

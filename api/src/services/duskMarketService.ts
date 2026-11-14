@@ -509,7 +509,7 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
   const addresses = associatedAddresses(market,marketAccount,snapshot);
   const pin = loadPinnedProtocol();
   const references = parsePriceReferences(referencesInput ?? JSON.parse(readFileSync(process.env.DUSK_PRICE_REFERENCES_FILE?.trim()
-    || resolve(process.env.DUSK_PROTOCOL_DIR?.trim() || resolve(__dirname,'../../../protocol'),'devnet-price-references.json'),'utf8')),pin);
+    || resolve(process.env.DUSK_PROTOCOL_DIR?.trim() || resolve(__dirname,'../../../protocol'),'mainnet-price-references.json'),'utf8')),pin);
   const priceProjection = preview === null ? null : projectMarketPrices({ pin,marketAddress: snapshot.market,market: marketAccount,
     preview,slot: sourceSlot,blockTime: snapshot.blockTime,references });
 

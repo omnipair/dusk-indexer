@@ -160,7 +160,7 @@ test('event-time provider prices precede native references without leaking futur
   await storeExternalPrices(client,[{ ...quote,sourceTime: '2026-09-01T22:00:00Z',observedAt: '2026-09-01T22:00:00Z' }],query.deploymentIdentitySha256);
   const pricedView = await readMarketActivity(client,query);
   assert.equal(pricedView.volumes.spot.observedUsd,'6');
-  assert.equal(pricedView.volumes.spot.estimatedObservations,1); // Mainnet price mapped into devnet.
+  assert.equal(pricedView.volumes.spot.estimatedObservations,pin.cluster === 'mainnet-beta' ? 0 : 1); // Mapping a mainnet provider price into devnet is estimated.
   await storeExternalPrices(client,[{ ...quote,priceUsd: '99',sourceTime: '2026-09-02T00:00:11Z',observedAt: '2026-09-02T00:00:11Z' }],query.deploymentIdentitySha256);
   const historical = await readMarketActivity(client,query);
   assert.equal(historical.volumes.spot.observedUsd,'6');
