@@ -41,6 +41,10 @@ test('service parity, immutable images, network boundaries and isolated signer p
   const capacity = Object.values(fleetTemplate.findResources('AWS::AutoScaling::AutoScalingGroup')) as any[];
   fleetTemplate.resourceCountIs('AWS::AutoScaling::LaunchConfiguration', 0);
   fleetTemplate.resourceCountIs('AWS::EC2::LaunchTemplate', 1);
+  const appLaunch = Object.values(fleetTemplate.findResources('AWS::EC2::LaunchTemplate'))[0] as any;
+  const appRoot = appLaunch.Properties.LaunchTemplateData.BlockDeviceMappings.find((mapping: any) => mapping.DeviceName === '/dev/xvda');
+  assert.ok(appRoot.Ebs.VolumeSize >= 30, 'ECS-optimized AL2023 cannot launch below its root snapshot size');
+  assert.equal(appRoot.Ebs.Encrypted, true);
   assert.equal(capacity.length, 1);
   assert.equal(capacity[0].Properties.MinSize, '1');
   assert.equal(capacity[0].Properties.MaxSize, '2');

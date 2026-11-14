@@ -1,6 +1,6 @@
 # Proposed Dusk AWS cost
 
-**Superseded comparison:** this page describes the initial dedicated Fargate/8-vCPU proposal. The approved shared ECS design is [recorded separately](shared-cost-estimate.json) at USD 350.94/month estimated, with a USD 400/month planning budget. Do not use the older figures below to provision resources.
+**Superseded comparison:** this page describes the initial dedicated Fargate/8-vCPU proposal. The approved shared ECS design is [recorded separately](shared-cost-estimate.json) at USD 351.90/month estimated, with a USD 400/month planning budget. Do not use the older figures below to provision resources.
 
 **Planning range: $650–$750/month before tax**, including an allowance for variable AWS usage. This is an estimate, not an accepted budget or spending cap. The exact service footprint has a **$573.35/month baseline**, using 730 hours and public on-demand rates captured on November 15, 2026. Compute/database resources have not been provisioned by this preparation.
 
