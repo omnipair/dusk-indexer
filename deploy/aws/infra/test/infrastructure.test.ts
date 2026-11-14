@@ -79,6 +79,10 @@ test('service parity, immutable images, network boundaries and isolated signer p
       assert.equal(container.Environment.find((e: any) => e.Name === 'DUSK_DEVNET_MOCK_ORACLE_ENABLED').Value, 'false');
       const profile = container.Environment.find((e: any) => e.Name === 'KEEPER_PROFILE');
       if (profile) assert.equal(container.Environment.find((e: any) => e.Name === 'KEEPER_MODE').Value, 'shadow');
+      const providerSecrets = (container.Secrets ?? []).filter((secret: any) => ['JUPITER_API_KEY', 'BIRDEYE_API_KEY'].includes(secret.Name));
+      if (['dusk-api', 'dusk-prices'].includes(container.Name)) {
+        assert.deepEqual(providerSecrets.map((secret: any) => secret.Name).sort(), ['BIRDEYE_API_KEY', 'JUPITER_API_KEY']);
+      } else assert.equal(providerSecrets.length, 0);
     }
   }
   const statements = (Object.values(fleetTemplate.findResources('AWS::IAM::Policy')) as any[])
