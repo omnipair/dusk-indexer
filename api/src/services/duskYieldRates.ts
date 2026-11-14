@@ -2,7 +2,9 @@ import { PoolClient } from 'pg';
 import { PublicKey } from '@solana/web3.js';
 import pool from '../config/database';
 import { loadPinnedProtocol, sha256, canonicalJson } from '../config/duskProtocol';
-import { HistoryDeploymentQuery } from './duskHistoryDeployment';
+import { HistoryDeploymentQuery, historyDeploymentIdentities } from './duskHistoryDeployment';
+import { readProviderPriceObservations, withDisplayPriceObservations } from './duskDisplayPrices';
+import { deploymentEnvelope } from './duskDeploymentService';
 import { activePriceReferences, projectObservedPrices } from './duskPriceMath';
 import { MarketGrowthPoint, observedGrowthPoint, recordedSrlpRates, YieldRatePrice } from './duskYieldRateMath';
 
@@ -17,7 +19,7 @@ function activeProtocol(pin: ReturnType<typeof loadPinnedProtocol>): ActiveProto
 /** A committed snapshot remains the market's state until the next swap, so the
  * latest one at or before a growth point prices it. */
 async function observedPricesAt(client: PoolClient,pin: ReturnType<typeof loadPinnedProtocol>,
-  references: ReturnType<typeof activePriceReferences>,deploymentIdentitySha256: string,point: MarketGrowthPoint) {
+  references: ReturnType<typeof activePriceReferences>,deploymentIdentitySha256: string,point: MarketGrowthPoint,deployments: readonly string[]) {
   const rows = await client.query<Observation>(`SELECT market,slot::text,time,payload,payload_hash
     FROM dusk_ingestion.streamed_market_snapshots
     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
@@ -26,8 +28,12 @@ async function observedPricesAt(client: PoolClient,pin: ReturnType<typeof loadPi
   const row = rows.rows[0];
   if (!row) return { prices: [],provenance: null };
   const projected = projectObservedPrices({ pin,observation: row.payload,blockTime: row.time.toISOString(),references });
-  return { prices: projected.prices,provenance: { sourceSlot: row.slot,blockTime: row.time.toISOString(),
-    deploymentIdentitySha256,contentHash: row.payload_hash,referenceHash: projected.referenceHash } };
+  const view = { ...projected.bound,state: { previewStatus: 'available' },
+    displayPrices: { observedAt: point.blockTime,prices: projected.prices } };
+  const external = await readProviderPriceObservations(view,deployments,client);
+  const priced = withDisplayPriceObservations(view,external,deployments);
+  return { prices: priced.displayPrices.prices,provenance: { sourceSlot: row.slot,blockTime: row.time.toISOString(),
+    deploymentIdentitySha256,contentHash: row.payload_hash,referenceHash: projected.referenceHash,externalObservations: external } };
 }
 
 /** Recorded claimable srLP earnings only. Compounding, unpaid debt interest and
@@ -64,8 +70,9 @@ export async function readYieldRates(client: PoolClient,options: YieldRatesQuery
     byMarket.set(point.market,market);
   }
   const references = activePriceReferences();
+  const deployments = await historyDeploymentIdentities(client,options,pin);
   const priceAt = (point: MarketGrowthPoint) =>
-    observedPricesAt(client,pin,references,options.deploymentIdentitySha256,point);
+    observedPricesAt(client,pin,references,options.deploymentIdentitySha256,point,deployments);
   const markets = [];
   for (const [market,{start,end}] of byMarket) {
     if (!start || !end || start.point.slot>=end.point.slot) continue; // Missing brackets remain explicitly unmeasured.
@@ -114,8 +121,8 @@ export interface TrailingSrlpMarket {
  * inside the window starts at that swap, and a market with no swap in the
  * window has zero recorded growth.
  */
-export async function readTrailingSrlpRate(client: PoolClient,options: {
-  deploymentIdentitySha256: string; until: number; windowMs: number; market: TrailingSrlpMarket;
+export async function readTrailingSrlpRate(client: PoolClient,options: HistoryDeploymentQuery & {
+  until: number; windowMs: number; market: TrailingSrlpMarket;
 }): Promise<TrailingSrlpRate> {
   const pin = loadPinnedProtocol(),active = activeProtocol(pin),meta = options.market;
   const until = options.until,since = until-options.windowMs;
@@ -135,6 +142,7 @@ export async function readTrailingSrlpRate(client: PoolClient,options: {
     UNION ALL ${swap('end','time<=$7','DESC')}`,
     [...active,meta.market,new Date(since).toISOString(),new Date(until).toISOString()]);
   const references = activePriceReferences();
+  const deployments = await historyDeploymentIdentities(client,options,pin);
   const points: Partial<Record<'before' | 'first' | 'end',{ point: MarketGrowthPoint; prices: YieldRatePrice[] }>> = {};
   for (const row of sources.rows) {
     // The streamed_market_snapshots shape, with the live market's identity.
@@ -146,10 +154,13 @@ export async function readTrailingSrlpRate(client: PoolClient,options: {
       base: side('base',meta.baseMint,meta.baseDecimals),quote: side('quote',meta.quoteMint,meta.quoteDecimals) };
     const blockTime = row.time.toISOString();
     if (points[row.boundary]) throw new Error('FINALIZED_INVARIANT: duplicate yield growth boundary');
+    const projected = projectObservedPrices({ pin,observation,blockTime,references });
+    const view = { ...projected.bound,state: { previewStatus: 'available' },displayPrices: { observedAt: blockTime,prices: projected.prices } };
+    const external = await readProviderPriceObservations(view,deployments,client);
     points[row.boundary] = {
       point: observedGrowthPoint({ pin,marketAddress: meta.market,observation,slot: Number(row.slot),blockTime,
         deploymentIdentitySha256: options.deploymentIdentitySha256 }),
-      prices: projectObservedPrices({ pin,observation,blockTime,references }).prices,
+      prices: withDisplayPriceObservations(view,external,deployments).displayPrices.prices,
     };
   }
   const start = points.before ?? points.first,end = points.end;
@@ -167,7 +178,8 @@ export async function listTrailingSrlpRate(options: Parameters<typeof readTraili
   const client = await pool.connect();
   try {
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-    const result = await readTrailingSrlpRate(client,options);
+    const deployment = await deploymentEnvelope();
+    const result = await readTrailingSrlpRate(client,{ ...options,deployment });
     await client.query('COMMIT');
     return result;
   } catch (error) { await client.query('ROLLBACK'); throw error; }

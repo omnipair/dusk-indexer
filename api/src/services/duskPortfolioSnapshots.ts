@@ -11,6 +11,7 @@ import { captureMarketSimulation, duskRawIdl, MarketSimulationSnapshot, Snapshot
 import { nativeFields, nativeKey, PortfolioKind, projectPortfolioComponent, totalPortfolioComponents } from './duskPortfolioMath';
 import { parsePriceReferences, priceMarketBindings } from './duskPriceMath';
 import { readStreamCursor } from './duskHistoryCoverage';
+import { readProviderPriceObservations, DisplayPriceObservation } from './duskDisplayPrices';
 import { assertRetiredHlpCohort, hlpCohortAddress } from './duskHlpCohort';
 
 const identity = () => {
@@ -18,7 +19,7 @@ const identity = () => {
   return [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
 };
 export interface PortfolioCatalogItem { address: string; market: string; owner: string; kind: PortfolioKind; sourceSlot: number; lpMint?: string }
-interface PortfolioMarketSnapshot extends MarketSimulationSnapshot { hlpCohorts?: MarketSimulationSnapshot['accounts']; juniorCohorts?: MarketSimulationSnapshot['accounts'] }
+interface PortfolioMarketSnapshot extends MarketSimulationSnapshot { hlpCohorts?: MarketSimulationSnapshot['accounts']; juniorCohorts?: MarketSimulationSnapshot['accounts']; displayPriceObservations?: DisplayPriceObservation[] }
 interface PortfolioCandidateIdentity { cluster: string; programId: string; idlHash: string; protocolRevision: string }
 /** Archived events supply addresses only. Current-bank accounts decide their state and value. */
 export interface PortfolioCatalog {
@@ -203,7 +204,8 @@ export function projectPortfolioSource(source: PortfolioCaptureSource) {
         }
       }
       const component = { ...projectPortfolioComponent({ pin,kind: item.kind,address: entry.address,marketAddress: group.market,market,preview,state,
-        retiredHlp,retiredJunior,slot: group.slot,blockTime: group.blockTime,references: source.references }),sourceBlockhash: group.blockhash,stateBasis: group.basis };
+        retiredHlp,retiredJunior,slot: group.slot,blockTime: group.blockTime,references: source.references,
+        displayPriceObservations: group.displayPriceObservations,deploymentIdentitySha256: group.deploymentIdentitySha256 }),sourceBlockhash: group.blockhash,stateBasis: group.basis };
       if (component.owner !== item.owner) moved.push({ address: entry.address,previousOwner: item.owner,owner: component.owner });
       if (!owners.has(component.owner)) owners.set(component.owner,[]);
       owners.get(component.owner)!.push(component);
@@ -329,7 +331,12 @@ export async function captureDuskPortfolioSnapshots(dependencies?: {
     for (const [index,group] of captured.entries()) {
       if (group.deploymentIdentitySha256 !== before.deploymentIdentitySha256) throw new Error('Deployment changed during portfolio capture');
       const { cohorts,juniorCohorts } = jobs[offset+index];
-      groups.push({ ...group,accounts: group.accounts.filter((entry) => !cohorts.includes(entry.address) && !juniorCohorts.includes(entry.address)),
+      const decoded = new BorshCoder(duskRawIdl()).accounts.decode('Market',rawAccount(group.marketAccount,loadPinnedProtocol().dusk.programId).data);
+      const bound = priceMarketBindings(loadPinnedProtocol().dusk.programId,group.market,decoded);
+      const displayPriceObservations = await readProviderPriceObservations({ ...bound,
+        state: { previewStatus: group.preview === null ? 'unavailable' : 'available' },
+        displayPrices: { observedAt: group.blockTime } },[group.deploymentIdentitySha256]);
+      groups.push({ ...group,...(displayPriceObservations.length ? { displayPriceObservations } : {}),accounts: group.accounts.filter((entry) => !cohorts.includes(entry.address) && !juniorCohorts.includes(entry.address)),
         ...(cohorts.length ? { hlpCohorts: group.accounts.filter((entry) => cohorts.includes(entry.address)) } : {}),
         ...(juniorCohorts.length ? { juniorCohorts: group.accounts.filter((entry) => juniorCohorts.includes(entry.address)) } : {}) });
     }

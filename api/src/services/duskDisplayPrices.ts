@@ -11,7 +11,7 @@ export interface DisplayPriceObservation {
   deploymentIdentitySha256: string;
 }
 
-export function withDisplayPriceObservations(market: Record<string, any>, observations: DisplayPriceObservation[]) {
+export function withDisplayPriceObservations(market: Record<string, any>, observations: DisplayPriceObservation[], eligibleDeployments?: readonly string[]) {
   const display = market.displayPrices;
   if (market.state?.previewStatus !== 'available' || !display || !Array.isArray(display.prices)) return market;
   const at = Date.parse(display.observedAt);
@@ -22,6 +22,7 @@ export function withDisplayPriceObservations(market: Record<string, any>, observ
     if (!side || observation.decimals !== market[`${side}Decimals`] || !/^\d+$/.test(observation.observationId)
       || !['jupiter', 'birdeye'].includes(observation.provider)
       || !/^[a-f0-9]{64}$/.test(observation.deploymentIdentitySha256)
+      || eligibleDeployments && !eligibleDeployments.includes(observation.deploymentIdentitySha256)
       || !Number.isFinite(at) || !Number.isFinite(sourceTime) || !Number.isFinite(observedAt)
       || sourceTime > observedAt || observedAt > at || at - sourceTime > DISPLAY_PRICE_MAX_AGE_MS
       || prices.get(observation.mint)?.quality === 'configured-reference') continue;
@@ -38,10 +39,11 @@ export function withDisplayPriceObservations(market: Record<string, any>, observ
 }
 
 /** The same deployment and a quote already observed by the market's bank time. */
-export async function withProviderDisplayPrices(market: Record<string, any>, deploymentIdentitySha256: string,
+export async function readProviderPriceObservations(market: Record<string, any>, deploymentIdentities: readonly string[],
   client: Pool | PoolClient = pool) {
   const pin = loadPinnedProtocol();
-  if (pin.cluster !== 'mainnet-beta' || market.state?.previewStatus !== 'available') return market;
+  if (pin.cluster !== 'mainnet-beta' || market.state?.previewStatus !== 'available') return [];
+  if (!deploymentIdentities.length || deploymentIdentities.some(value => !/^[a-f0-9]{64}$/.test(value))) throw new Error('Invalid provider deployment selection');
   const result = await client.query<DisplayPriceObservation>(`SELECT DISTINCT ON (mint)
     observation_id::text AS "observationId", mint, decimals, price_usd::text AS "priceUsd",
     CASE WHEN source LIKE 'dusk-provider.v1:jupiter:%' THEN 'jupiter' ELSE 'birdeye' END AS provider,
@@ -53,12 +55,17 @@ export async function withProviderDisplayPrices(market: Record<string, any>, dep
       AND ((mint=$5 AND decimals=$9) OR (mint=$10 AND decimals=$11)) AND quality='external-observation'
       AND (source LIKE 'dusk-provider.v1:jupiter:%' OR source LIKE 'dusk-provider.v1:birdeye:%')
       AND source_evidence->>'basis'='dusk-provider.v1' AND source_evidence->>'sourceCluster'='mainnet-beta'
-      AND source_evidence->>'externalMint'=mint AND source_evidence->>'deploymentIdentitySha256'=$6
+      AND source_evidence->>'externalMint'=mint AND source_evidence->>'deploymentIdentitySha256'=ANY($6::text[])
       AND source_time<=observed_at AND observed_at<=$7::timestamptz
       AND source_time>=$7::timestamptz-($8::int*interval '1 millisecond')
     ORDER BY mint,source_time DESC,observation_id DESC`,
     [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision,
-      market.baseMint,deploymentIdentitySha256,market.displayPrices.observedAt,DISPLAY_PRICE_MAX_AGE_MS,
+      market.baseMint,deploymentIdentities,market.displayPrices.observedAt,DISPLAY_PRICE_MAX_AGE_MS,
       market.baseDecimals,market.quoteMint,market.quoteDecimals]);
-  return withDisplayPriceObservations(market,result.rows);
+  return result.rows;
+}
+
+export async function withProviderDisplayPrices(market: Record<string, any>, deploymentIdentitySha256: string,
+  client: Pool | PoolClient = pool) {
+  return withDisplayPriceObservations(market,await readProviderPriceObservations(market,[deploymentIdentitySha256],client),[deploymentIdentitySha256]);
 }
