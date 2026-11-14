@@ -9,6 +9,33 @@ concurrency:
   group: dusk-native-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  aws-infrastructure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: deploy/aws/infra/package-lock.json
+      - run: npm ci
+        working-directory: deploy/aws/infra
+      - run: npm run typecheck && npm test
+        working-directory: deploy/aws/infra
+      - name: Synthesize both foundation and service fleets without AWS credentials
+        working-directory: deploy/aws/infra
+        env:
+          DUSK_AWS_CONFIG: release.config.example.json
+        run: |
+          npm run synth -- --no-lookups --quiet
+          npm run synth -- --no-lookups --quiet -c services=true --output cdk.out.services
+      - name: Validate bootstrap and workflows
+        run: |
+          shellcheck deploy/aws/infra/assets/database.sh deploy/aws/infra/assets/keeper-migrations/initialize.sh deploy/aws/infra/test/bootstrap-database.sh
+          node --check deploy/aws/infra/scripts/aws-cli.mjs
+          node --check deploy/aws/infra/scripts/seed-runtime.mjs
+      - name: Exercise production bootstrap on the exact pinned TimescaleDB image
+        run: sudo --preserve-env=CI bash deploy/aws/infra/test/bootstrap-database.sh
   native-grpc:
     runs-on: ubuntu-latest
     env:
@@ -69,6 +96,8 @@ jobs:
       - uses: actions/checkout@v4
       - run: docker build --file Dockerfile.dusk-indexer --tag dusk-indexer:test .
       - run: docker build --file Dockerfile.dusk-api --tag dusk-api:test .
+      - run: docker build --file Dockerfile.grpc --tag dusk-grpc:test .
+      - run: docker run --rm --network none dusk-grpc:test --help
       - name: Verify pinned artifacts and migrations in the actual images
         run: |
           docker run --rm --network none --entrypoint sh dusk-indexer:test -c 'while read name; do if ! test -f "/app/migrations/$name"; then echo "Missing packaged migration: $name" >&2; exit 1; fi; done < /app/dusk-migrations.txt'

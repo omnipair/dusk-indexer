@@ -1,0 +1,489 @@
+{
+  "schema": "dusk-aws-shared-estimate.v1",
+  "preparedAt": "2026-11-15 Asia/Makassar",
+  "status": "Approved USD400/month planning budget; provisioning in progress after validation.",
+  "currency": "USD",
+  "monthlyHours": 730,
+  "planningBudgetUsd": "400",
+  "scope": "Dusk only; keep Vercel, v1 and existing Helius unchanged",
+  "regions": {
+    "databaseAndTwelveAppServices": "ap-southeast-1",
+    "indexer": "us-west-2",
+    "signingKeys": "us-east-1"
+  },
+  "preservedServices": [
+    "timescaledb",
+    "dusk-market-activity",
+    "dusk-portfolio-snapshots",
+    "dusk-indexer",
+    "dusk-auction-arbitrageur",
+    "dusk-lending-keeper",
+    "dusk-prices",
+    "dusk-grpc",
+    "dusk-lifecycle-keeper",
+    "dusk-api",
+    "dusk-yield-claims",
+    "dusk-hlp-recovery",
+    "dusk-sentinel",
+    "dusk-leverage-keeper"
+  ],
+  "signingProfiles": [
+    "lending",
+    "leverage",
+    "hlp-recovery",
+    "auction-arbitrage",
+    "lifecycle"
+  ],
+  "rates": {
+    "oregonCpuHour": {
+      "usd": "0.0404800000",
+      "unit": "hours",
+      "sku": "EKCCQUSFCBDDTKTS",
+      "usageType": "USW2-Fargate-vCPU-Hours:perCPU",
+      "operation": "",
+      "publicationDate": "2026-11-11T23:46:23Z"
+    },
+    "oregonMemoryGiBHour": {
+      "usd": "0.0044450000",
+      "unit": "hours",
+      "sku": "NTC2QZFJW79R5XVK",
+      "usageType": "USW2-Fargate-GB-Hours",
+      "operation": "",
+      "publicationDate": "2026-11-11T23:46:23Z"
+    },
+    "singaporeCpuHour": {
+      "usd": "0.0505600000",
+      "unit": "hours",
+      "sku": "YQWFZ9WNR4X9DUPX",
+      "usageType": "APS1-Fargate-vCPU-Hours:perCPU",
+      "operation": "",
+      "publicationDate": "2026-11-11T23:46:23Z"
+    },
+    "singaporeMemoryGiBHour": {
+      "usd": "0.0055300000",
+      "unit": "hours",
+      "sku": "QS3CZ6GMHQ9NKE65",
+      "usageType": "APS1-Fargate-GB-Hours",
+      "operation": "",
+      "publicationDate": "2026-11-11T23:46:23Z"
+    },
+    "natHour": {
+      "usd": "0.0590000000",
+      "unit": "Hrs",
+      "sku": "98TA3WPUP3A4AH4Y",
+      "usageType": "APS1-NatGateway-Hours",
+      "operation": "NatGateway",
+      "publicationDate": "2026-11-14T01:29:26Z"
+    },
+    "natGiB": {
+      "usd": "0.0590000000",
+      "unit": "GB",
+      "sku": "E9U985ZGMWKXKT47",
+      "usageType": "APS1-NatGateway-Bytes",
+      "operation": "NatGateway",
+      "publicationDate": "2026-11-14T01:29:26Z"
+    },
+    "albHour": {
+      "usd": "0.0252000000",
+      "unit": "Hrs",
+      "sku": "UXD3JNG6UAM79CW6",
+      "usageType": "APS1-LoadBalancerUsage",
+      "operation": "LoadBalancing:Application",
+      "publicationDate": "2026-11-11T15:36:21Z"
+    },
+    "albLcuHour": {
+      "usd": "0.0080000000",
+      "unit": "LCU-Hrs",
+      "sku": "45KY3J5YX2QM6KS7",
+      "usageType": "APS1-LCUUsage",
+      "operation": "LoadBalancing:Application",
+      "publicationDate": "2026-11-11T15:36:21Z"
+    },
+    "gp3GiBMonth": {
+      "usd": "0.0960000000",
+      "unit": "GB-Mo",
+      "sku": "X8SY8CJFS8WV7VQN",
+      "usageType": "APS1-EBS:VolumeUsage.gp3",
+      "operation": "",
+      "publicationDate": "2026-11-14T01:29:26Z"
+    },
+    "ipv4Hour": {
+      "usd": "0.0050000000",
+      "unit": "Hrs",
+      "sku": "C8D8VMQRDHMB9KRU",
+      "usageType": "APS1-PublicIPv4:InUseAddress",
+      "operation": "",
+      "publicationDate": "2026-11-05T18:19:45Z"
+    },
+    "dbHour": {
+      "usd": "0.1888000000",
+      "unit": "Hrs",
+      "sku": "M6D89MRWKYMRN2ZT",
+      "usageType": "APS1-BoxUsage:t3a.xlarge",
+      "publicationDate": "2026-11-14T01:29:26Z",
+      "evidence": "shared-ec2-singapore-prices.json"
+    },
+    "appHour": {
+      "usd": "0.0472000000",
+      "unit": "Hrs",
+      "sku": "8P2QTQHN4GNEZMKH",
+      "usageType": "APS1-BoxUsage:t3a.medium",
+      "publicationDate": "2026-11-14T01:29:26Z",
+      "evidence": "shared-app-ec2-singapore-prices.json"
+    },
+    "s3GiBMonth": {
+      "usd": "0.0250000000",
+      "unit": "GB-Mo",
+      "sku": "M6MTARCQFUQBQ2V3",
+      "usageType": "APS1-TimedStorage-ByteHrs",
+      "publicationDate": "2026-11-09T15:43:10Z",
+      "evidence": "s3-singapore-prices.json"
+    },
+    "snapshotGiBMonth": {
+      "usd": "0.0500000000",
+      "unit": "GB-Mo",
+      "sku": "5JKF9WXGUTYXYKXH",
+      "usageType": "APS1-EBS:SnapshotUsage",
+      "publicationDate": "2026-11-14T01:29:26Z",
+      "evidence": "snapshot-singapore-prices.json"
+    },
+    "logsIngestGiB": {
+      "usd": "0.7000000000",
+      "unit": "GB",
+      "sku": "ZEKCE7VGMSM5XZPW",
+      "usageType": "APS1-DataProcessing-Bytes",
+      "publicationDate": "2026-11-04T21:35:32Z",
+      "evidence": "cloudwatch-singapore-prices.json"
+    },
+    "logsRetainGiBMonth": {
+      "usd": "0.0300000000",
+      "unit": "GB-Mo",
+      "sku": "RKCBFFXUWXG8KUQY",
+      "usageType": "APS1-TimedStorage-ByteHrs",
+      "publicationDate": "2026-11-04T21:35:32Z",
+      "evidence": "cloudwatch-singapore-prices.json"
+    },
+    "customMetricMonth": {
+      "usd": "0.3000000000",
+      "unit": "Metrics",
+      "sku": "2BF5WZ4QVWF9XRRT",
+      "usageType": "APS1-CW:MetricMonitorUsage",
+      "publicationDate": "2026-11-04T21:35:32Z",
+      "evidence": "cloudwatch-singapore-prices.json"
+    },
+    "alarmMonth": {
+      "usd": "0.1000000000",
+      "unit": "Alarms",
+      "sku": "ERS2PGV5BX4XH4WQ",
+      "usageType": "APS1-CW:AlarmMonitorUsage",
+      "publicationDate": "2026-11-04T21:35:32Z",
+      "evidence": "cloudwatch-singapore-prices.json"
+    },
+    "sgToOrGiB": {
+      "usd": "0.0900000000",
+      "unit": "GB",
+      "sku": "YRGJEFXZW24K7ZXS",
+      "usageType": "APS1-USW2-AWS-Out-Bytes",
+      "publicationDate": "2026-11-11T19:19:41Z",
+      "evidence": "transfer-singapore-oregon-prices.json"
+    },
+    "orToSgGiB": {
+      "usd": "0.0200000000",
+      "unit": "GB",
+      "sku": "PQJGBSU7YWWTQH72",
+      "usageType": "USW2-APS1-AWS-Out-Bytes",
+      "publicationDate": "2026-11-11T19:19:41Z",
+      "evidence": "transfer-oregon-singapore-prices.json"
+    },
+    "internetEgressGiB": {
+      "usd": "0.1200000000",
+      "unit": "GB",
+      "sku": "SDHP4R7WGBVJPQPY",
+      "usageType": "APS1-DataTransfer-Out-Bytes",
+      "publicationDate": "2026-11-11T19:19:41Z",
+      "evidence": "transfer-singapore-internet-prices.json"
+    },
+    "kmsKeyMonth": {
+      "usd": "1.0000000000",
+      "unit": "Keys",
+      "sku": "U553K98XGDXCYHWS",
+      "usageType": "us-east-1-KMS-Keys",
+      "publicationDate": "2026-11-08T17:23:42Z",
+      "evidence": "kms-us-east-prices.json"
+    },
+    "kmsRequest": {
+      "usd": "0.0000150000",
+      "unit": "Requests",
+      "sku": "MS4387UGYYR785BJ",
+      "usageType": "us-east-1-KMS-Requests-Asymmetric",
+      "publicationDate": "2026-11-08T17:23:42Z",
+      "evidence": "kms-us-east-prices.json"
+    },
+    "secretMonth": {
+      "usd": ".40",
+      "unit": "secret-month",
+      "source": "https://aws.amazon.com/secrets-manager/pricing/"
+    },
+    "secretRequest": {
+      "usd": ".000005",
+      "unit": "request",
+      "source": "https://aws.amazon.com/secrets-manager/pricing/"
+    },
+    "dnsZoneMonth": {
+      "usd": ".50",
+      "unit": "zone-month",
+      "source": "https://aws.amazon.com/route53/pricing/"
+    },
+    "ecrGiBMonth": {
+      "usd": ".10",
+      "unit": "GB-month",
+      "source": "https://aws.amazon.com/ecr/pricing/"
+    },
+    "cpuSurplusHour": {
+      "usd": ".05",
+      "unit": "vCPU-hour",
+      "source": "https://aws.amazon.com/ec2/pricing/on-demand/"
+    },
+    "Certificaterenewalreserve": {
+      "usd": "2",
+      "unit": "monthly allowance",
+      "source": "Planning reserve, not a flat AWS service fee"
+    },
+    "Temporarydeploymentandrestore-drillreserve": {
+      "usd": "2",
+      "unit": "monthly allowance",
+      "source": "Planning reserve, not a flat AWS service fee"
+    },
+    "Otherrequestsandauditstoragereserve": {
+      "usd": "2",
+      "unit": "monthly allowance",
+      "source": "Planning reserve, not a flat AWS service fee"
+    }
+  },
+  "rows": [
+    {
+      "name": "TimescaleDB: Singapore t3a.xlarge (4 vCPU,16 GiB)",
+      "group": "Database",
+      "fixed": true,
+      "quantity": "730",
+      "rate": "dbHour"
+    },
+    {
+      "name": "Shared ECS app host: Singapore t3a.medium (2 vCPU,4 GiB)",
+      "group": "Application compute",
+      "fixed": true,
+      "quantity": "730",
+      "rate": "appHour"
+    },
+    {
+      "name": "Oregon ingestion daemon: Fargate 0.25 vCPU",
+      "group": "Application compute",
+      "fixed": true,
+      "quantity": "182.50",
+      "rate": "oregonCpuHour"
+    },
+    {
+      "name": "Oregon ingestion daemon: Fargate 0.5 GiB",
+      "group": "Application compute",
+      "fixed": true,
+      "quantity": "365.0",
+      "rate": "oregonMemoryGiBHour"
+    },
+    {
+      "name": "One managed NAT gateway",
+      "group": "Network and disks",
+      "fixed": true,
+      "quantity": "730",
+      "rate": "natHour"
+    },
+    {
+      "name": "One ALB hourly component",
+      "group": "Network and disks",
+      "fixed": true,
+      "quantity": "730",
+      "rate": "albHour"
+    },
+    {
+      "name": "Four public IPv4 addresses",
+      "group": "Network and disks",
+      "fixed": true,
+      "quantity": "2920",
+      "rate": "ipv4Hour"
+    },
+    {
+      "name": "90 GiB encrypted gp3: data50 plus two root20",
+      "group": "Network and disks",
+      "fixed": true,
+      "quantity": "90",
+      "rate": "gp3GiBMonth"
+    },
+    {
+      "name": "Two private DNS zones",
+      "group": "Network and disks",
+      "fixed": true,
+      "quantity": "2",
+      "rate": "dnsZoneMonth"
+    },
+    {
+      "name": "Sixteen runtime/database secrets",
+      "group": "Operations and usage",
+      "fixed": true,
+      "quantity": "16",
+      "rate": "secretMonth"
+    },
+    {
+      "name": "Five existing keeper KMS keys",
+      "group": "Operations and usage",
+      "fixed": true,
+      "quantity": "5",
+      "rate": "kmsKeyMonth"
+    },
+    {
+      "name": "Logical backups:250 GB average retained, including versions",
+      "group": "Operations and usage",
+      "fixed": false,
+      "quantity": "250",
+      "rate": "s3GiBMonth"
+    },
+    {
+      "name": "Incremental EBS snapshots:100 GB average retained",
+      "group": "Operations and usage",
+      "fixed": false,
+      "quantity": "100",
+      "rate": "snapshotGiBMonth"
+    },
+    {
+      "name": "CloudWatch logs:10 GB ingested",
+      "group": "Operations and usage",
+      "fixed": false,
+      "quantity": "10",
+      "rate": "logsIngestGiB"
+    },
+    {
+      "name": "CloudWatch logs:10 GB average retained",
+      "group": "Operations and usage",
+      "fixed": false,
+      "quantity": "10",
+      "rate": "logsRetainGiBMonth"
+    },
+    {
+      "name": "Two custom database metrics",
+      "group": "Operations and usage",
+      "fixed": false,
+      "quantity": "2",
+      "rate": "customMetricMonth"
+    },
+    {
+      "name": "Thirty standard alarms",
+      "group": "Operations and usage",
+      "fixed": false,
+      "quantity": "30",
+      "rate": "alarmMonth"
+    },
+    {
+      "name": "ECR images:10 GB stored",
+      "group": "Operations and usage",
+      "fixed": false,
+      "quantity": "10",
+      "rate": "ecrGiBMonth"
+    },
+    {
+      "name": "KMS:100000 asymmetric API requests",
+      "group": "Operations and usage",
+      "fixed": false,
+      "quantity": "100000",
+      "rate": "kmsRequest"
+    },
+    {
+      "name": "Secrets Manager:10000 API requests",
+      "group": "Operations and usage",
+      "fixed": false,
+      "quantity": "10000",
+      "rate": "secretRequest"
+    },
+    {
+      "name": "ALB:one LCU continuously",
+      "group": "Operations and usage",
+      "fixed": false,
+      "quantity": "730",
+      "rate": "albLcuHour"
+    },
+    {
+      "name": "NAT processing:100 GB",
+      "group": "Operations and usage",
+      "fixed": false,
+      "quantity": "100",
+      "rate": "natGiB"
+    },
+    {
+      "name": "Singapore to Oregon:10 GB database/image traffic",
+      "group": "Operations and usage",
+      "fixed": false,
+      "quantity": "10",
+      "rate": "sgToOrGiB"
+    },
+    {
+      "name": "Oregon to Singapore:10 GB",
+      "group": "Operations and usage",
+      "fixed": false,
+      "quantity": "10",
+      "rate": "orToSgGiB"
+    },
+    {
+      "name": "Internet egress:200 GB, free allowance not deducted",
+      "group": "Operations and usage",
+      "fixed": false,
+      "quantity": "200",
+      "rate": "internetEgressGiB"
+    },
+    {
+      "name": "CPU surplus reserve:100 vCPU hours",
+      "group": "Operations and usage",
+      "fixed": false,
+      "quantity": "100",
+      "rate": "cpuSurplusHour"
+    },
+    {
+      "name": "Certificate renewal reserve",
+      "group": "Operations and usage",
+      "fixed": false,
+      "quantity": "1",
+      "rate": "Certificaterenewalreserve"
+    },
+    {
+      "name": "Temporary deployment and restore-drill reserve",
+      "group": "Operations and usage",
+      "fixed": false,
+      "quantity": "1",
+      "rate": "Temporarydeploymentandrestore-drillreserve"
+    },
+    {
+      "name": "Other requests and audit storage reserve",
+      "group": "Operations and usage",
+      "fixed": false,
+      "quantity": "1",
+      "rate": "Otherrequestsandauditstoragereserve"
+    }
+  ],
+  "capacityNotes": [
+    "Database: 16 GiB preserves the current 5.7 GiB shared_buffers setting. Four vCPUs cap bursts below the observed 6.39-vCPU hourly maximum. Credit, replay and load checks are required before launch.",
+    "Application services remain separate with individual task roles on a shared ECS EC2 host. The sum of independent hourly memory maxima was 2.12 GB; mean CPU was 0.157 vCPU. These are devnet shadow sizing observations, not a mainnet load test.",
+    "Separate KMS keys and task roles are preserved, but co-located containers do not provide Fargate VM isolation. Host IMDS blocking, unprivileged tasks, distinct execution roles, resource controls and image validation are required.",
+    "One database and one application node: replacement/restart does not provide an automatic database standby or guarantee zero downtime.",
+    "Daily regional snapshots and logical dumps: 35-day current-backup retention, plus versioned-object lifecycle. Cross-region backup replication is not included. An S3 gateway endpoint keeps backup uploads off the NAT path."
+  ],
+  "excluded": [
+    "Tax",
+    "Vercel",
+    "Existing Helius and Cloudflare subscriptions",
+    "Solana worker funding/transaction fees",
+    "Paid AWS Support",
+    "New subscriptions or protocol deployment"
+  ],
+  "pricingCaveats": [
+    "On-demand Linux x86 rates; no commitments, Spot, startup credits or discounts assumed.",
+    "Variable usage quantities are explicit launch assumptions. Mainnet activity can exceed them. USD 400 is a planning amount, not a hard spending cap.",
+    "The estimate includes the five existing KMS keys; their storage is already chargeable independently of this migration.",
+    "An exportable database certificate costs USD 7 upon issuance and renewal. The monthly model carries a USD 2 reserve; the first month replaces that reserve with the USD 7 issuance fee."
+  ]
+}

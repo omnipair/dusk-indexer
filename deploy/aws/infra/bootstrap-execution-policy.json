@@ -1,0 +1,201 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DuskInfrastructureServices",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:*",
+        "ecs:*",
+        "ecr:*",
+        "elasticloadbalancing:*",
+        "autoscaling:*",
+        "application-autoscaling:*",
+        "cloudwatch:*",
+        "logs:*",
+        "acm:*",
+        "backup:*",
+        "servicediscovery:*",
+        "route53:*",
+        "events:*",
+        "secretsmanager:*",
+        "sns:*",
+        "lambda:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DuskCloudFormation",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:*"
+      ],
+      "Resource": [
+        "arn:aws:cloudformation:*:009853298730:stack/Dusk*/*"
+      ]
+    },
+    {
+      "Sid": "DuskRoleManagement",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:GetRole",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:UpdateRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:GetRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::009853298730:role/Dusk*"
+    },
+    {
+      "Sid": "DuskInstanceProfiles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateInstanceProfile",
+        "iam:GetInstanceProfile",
+        "iam:DeleteInstanceProfile",
+        "iam:AddRoleToInstanceProfile",
+        "iam:RemoveRoleFromInstanceProfile",
+        "iam:TagInstanceProfile",
+        "iam:UntagInstanceProfile"
+      ],
+      "Resource": "arn:aws:iam::009853298730:instance-profile/Dusk*"
+    },
+    {
+      "Sid": "ServiceLinkedRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateServiceLinkedRole"
+      ],
+      "Resource": "arn:aws:iam::009853298730:role/aws-service-role/*",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": [
+            "ecs.amazonaws.com",
+            "autoscaling.amazonaws.com",
+            "elasticloadbalancing.amazonaws.com",
+            "backup.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadManagedPolicies",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:ListPolicyVersions"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "GitHubProvider",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetOpenIDConnectProvider",
+        "iam:CreateOpenIDConnectProvider",
+        "iam:DeleteOpenIDConnectProvider",
+        "iam:TagOpenIDConnectProvider",
+        "iam:UntagOpenIDConnectProvider",
+        "iam:UpdateOpenIDConnectProviderThumbprint",
+        "iam:AddClientIDToOpenIDConnectProvider",
+        "iam:RemoveClientIDFromOpenIDConnectProvider"
+      ],
+      "Resource": "arn:aws:iam::009853298730:oidc-provider/token.actions.githubusercontent.com"
+    },
+    {
+      "Sid": "ReadIdentity",
+      "Effect": "Allow",
+      "Action": [
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DuskBuckets",
+      "Effect": "Allow",
+      "Action": [
+        "s3:*"
+      ],
+      "Resource": [
+        "arn:aws:s3:::dusk*",
+        "arn:aws:s3:::dusk*/*"
+      ]
+    },
+    {
+      "Sid": "BootstrapAssets",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:GetObjectVersion",
+        "s3:GetBucketLocation",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::cdk-hnb659fds-assets-009853298730-*",
+        "arn:aws:s3:::cdk-hnb659fds-assets-009853298730-*/*"
+      ]
+    },
+    {
+      "Sid": "PublicAndCrossRegionParameters",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:PutParameter",
+        "ssm:DeleteParameter",
+        "ssm:AddTagsToResource",
+        "ssm:RemoveTagsFromResource"
+      ],
+      "Resource": [
+        "arn:aws:ssm:*:009853298730:parameter/cdk/*",
+        "arn:aws:ssm:*:009853298730:parameter/cdk-bootstrap/*",
+        "arn:aws:ssm:*::parameter/aws/service/*"
+      ]
+    },
+    {
+      "Sid": "DuskBudget",
+      "Effect": "Allow",
+      "Action": [
+        "budgets:*"
+      ],
+      "Resource": "arn:aws:budgets::009853298730:budget/DuskMainnetMonthly"
+    },
+    {
+      "Sid": "EncryptionServiceUse",
+      "Effect": "Allow",
+      "Action": [
+        "kms:DescribeKey",
+        "kms:CreateGrant",
+        "kms:Decrypt",
+        "kms:GenerateDataKey*",
+        "kms:Encrypt",
+        "kms:ReEncrypt*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NoSigningOrKeyAdministration",
+      "Effect": "Deny",
+      "Action": [
+        "kms:Sign",
+        "kms:PutKeyPolicy",
+        "kms:ScheduleKeyDeletion",
+        "kms:DisableKey",
+        "kms:ImportKeyMaterial",
+        "kms:DeleteImportedKeyMaterial"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

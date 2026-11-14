@@ -46,6 +46,8 @@ api/
 !api/
 api/node_modules/
 api/dist/
+# Infrastructure authoring dependencies never belong in application images.
+deploy/aws/
 database/
 # The dusk daemon image carries its own migrations, applied by its entrypoint.
 # Exceptions must follow the directory rule: the last matching rule wins.

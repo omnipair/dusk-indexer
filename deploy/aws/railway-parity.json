@@ -774,23 +774,23 @@
   "sizing": {
     "decision": "Preserve services/settings; size from measured usage with headroom",
     "confirmedByUser": true,
-    "note": "Railway limits are usage ceilings, not dedicated allocations. Previous redundant-API / RDS-standby estimate is superseded.",
+    "note": "Approved shared ECS design, USD400/month planning budget. Railway service limits remain source ceilings, not reserved capacity.",
     "services": {
       "timescaledb": {
         "platform": "EC2",
-        "instanceType": "c7i.2xlarge",
-        "vcpu": 8,
+        "instanceType": "t3a.xlarge",
+        "vcpu": 4,
         "memoryGiB": 16,
         "dataVolumeGiB": 50
       },
       "dusk-market-activity": {
-        "platform": "ECS Fargate",
-        "vcpu": 0.25,
+        "platform": "ECS EC2 shared t3a.medium host",
+        "vcpu": 0.0625,
         "memoryGiB": 0.5
       },
       "dusk-portfolio-snapshots": {
-        "platform": "ECS Fargate",
-        "vcpu": 0.25,
+        "platform": "ECS EC2 shared t3a.medium host",
+        "vcpu": 0.0625,
         "memoryGiB": 0.5
       },
       "dusk-indexer": {
@@ -799,57 +799,65 @@
         "memoryGiB": 0.5
       },
       "dusk-auction-arbitrageur": {
-        "platform": "ECS Fargate",
-        "vcpu": 0.25,
+        "platform": "ECS EC2 shared t3a.medium host",
+        "vcpu": 0.03125,
         "memoryGiB": 0.5
       },
       "dusk-lending-keeper": {
-        "platform": "ECS Fargate",
-        "vcpu": 0.25,
+        "platform": "ECS EC2 shared t3a.medium host",
+        "vcpu": 0.03125,
         "memoryGiB": 0.5
       },
       "dusk-prices": {
-        "platform": "ECS Fargate",
-        "vcpu": 0.25,
+        "platform": "ECS EC2 shared t3a.medium host",
+        "vcpu": 0.0625,
         "memoryGiB": 0.5
       },
       "dusk-grpc": {
-        "platform": "ECS Fargate",
-        "vcpu": 0.25,
-        "memoryGiB": 0.5
+        "platform": "ECS EC2 shared t3a.medium host",
+        "vcpu": 0.0625,
+        "memoryGiB": 0.125
       },
       "dusk-lifecycle-keeper": {
-        "platform": "ECS Fargate",
-        "vcpu": 0.25,
+        "platform": "ECS EC2 shared t3a.medium host",
+        "vcpu": 0.03125,
         "memoryGiB": 0.5
       },
       "dusk-api": {
-        "platform": "ECS Fargate",
-        "vcpu": 1,
-        "memoryGiB": 2
+        "platform": "ECS EC2 shared t3a.medium host",
+        "vcpu": 0.5,
+        "memoryGiB": 1.5
       },
       "dusk-yield-claims": {
-        "platform": "ECS Fargate",
-        "vcpu": 0.25,
+        "platform": "ECS EC2 shared t3a.medium host",
+        "vcpu": 0.0625,
         "memoryGiB": 0.5
       },
       "dusk-hlp-recovery": {
-        "platform": "ECS Fargate",
-        "vcpu": 0.25,
+        "platform": "ECS EC2 shared t3a.medium host",
+        "vcpu": 0.03125,
         "memoryGiB": 0.5
       },
       "dusk-sentinel": {
-        "platform": "ECS Fargate",
-        "vcpu": 0.25,
+        "platform": "ECS EC2 shared t3a.medium host",
+        "vcpu": 0.03125,
         "memoryGiB": 0.5
       },
       "dusk-leverage-keeper": {
-        "platform": "ECS Fargate",
-        "vcpu": 0.25,
+        "platform": "ECS EC2 shared t3a.medium host",
+        "vcpu": 0.03125,
         "memoryGiB": 0.5
       }
     },
     "measurementCaveat": "Measurements are hourly samples from the existing devnet deployment. They are sizing evidence, not a mainnet load test or instantaneous peak guarantee.",
-    "provisioningStatus": "Proposed mapping; resources not created"
+    "provisioningStatus": "Approved; provisioning in progress; use deployment receipts for actual resources.",
+    "sharedHost": {
+      "instanceType": "t3a.medium",
+      "vcpu": 2,
+      "memoryGiB": 4,
+      "steadyInstances": 1,
+      "maximumInstances": 2,
+      "note": "Second instance for rollout/recovery capacity; managed scaling targets100percent. Per-service memory reservations permit packing; hard limits and alarms bound pressure. API/gRPC task limits include Service Connect overhead."
+    }
   }
 }

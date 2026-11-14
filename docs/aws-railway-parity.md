@@ -71,3 +71,8 @@ ingress restricted to the application and indexer network paths. Verify HTTPS,
 Socket.IO reconnects, gRPC transport, CORS, migrations, backups and a restore
 before the production frontend cutover. Preserve the old deployments for
 rollback; no Railway service deletion is part of the initial cutover.
+
+
+## Approved shared compute
+
+On November 15, the owner approved USD400/month as a planning budget. The database is a separate t3a.xlarge (4vCPU/16GiB); twelve Singapore application services remain separate ECS tasks on a shared t3a.medium (2vCPU/4GiB). The Oregon daemon stays on Fargate (0.25vCPU/0.5GiB). This preserves service counts, keys and backups while reducing reserved idle compute. The model is `deploy/aws/infra/shared-cost-estimate.json`; current rates and explicit usage assumptions give USD350.94/month. Database burst capacity is lower than the observed6.39-vCPU sample; verify replay/load behavior before promotion.
