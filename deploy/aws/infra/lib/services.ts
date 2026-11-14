@@ -92,14 +92,18 @@ export class ServicesStack extends Stack {
         assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
         managedPolicies: [iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore')],
       });
-      const group = new autoscaling.AutoScalingGroup(this, 'SharedAppHosts', {
-        vpc: props.network.vpc, vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      const launchTemplate = new ec2.LaunchTemplate(this, 'AppLaunchTemplate', {
         instanceType: new ec2.InstanceType('t3a.medium'),
         machineImage: ecs.EcsOptimizedImage.amazonLinux2023(),
-        minCapacity: 1, maxCapacity: 2,
         securityGroup: props.network.serviceGroup, role: hostRole,
         requireImdsv2: true,
-        blockDevices: [{ deviceName: '/dev/xvda', volume: autoscaling.BlockDeviceVolume.ebs(20, { encrypted: true, volumeType: autoscaling.EbsDeviceVolumeType.GP3 }) }],
+        cpuCredits: ec2.CpuCredits.UNLIMITED,
+        userData: ec2.UserData.forLinux(),
+        blockDevices: [{ deviceName: '/dev/xvda', volume: ec2.BlockDeviceVolume.ebs(20, { encrypted: true, volumeType: ec2.EbsDeviceVolumeType.GP3 }) }],
+      });
+      const group = new autoscaling.AutoScalingGroup(this, 'SharedAppHosts', {
+        vpc: props.network.vpc, vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+        minCapacity: 1, maxCapacity: 2, launchTemplate,
       });
       group.addUserData(
         "cat >> /etc/ecs/ecs.config <<'CONFIG'\nECS_ENABLE_TASK_IAM_ROLE=true\nECS_ENABLE_AWSLOGS_EXECUTIONROLE_OVERRIDE=true\nECS_RESERVED_MEMORY=384\nCONFIG",

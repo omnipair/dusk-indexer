@@ -39,6 +39,8 @@ test('service parity, immutable images, network boundaries and isolated signer p
   const fleetTasks = Object.values(fleetTemplate.findResources('AWS::ECS::TaskDefinition')) as any[];
   assert.ok(fleetTasks.every(t => t.Properties.NetworkMode === 'bridge' && t.Properties.RequiresCompatibilities.includes('EC2')));
   const capacity = Object.values(fleetTemplate.findResources('AWS::AutoScaling::AutoScalingGroup')) as any[];
+  fleetTemplate.resourceCountIs('AWS::AutoScaling::LaunchConfiguration', 0);
+  fleetTemplate.resourceCountIs('AWS::EC2::LaunchTemplate', 1);
   assert.equal(capacity.length, 1);
   assert.equal(capacity[0].Properties.MinSize, '1');
   assert.equal(capacity[0].Properties.MaxSize, '2');
