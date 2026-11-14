@@ -89,6 +89,22 @@ if psql "$connection sslmode=disable" -XAtqc 'SELECT 1' >/dev/null 2>&1; then ec
 if psql "$connection sslmode=verify-full sslrootcert=/etc/ssl/certs/ca-certificates.crt" -XAtqc 'SELECT 1' >/dev/null 2>&1; then echo 'Untrusted certificate unexpectedly accepted'; exit 1; fi
 if psql "host=wrong.invalid hostaddr=127.0.0.1 port=5432 user=dusk_app dbname=dusk_mainnet sslmode=verify-full sslrootcert=$scratch/cert/ca.pem" -XAtqc 'SELECT 1' >/dev/null 2>&1; then echo 'Wrong hostname unexpectedly accepted'; exit 1; fi
 unset PGPASSWORD
+# Run the real curated migrations with the production application's privileges,
+# not the database administrator used by the standalone migration CI jobs.
+mkdir -p "$scratch/native/scripts" "$scratch/native/database/migrations"
+cp "$infra/../../../scripts/dusk-indexer-entrypoint.sh" "$scratch/native/scripts/"
+cp "$infra/../../../database/dusk-migrations.txt" "$scratch/native/database/"
+while IFS= read -r migration; do
+  [[ -z "$migration" || "$migration" == \#* ]] && continue
+  cp "$infra/../../../database/migrations/$migration" "$scratch/native/database/migrations/"
+done < "$scratch/native/database/dusk-migrations.txt"
+chmod -R a+rX "$scratch/native"
+docker cp "$scratch/native" dusk-db:/tmp/dusk-native-migrations
+for _ in 1 2; do
+  docker exec --user postgres -e PGPASSWORD=BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB \
+    -e DATABASE_URL=postgresql://dusk_app@127.0.0.1/dusk_mainnet?sslmode=require \
+    -e DUSK_MIGRATE_ONLY=true dusk-db bash /tmp/dusk-native-migrations/scripts/dusk-indexer-entrypoint.sh > /dev/null
+done
 bash "$infra/assets/database.sh" backup
 for database in dusk_mainnet dusk_keeper_mainnet; do
   docker exec -i --user postgres dusk-db pg_restore --list < "$scratch/backups/$database.dump" >/dev/null
