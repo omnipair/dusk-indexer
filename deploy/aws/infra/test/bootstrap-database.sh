@@ -20,6 +20,9 @@ trap cleanup EXIT
 install -d -m 700 "$scratch/bin" "$scratch/cert" "$scratch/backups" /run/dusk-db
 mkdir -p /var/lib/dusk-postgres /opt/dusk-keeper-migrations
 mount --bind /var/lib/dusk-postgres /var/lib/dusk-postgres
+# A freshly formatted ext4 EBS mount contains this directory. PostgreSQL must
+# initialize below the mount root rather than reject it as a nonempty PGDATA.
+mkdir /var/lib/dusk-postgres/lost+found
 cp "$infra"/assets/keeper-migrations/* /opt/dusk-keeper-migrations/
 chmod 755 /opt/dusk-keeper-migrations; chmod 644 /opt/dusk-keeper-migrations/*
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj '/CN=Dusk disposable CI root' -keyout "$scratch/cert/ca.key" -out "$scratch/cert/ca.pem" >/dev/null 2>&1
@@ -74,6 +77,7 @@ for _ in $(seq 1 120); do
   sleep 2
 done
 [[ "$ready" == true ]]
+[[ -f /var/lib/dusk-postgres/pgdata/PG_VERSION ]]
 [[ "$(docker exec dusk-db id -u postgres)" == 70 ]]
 docker exec --user postgres dusk-db psql -XAt -U postgres -d dusk_mainnet -c "SELECT version(),extversion FROM pg_extension WHERE extname='timescaledb'"
 docker exec --user postgres dusk-db psql -XAt -U postgres -d dusk_mainnet -c "SELECT rolname FROM pg_roles WHERE rolname IN ('dusk_app','keeper_writer') AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb" | sort | diff - <(printf 'dusk_app\nkeeper_writer\n')

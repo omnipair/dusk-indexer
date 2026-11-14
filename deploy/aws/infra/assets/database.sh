@@ -57,7 +57,7 @@ mountpoint -q /var/lib/dusk-postgres
 ROOT_PASSWORD=$(secret_password "$ROOT_SECRET_ARN")
 APP_PASSWORD=$(secret_password "$APP_SECRET_ARN")
 KEEPER_PASSWORD=$(secret_password "$KEEPER_SECRET_ARN")
-printf 'POSTGRES_PASSWORD=%s\nPOSTGRES_DB=dusk_mainnet\nPOSTGRES_HOST_AUTH_METHOD=scram-sha-256\n' "$ROOT_PASSWORD" > /run/dusk-db/docker.env
+printf 'POSTGRES_PASSWORD=%s\nPOSTGRES_DB=dusk_mainnet\nPOSTGRES_HOST_AUTH_METHOD=scram-sha-256\nPGDATA=/var/lib/postgresql/data/pgdata\n' "$ROOT_PASSWORD" > /run/dusk-db/docker.env
 cat > /run/dusk-db/init.sql <<SQL
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 CREATE ROLE dusk_app LOGIN PASSWORD '$APP_PASSWORD' NOSUPERUSER NOCREATEDB NOCREATEROLE;
