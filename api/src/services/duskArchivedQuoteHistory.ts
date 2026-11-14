@@ -23,7 +23,9 @@ const PREVIOUS_GOVERNANCE_REVISION = 'devnet-2026-11-02-governable-tranches';
 const OPERATORS_REVISION = 'devnet-2026-11-06-operators';
 const COMBINED_REVISION = 'devnet-2026-11-09-combined-layout14';
 const FRESH_LAYOUT14_REVISION = 'devnet-2026-11-09-fresh-layout14';
-const ACTIVE_REVISION = 'devnet-2026-11-12-fresh-layout15';
+const FRESH_LAYOUT15_REVISION = 'devnet-2026-11-12-fresh-layout15';
+const ACTIVE_REVISION = 'devnet-2026-11-14-main-grid';
+const FRESH_LAYOUT15_DUSK_PROGRAM_ID = 'G6VzihcGWCxt1nujxtKPB4oUYz36GPR2t5mLdXEH8yYN';
 const FRESH_LAYOUT14_DUSK_PROGRAM_ID = '2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y';
 const ARCHIVED_DUSK_PROGRAM_ID = 'JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X';
 const successors: Record<string, string> = {
@@ -40,7 +42,8 @@ const successors: Record<string, string> = {
   [PREVIOUS_GOVERNANCE_REVISION]: OPERATORS_REVISION,
   [OPERATORS_REVISION]: COMBINED_REVISION,
   [COMBINED_REVISION]: FRESH_LAYOUT14_REVISION,
-  [FRESH_LAYOUT14_REVISION]: ACTIVE_REVISION,
+  [FRESH_LAYOUT14_REVISION]: FRESH_LAYOUT15_REVISION,
+  [FRESH_LAYOUT15_REVISION]: ACTIVE_REVISION,
 };
 
 /** Historical display only. Each release keeps its original tuple, envelope,
@@ -53,14 +56,16 @@ export async function readArchivedQuoteHistory(client: PoolClient,query: QuoteHi
   const root = resolve(process.env.DUSK_PROTOCOL_DIR?.trim() || resolve(__dirname,'../../../protocol'),'archive',revision);
   const pin = loadProtocolAt(root);
   if (pin.revision !== revision || pin.cluster !== active.cluster || pin.genesisHash !== active.genesisHash
-    || pin.dusk.programId !== (revision === FRESH_LAYOUT14_REVISION
+    || pin.dusk.programId !== (revision === FRESH_LAYOUT15_REVISION
+      ? FRESH_LAYOUT15_DUSK_PROGRAM_ID : revision === FRESH_LAYOUT14_REVISION
       ? FRESH_LAYOUT14_DUSK_PROGRAM_ID : ARCHIVED_DUSK_PROGRAM_ID))
     throw new Error('Quote archive is not part of this deployment lineage');
   const coder = new BorshCoder(JSON.parse(readFileSync(resolve(root,'idl/dusk.json'),'utf8')) as Idl);
   const successor = successors[revision] === active.revision ? active
     : loadProtocolAt(resolve(root, '..', successors[revision]));
   const intentionalProgramRotation = revision === ROTATED_PROGRAM_REVISION
-    || revision === COMBINED_REVISION || revision === FRESH_LAYOUT14_REVISION;
+    || revision === COMBINED_REVISION || revision === FRESH_LAYOUT14_REVISION
+    || revision === FRESH_LAYOUT15_REVISION;
   if (successor.revision !== successors[revision] || successor.cluster !== pin.cluster
     || successor.genesisHash !== pin.genesisHash
     || (!intentionalProgramRotation && successor.dusk.programId !== pin.dusk.programId)

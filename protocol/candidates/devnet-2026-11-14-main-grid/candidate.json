@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "dusk-protocol-candidate.v1",
+  "status": "deployed",
+  "revision": "devnet-2026-11-14-main-grid",
+  "marketLayoutVersion": 16,
+  "source": {
+    "repository": "https://github.com/omnipair/dusk",
+    "branch": "feat/devnet-main-grid-release",
+    "gitCommit": "474ddcf4fcaecd1ed055238f1105a0a1323d7313"
+  },
+  "programs": [
+    {
+      "name": "dusk",
+      "programId": "9gEvWS1Vqxmd9qr9w5KpEN2PGcn9DN1rE5NptD1ZcqXH",
+      "idl": {
+        "path": "idl/dusk.json",
+        "sha256": "b30882fc7e8d6b6187fb8f4836cfcfaff964aa5e7eaa162278efc5bcd812baab",
+        "canonicalSha256": "41514930e6b50197ea124cbeb2bea395286aca6935597b2945f92efb5affbdd1"
+      }
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "5yeZJw1bNer5jq4GVNa7ifsgnM7ivxXQLCK6ro8EJ3Ue",
+      "idl": {
+        "path": "idl/leverage_delegate.json",
+        "sha256": "9ec0716753c6f6e235546df9cd9b24087e1e7e9d5a9ee73edde804b6a08d6221",
+        "canonicalSha256": "c2c7188aa2c099b45cc4055e17122f026a4cebf00df9729c6d7722d478f88895"
+      }
+    }
+  ],
+  "sdk": {
+    "package": "@omnipair/dusk-sdk",
+    "version": "2.24.1-next.20261114",
+    "sha256": "cf4ccde7b69c68fb15fd75034edefb1ac6298330cbad37d6e92c75668a1df603"
+  }
+}

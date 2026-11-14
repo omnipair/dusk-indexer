@@ -201,7 +201,7 @@ mod tests {
     #[test]
     fn interval_starts_after_both_programs_are_active() {
         let pin = pinned_deployment().unwrap();
-        assert_eq!(pin.first_slot(), 521_376_644);
+        assert_eq!(pin.first_slot(), 521_967_169);
         let archived: serde_json::Value = serde_json::from_str(include_str!(
             "../../../../protocol/archive/next-2026-10-31-layouts/protocol.lock.json"
         ))
@@ -228,7 +228,7 @@ mod tests {
         let historical = pinned_deployment().unwrap();
         let current = current_deployment().unwrap();
         assert_eq!(historical.revision, current.revision);
-        assert_eq!(historical.first_slot(), 521_376_644);
+        assert_eq!(historical.first_slot(), 521_967_169);
         let metadata: serde_json::Value = serde_json::from_str(include_str!(
             "../../../../protocol/compatible-deployment.json"
         ))
