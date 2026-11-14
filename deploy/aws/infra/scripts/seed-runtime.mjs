@@ -48,6 +48,9 @@ try {
     // postgres-native-tls verifies the certificate and hostname for keepers;
     // its URL parser accepts require, not libpq's verify-full enum.
     connection.searchParams.set('sslmode', keeper ? 'require' : 'verify-full');
+    // libpq 15 (the ingestion image's psql) otherwise expects ~/.postgresql/
+    // root.crt, even when the public CA is in the installed system bundle.
+    if (!keeper) connection.searchParams.set('sslrootcert', '/etc/ssl/certs/ca-certificates.crt');
     return connection.toString();
   };
   for (const service of parity.services.filter(s => s.name !== 'timescaledb')) {
