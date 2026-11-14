@@ -94,6 +94,13 @@ export class ServicesStack extends Stack {
         assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
         managedPolicies: [iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore')],
       });
+      // Service Connect polling fails with the ordinary ecs:cluster condition
+      // and with a task-set ARN grant. Use AWS's standard instance-role Poll
+      // grant; this adds no other ECS actions or worker signing permissions.
+      hostRole.addToPolicy(new iam.PolicyStatement({
+        actions: ['ecs:Poll'],
+        resources: ['*'],
+      }));
       const launchTemplate = new ec2.LaunchTemplate(this, 'AppLaunchTemplate', {
         instanceType: new ec2.InstanceType('t3a.medium'),
         machineImage: ecs.EcsOptimizedImage.amazonLinux2023(),
@@ -235,6 +242,9 @@ export class ServicesStack extends Stack {
     }
     this.services = services;
     if (props.primary) {
+      // Service Connect clients discover endpoints at deployment time. Create
+      // the API endpoint before starting its gRPC client deployment.
+      services['dusk-grpc'].node.addDependency(services['dusk-api']);
       const loadBalancer = new elb.ApplicationLoadBalancer(this, 'LoadBalancer', {
         vpc: props.network.vpc, internetFacing: true, securityGroup: props.network.ingressGroup,
         vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC }, idleTimeout: Duration.seconds(120),

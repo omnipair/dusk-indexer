@@ -36,6 +36,10 @@ test('service parity, immutable images, network boundaries and isolated signer p
   const fleetTemplate = Template.fromStack(fleet);
   const indexerTemplate = Template.fromStack(indexer);
   fleetTemplate.resourceCountIs('AWS::ECS::Service', 12);
+  const fleetServices = Object.entries(fleetTemplate.findResources('AWS::ECS::Service')) as [string, any][];
+  const apiService = fleetServices.find(([name]) => name.startsWith('duskapiService'))!;
+  const grpcService = fleetServices.find(([name]) => name.startsWith('duskgrpcService'))!;
+  assert.ok(grpcService[1].DependsOn.includes(apiService[0]), 'gRPC must discover the API endpoint after its service is created');
   const fleetTasks = Object.values(fleetTemplate.findResources('AWS::ECS::TaskDefinition')) as any[];
   assert.ok(fleetTasks.every(t => t.Properties.NetworkMode === 'bridge' && t.Properties.RequiresCompatibilities.includes('EC2')));
   const capacity = Object.values(fleetTemplate.findResources('AWS::AutoScaling::AutoScalingGroup')) as any[];
@@ -79,6 +83,9 @@ test('service parity, immutable images, network boundaries and isolated signer p
   }
   const statements = (Object.values(fleetTemplate.findResources('AWS::IAM::Policy')) as any[])
     .flatMap(policy => policy.Properties.PolicyDocument.Statement);
+  const serviceConnectPoll = statements.find(s => s.Action === 'ecs:Poll' && !s.Condition);
+  assert.ok(serviceConnectPoll, 'Service Connect needs polling independent of the ordinary cluster context');
+  assert.equal(serviceConnectPoll.Resource, '*');
   const signing = statements.filter(s => s.Action === 'kms:Sign');
   assert.equal(signing.length, 5);
   assert.equal(new Set(signing.map(s => s.Resource)).size, 5);
