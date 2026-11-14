@@ -241,6 +241,9 @@ export class ServicesStack extends Stack {
     }
     this.services = services;
     if (props.primary) {
+      // Service Connect clients discover endpoints at deployment time. Create
+      // the API endpoint before starting its gRPC client deployment.
+      services['dusk-grpc'].node.addDependency(services['dusk-api']);
       const loadBalancer = new elb.ApplicationLoadBalancer(this, 'LoadBalancer', {
         vpc: props.network.vpc, internetFacing: true, securityGroup: props.network.ingressGroup,
         vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC }, idleTimeout: Duration.seconds(120),

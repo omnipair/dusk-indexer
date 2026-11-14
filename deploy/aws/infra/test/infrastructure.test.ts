@@ -36,6 +36,10 @@ test('service parity, immutable images, network boundaries and isolated signer p
   const fleetTemplate = Template.fromStack(fleet);
   const indexerTemplate = Template.fromStack(indexer);
   fleetTemplate.resourceCountIs('AWS::ECS::Service', 12);
+  const fleetServices = Object.entries(fleetTemplate.findResources('AWS::ECS::Service')) as [string, any][];
+  const apiService = fleetServices.find(([name]) => name.startsWith('duskapiService'))!;
+  const grpcService = fleetServices.find(([name]) => name.startsWith('duskgrpcService'))!;
+  assert.ok(grpcService[1].DependsOn.includes(apiService[0]), 'gRPC must discover the API endpoint after its service is created');
   const fleetTasks = Object.values(fleetTemplate.findResources('AWS::ECS::TaskDefinition')) as any[];
   assert.ok(fleetTasks.every(t => t.Properties.NetworkMode === 'bridge' && t.Properties.RequiresCompatibilities.includes('EC2')));
   const capacity = Object.values(fleetTemplate.findResources('AWS::AutoScaling::AutoScalingGroup')) as any[];
