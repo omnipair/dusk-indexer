@@ -374,3 +374,21 @@ test('selection identity binds market and normalized time filters, including emp
   await assert.rejects(readMarketActivity(client,{ ...query,deploymentIdentitySha256: '' }),/time range/);
   await assert.rejects(readMarketActivity(client,{ ...query,market: 'invalid' }));
 }));
+
+
+test('a captured market creation proves its trailing-day totals before the first complete release day',() => transaction(async client => {
+  const registered = await registerRelease(client),at = (ms: number) => new Date(registered.getTime()+ms).toISOString();
+  await source(client,{ name: 'MarketCreated',slot: activitySlot-1,time: at(2),fields: { market: activityMarket,
+    base_mint: key(112),quote_mint: key(113),base_decimals: '9',quote_decimals: '6',
+    srlp_mint: key(114),base_hlp_mint: key(115),quote_hlp_mint: key(116),config: {} } });
+  await source(client,{ time: at(5) }); await projectMarketActivityBatch(client);
+  await new Promise(resolve => setTimeout(resolve,30));
+  await cursor(client,'helius-atlas-ws',new Date(registered.getTime()+20));
+  await client.query(`UPDATE dusk_ingestion.ingestion_cursors SET next_slot=$1,last_observed_slot=$2
+    WHERE cluster=$3 AND protocol_revision=$4 AND stream_name='helius-atlas-ws'`,[activitySlot+2,activitySlot+1,pin.cluster,pin.revision]);
+  const request = { ...query,since: at(-86400_000),until: at(19) };
+  const result = await readMarketActivity(client,request);
+  assert.equal(result.coverage.historyRangeComplete,false);
+  assert.deepEqual(result.markets[0].history,{ createdSlot: String(activitySlot-1),createdAt: at(2),completeFromCreation: true });
+  assert.equal((await readMarketActivity(client,{ ...request,until: at(20) })).markets[0].history?.completeFromCreation,false);
+}));
