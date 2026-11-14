@@ -33,6 +33,7 @@ import { CapacityDependencies, captureMarketCapacities, MarketCapacities } from 
 import { withHlpRates } from './duskHlpRates';
 import { indexedPortfolioDebt } from './duskPortfolioMath';
 import { parsePriceReferences, projectMarketPrices } from './duskPriceMath';
+import { withProviderDisplayPrices } from './duskDisplayPrices';
 import { leverageCollateralAddress, snapshotCollateralAmount, snapshotTokenMetadata, tokenMetadataAddress } from './duskMarketExtras';
 
 const NAD = 1_000_000_000n;
@@ -454,7 +455,7 @@ export async function marketPayload(
   const snapshot = await currentMarketSnapshot(market,marketAccount,sourceSlot,envelope.deploymentIdentitySha256);
   const capacities = await currentMarketCapacities(snapshot,
     process.env.DUSK_PREVIEW_PAYER?.trim() || envelope.programUpgradeAuthority);
-  const projected = projectMarketSnapshot(snapshot,undefined,capacities);
+  const projected = await withProviderDisplayPrices(projectMarketSnapshot(snapshot,undefined,capacities),envelope.deploymentIdentitySha256);
   const withHlp = await withHlpRates(projected,envelope.deploymentIdentitySha256);
   const { withTrancheRates } = await import('./duskTrancheRates');
   return withTrancheRates(withHlp,envelope.deploymentIdentitySha256);

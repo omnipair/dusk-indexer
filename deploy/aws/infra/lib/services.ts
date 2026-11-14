@@ -167,7 +167,8 @@ export class ServicesStack extends Stack {
       const runtime = props.runtimeSecrets.secrets[spec.name];
       const secretFields = profile
         ? profile === 'sentinel' ? ['SOLANA_RPC_HTTP_URL'] : ['SOLANA_RPC_HTTP_URL', 'DATABASE_URL', 'KEEPER_JUPITER_API_KEY']
-        : ['DATABASE_URL', 'DUSK_RPC_URL'];
+        : ['DATABASE_URL', 'DUSK_RPC_URL', ...(['dusk-api', 'dusk-prices'].includes(spec.name)
+          ? ['JUPITER_API_KEY', 'BIRDEYE_API_KEY'] : [])];
       const environment: Record<string, string> = {
         ...spec.sourcePublicSettings,
         NODE_ENV: 'production', DUSK_CLUSTER: 'mainnet-beta',
