@@ -33,12 +33,14 @@ export class RegistryStack extends Stack {
     const provider = new iam.OpenIdConnectProvider(this, 'GitHub', {
       url: 'https://token.actions.githubusercontent.com', clientIds: ['sts.amazonaws.com'],
     });
+    // Verified repository OIDC settings use GitHub's immutable ID-based sub.
+    const repositoryIds: Record<string, string> = { 'dusk-indexer': '1335315149', 'dusk-keepers': '1335315268' };
     for (const [repository, images] of Object.entries({ 'dusk-indexer': ['api', 'indexer', 'grpc'], 'dusk-keepers': ['keeper'] })) {
       const publisher = new iam.Role(this, `${repository}Publisher`, {
         assumedBy: new iam.WebIdentityPrincipal(provider.openIdConnectProviderArn, {
           StringEquals: {
             'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
-            'token.actions.githubusercontent.com:sub': `repo:omnipair/${repository}:ref:refs/heads/main`,
+            'token.actions.githubusercontent.com:sub': `repo:omnipair@205608207/${repository}@${repositoryIds[repository]}:ref:refs/heads/main`,
           },
         }),
         maxSessionDuration: Duration.hours(1),

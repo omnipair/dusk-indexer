@@ -95,7 +95,7 @@ test('service parity, immutable images, network boundaries and isolated signer p
   const publishers = Object.values(Template.fromStack(registry).findResources('AWS::IAM::Role')) as any[];
   const subjects = publishers.filter(r => r.Properties.AssumeRolePolicyDocument.Statement.some((s: any) => s.Action === 'sts:AssumeRoleWithWebIdentity'))
     .map(r => r.Properties.AssumeRolePolicyDocument.Statement[0].Condition.StringEquals['token.actions.githubusercontent.com:sub']);
-  assert.deepEqual(subjects.sort(), ['repo:omnipair/dusk-indexer:ref:refs/heads/main', 'repo:omnipair/dusk-keepers:ref:refs/heads/main']);
+  assert.deepEqual(subjects.sort(), ['repo:omnipair@205608207/dusk-indexer@1335315149:ref:refs/heads/main', 'repo:omnipair@205608207/dusk-keepers@1335315268:ref:refs/heads/main']);
 });
 
 test('configuration rejects shared wallets, extra signers and mismatched geography', () => {

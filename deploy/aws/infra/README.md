@@ -10,6 +10,8 @@ The configuration is prospective. A successful synthesis or CI bootstrap test do
 
 The two alert stacks require `AlertEmail1` and `AlertEmail2` parameters at deployment. They are `NoEcho` and must stay out of source/config examples. Supply both owner-approved destinations to both stacks; their SNS subscriptions require recipient confirmation. Singapore also creates the USD400 monthly budget with actual and forecast email warnings. Bootstrap uses `bootstrap-execution-policy.json`, with no external account trust and an explicit denial of KMS signing/key administration for the CloudFormation role.
 
+GitHub publishers pin the verified owner/repository IDs in the immutable OIDC subject and the `main` ref. Both repositories report `use_immutable_subject=true`; legacy name-only subjects cannot authenticate. See [GitHub's immutable subject format](https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims). A rename or transfer requires reviewing the new exact subject before changing trust.
+
 ## Review and validate
 
 ```sh
