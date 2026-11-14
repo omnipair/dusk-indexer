@@ -18,6 +18,12 @@ or exposed as mainnet history.
 
 ## Infrastructure configuration
 
+The AWS migration preserves the existing Dusk Railway service topology and
+reuses the existing Helius subscription. See
+[`aws-railway-parity.md`](aws-railway-parity.md) and the credential-free
+`deploy/aws/railway-parity.json` inventory. The frontend stays on Vercel;
+v1 is outside this migration.
+
 Use a mainnet database and fresh identity-scoped cursors. The Railway project
 named `dusk-devnet` remains devnet even though its environment is called
 `production`; the project named `dusk` contains a Surfpool fork. Neither name

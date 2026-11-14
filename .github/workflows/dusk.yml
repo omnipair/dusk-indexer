@@ -75,11 +75,22 @@ jobs:
           docker run --rm --network none --entrypoint node dusk-api:test -e 'const pin=require("./dist/config/duskProtocol").loadPinnedProtocol(); if(pin.cluster!=="mainnet-beta")process.exit(1); console.log(pin.revision)'
 
   history-timescale:
+    name: ${{ matrix.check }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - check: history-timescale
+            image: timescale/timescaledb:latest-pg16@sha256:f495f2bc25ca7596ca8e1606c6241ca250ccc56a0c082b9f2ec0d290e0126cd9
+            major: 16
+          - check: history-timescale-pg17
+            # Same immutable image as the running Railway Dusk database.
+            image: timescale/timescaledb:2.29.2-pg17@sha256:bc8527e62f70f0766b29515077965025872fabb5349db421565f69ee273baf2d
+            major: 17
     services:
       postgres:
-        # Official latest-pg16 manifest, resolved and pinned for reproducibility.
-        image: timescale/timescaledb:latest-pg16@sha256:f495f2bc25ca7596ca8e1606c6241ca250ccc56a0c082b9f2ec0d290e0126cd9
+        image: ${{ matrix.image }}
         env:
           POSTGRES_USER: dusk_test
           POSTGRES_DB: dusk_test
@@ -106,6 +117,11 @@ jobs:
           DUSK_MIGRATE_ONLY=true bash scripts/dusk-indexer-entrypoint.sh
           DUSK_MIGRATE_ONLY=true bash scripts/dusk-indexer-entrypoint.sh
           psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM timescaledb_information.hypertables WHERE hypertable_schema='dusk_ingestion' AND hypertable_name='event_stream') THEN RAISE EXCEPTION 'Native stream is not a hypertable'; END IF; END \$\$;"
+      - name: Verify the exact Railway database versions
+        if: matrix.major == 17
+        run: |
+          test "$(psql "$DATABASE_URL" -X -Atc 'SHOW server_version')" = '17.11'
+          test "$(psql "$DATABASE_URL" -X -Atc "SELECT extversion FROM pg_extension WHERE extname='timescaledb'")" = '2.29.2'
       - run: npm ci
         working-directory: api
       - run: npm run build

@@ -1,0 +1,855 @@
+{
+  "schemaVersion": "dusk-aws-railway-parity.v1",
+  "capturedAt": "2026-11-14T15:48:04.436Z",
+  "status": "planning; no AWS compute/database provisioned",
+  "scope": {
+    "protocol": "Dusk only",
+    "frontend": "existing Vercel project",
+    "v1": "unchanged",
+    "rpc": "reuse existing Helius mainnet access; no additional RPC subscription"
+  },
+  "source": {
+    "project": "dusk-devnet",
+    "projectId": "6c140992-86cc-40f9-9c10-45e2123abf31",
+    "environment": "production",
+    "environmentId": "0be8501e-6135-4189-aa01-a11ae7f6d6d3"
+  },
+  "networkOverrides": {
+    "cluster": "mainnet-beta",
+    "protocolRevision": "mainnet-2026-11-14",
+    "sourceCommit": "0acc9057b53a0495571f1bbf8a18e5db0f2efd45",
+    "duskProgramId": "DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj",
+    "delegateProgramId": "DeLegABhDLREbDpwwcsbkHvDS5MwqKPAw1CJKoooUXFQ",
+    "replayFirstSlot": 469350144,
+    "sdk": "2.27.0"
+  },
+  "services": [
+    {
+      "name": "timescaledb",
+      "replicas": 1,
+      "sourceRegions": {
+        "asia-southeast1-eqsg3a": {
+          "numReplicas": 1
+        }
+      },
+      "awsRegions": {
+        "ap-southeast-1": {
+          "replicas": 1
+        }
+      },
+      "source": {
+        "image": "timescale/timescaledb:latest-pg17",
+        "imageDigest": "sha256:bc8527e62f70f0766b29515077965025872fabb5349db421565f69ee273baf2d"
+      },
+      "entrypoint": null,
+      "sourcePublicSettings": {},
+      "variableNames": [
+        "PGDATA",
+        "POSTGRES_DB",
+        "POSTGRES_PASSWORD"
+      ],
+      "restart": {
+        "policy": "ON_FAILURE",
+        "maxRetries": 10
+      },
+      "volumeMounts": [
+        "/var/lib/postgresql/data"
+      ],
+      "sourceLimits": {
+        "cpuLimit": 24,
+        "memoryLimitMB": 24576
+      }
+    },
+    {
+      "name": "dusk-market-activity",
+      "replicas": 1,
+      "sourceRegions": {
+        "asia-southeast1-eqsg3a": {
+          "numReplicas": 1
+        }
+      },
+      "awsRegions": {
+        "ap-southeast-1": {
+          "replicas": 1
+        }
+      },
+      "source": {
+        "repo": "omnipair/dusk-indexer",
+        "branch": "chore/devnet-layout16-pin",
+        "commit": "3cff56d755f0ff4ce516d480caf24dc2c0af4987",
+        "imageDigest": "sha256:b8610b9826527612fea8615e5a776c1ff708c89485e5278c64f851999abd42dd"
+      },
+      "entrypoint": "node dist/scripts/duskMarketActivityWorker.js",
+      "sourcePublicSettings": {
+        "DUSK_CLUSTER": "devnet",
+        "NODE_ENV": "production"
+      },
+      "variableNames": [
+        "DATABASE_URL",
+        "DUSK_BUILD_REVISION",
+        "DUSK_CLUSTER",
+        "DUSK_PRIMARY_MARKET",
+        "DUSK_RPC_URL",
+        "NODE_ENV",
+        "RAILWAY_DOCKERFILE_PATH"
+      ],
+      "restart": {
+        "policy": "ON_FAILURE",
+        "maxRetries": 10
+      },
+      "volumeMounts": [],
+      "sourceLimits": {
+        "cpuLimit": 24,
+        "memoryLimitMB": 24576
+      }
+    },
+    {
+      "name": "dusk-portfolio-snapshots",
+      "replicas": 1,
+      "sourceRegions": {
+        "asia-southeast1-eqsg3a": {
+          "numReplicas": 1
+        }
+      },
+      "awsRegions": {
+        "ap-southeast-1": {
+          "replicas": 1
+        }
+      },
+      "source": {
+        "repo": "omnipair/dusk-indexer",
+        "branch": "chore/devnet-layout16-pin",
+        "commit": "3cff56d755f0ff4ce516d480caf24dc2c0af4987",
+        "imageDigest": "sha256:b13407cadaad9bd127f3355528c4beaf07bcd15de247bce860c387a3666929a6"
+      },
+      "entrypoint": "node dist/scripts/duskPortfolioSnapshotsWorker.js",
+      "sourcePublicSettings": {
+        "DUSK_CLUSTER": "devnet",
+        "NODE_ENV": "production"
+      },
+      "variableNames": [
+        "DATABASE_URL",
+        "DUSK_BUILD_REVISION",
+        "DUSK_CLUSTER",
+        "DUSK_PRIMARY_MARKET",
+        "DUSK_RPC_URL",
+        "NODE_ENV",
+        "RAILWAY_DOCKERFILE_PATH"
+      ],
+      "restart": {
+        "policy": "ON_FAILURE",
+        "maxRetries": 10
+      },
+      "volumeMounts": [],
+      "sourceLimits": {
+        "cpuLimit": 24,
+        "memoryLimitMB": 24576
+      }
+    },
+    {
+      "name": "dusk-indexer",
+      "replicas": 1,
+      "sourceRegions": {
+        "us-west2": {
+          "numReplicas": 1
+        }
+      },
+      "awsRegions": {
+        "us-west-2": {
+          "replicas": 1
+        }
+      },
+      "source": {
+        "repo": "omnipair/dusk-indexer",
+        "branch": "chore/devnet-layout16-pin",
+        "commit": "3cff56d755f0ff4ce516d480caf24dc2c0af4987",
+        "imageDigest": "sha256:c3bbfb7f2d79b0baf0f99afc7a447c3e20e98bb7d548fb378c91e7527540426e"
+      },
+      "entrypoint": null,
+      "sourcePublicSettings": {
+        "DUSK_CLUSTER": "devnet",
+        "DUSK_POLL_INTERVAL_MS": "15000"
+      },
+      "variableNames": [
+        "DATABASE_URL",
+        "DUSK_ALERT_DISCORD_WEBHOOK",
+        "DUSK_BUILD_REVISION",
+        "DUSK_CLUSTER",
+        "DUSK_POLL_INTERVAL_MS",
+        "DUSK_RPC_URL",
+        "DUSK_USD_ANCHORS",
+        "RAILWAY_DOCKERFILE_PATH"
+      ],
+      "restart": {
+        "policy": "ON_FAILURE",
+        "maxRetries": 10
+      },
+      "volumeMounts": [],
+      "sourceLimits": {
+        "cpuLimit": 24,
+        "memoryLimitMB": 24576
+      }
+    },
+    {
+      "name": "dusk-auction-arbitrageur",
+      "replicas": 1,
+      "sourceRegions": {
+        "asia-southeast1-eqsg3a": {
+          "numReplicas": 1
+        }
+      },
+      "awsRegions": {
+        "ap-southeast-1": {
+          "replicas": 1
+        }
+      },
+      "source": {
+        "repo": "omnipair/dusk-keepers",
+        "branch": "chore/devnet-layout16-pin",
+        "commit": "3de8eb320b18d5c08946c85e532ab18b8436c958",
+        "imageDigest": "sha256:89cb33adc939a0637e03ba412597b1026873a12da2251bb4c51acec6f7fc2b02"
+      },
+      "entrypoint": null,
+      "sourcePublicSettings": {
+        "KEEPER_MODE": "shadow",
+        "KEEPER_PROFILE": "auction-arbitrage",
+        "DISCOVERY_INTERVAL_MS": "30000"
+      },
+      "variableNames": [
+        "DISCOVERY_INTERVAL_MS",
+        "KEEPER_AUCTION_MAX_SOLD",
+        "KEEPER_AUCTION_SLIPPAGE_BPS",
+        "KEEPER_LIQUIDATION_LOOKUP_TABLE",
+        "KEEPER_MODE",
+        "KEEPER_PROFILE",
+        "KEEPER_SHADOW_PUBLIC_KEY",
+        "KEEPER_SIGNER_KEY",
+        "RAILWAY_DOCKERFILE_PATH",
+        "SOLANA_RPC_HTTP_URL"
+      ],
+      "restart": {
+        "policy": "ON_FAILURE",
+        "maxRetries": 10
+      },
+      "volumeMounts": [],
+      "sourceLimits": {
+        "cpuLimit": 24,
+        "memoryLimitMB": 24576
+      }
+    },
+    {
+      "name": "dusk-lending-keeper",
+      "replicas": 1,
+      "sourceRegions": {
+        "asia-southeast1-eqsg3a": {
+          "numReplicas": 1
+        }
+      },
+      "awsRegions": {
+        "ap-southeast-1": {
+          "replicas": 1
+        }
+      },
+      "source": {
+        "repo": "omnipair/dusk-keepers",
+        "branch": "chore/devnet-layout16-pin",
+        "commit": "3de8eb320b18d5c08946c85e532ab18b8436c958",
+        "imageDigest": "sha256:d9842adc517308a179cda2ef7a2b12f3343775dfff8530360a7dcf88f7af2d3a"
+      },
+      "entrypoint": null,
+      "sourcePublicSettings": {
+        "KEEPER_MODE": "shadow",
+        "KEEPER_PROFILE": "lending",
+        "DISCOVERY_INTERVAL_MS": "30000"
+      },
+      "variableNames": [
+        "DISCOVERY_INTERVAL_MS",
+        "KEEPER_BID_MAX_REPAY",
+        "KEEPER_BID_MIN_COLLATERAL_BPS",
+        "KEEPER_BID_SLIPPAGE_BPS",
+        "KEEPER_FLASH_SETTLEMENT",
+        "KEEPER_LENDING_MODE",
+        "KEEPER_LIQUIDATION_LOOKUP_TABLE",
+        "KEEPER_MODE",
+        "KEEPER_PROFILE",
+        "KEEPER_SHADOW_PUBLIC_KEY",
+        "KEEPER_SIGNER_KEY",
+        "RAILWAY_DOCKERFILE_PATH",
+        "SOLANA_RPC_HTTP_URL"
+      ],
+      "restart": {
+        "policy": "ON_FAILURE",
+        "maxRetries": 10
+      },
+      "volumeMounts": [],
+      "sourceLimits": {
+        "cpuLimit": 24,
+        "memoryLimitMB": 24576
+      }
+    },
+    {
+      "name": "dusk-prices",
+      "replicas": 1,
+      "sourceRegions": {
+        "asia-southeast1-eqsg3a": {
+          "numReplicas": 1
+        }
+      },
+      "awsRegions": {
+        "ap-southeast-1": {
+          "replicas": 1
+        }
+      },
+      "source": {
+        "repo": "omnipair/dusk-indexer",
+        "branch": "chore/devnet-layout16-pin",
+        "commit": "3cff56d755f0ff4ce516d480caf24dc2c0af4987",
+        "imageDigest": "sha256:7bcba4748d1732b068d3c5e37485d9e283d7f841444c0d012252519c13f733ce"
+      },
+      "entrypoint": "node dist/scripts/duskPricesWorker.js",
+      "sourcePublicSettings": {
+        "DUSK_CLUSTER": "devnet",
+        "NODE_ENV": "production",
+        "DUSK_DEVNET_MOCK_ORACLE_ENABLED": "true"
+      },
+      "variableNames": [
+        "DATABASE_URL",
+        "DUSK_BUILD_REVISION",
+        "DUSK_CLUSTER",
+        "DUSK_DEVNET_MOCK_ORACLE_ENABLED",
+        "DUSK_DEVNET_MOCK_ORACLE_SECRET",
+        "DUSK_PRIMARY_MARKET",
+        "DUSK_RPC_URL",
+        "NODE_ENV",
+        "RAILWAY_DOCKERFILE_PATH"
+      ],
+      "restart": {
+        "policy": "ON_FAILURE",
+        "maxRetries": 10
+      },
+      "volumeMounts": [],
+      "sourceLimits": {
+        "cpuLimit": 24,
+        "memoryLimitMB": 24576
+      }
+    },
+    {
+      "name": "dusk-grpc",
+      "replicas": 1,
+      "sourceRegions": {
+        "asia-southeast1-eqsg3a": {
+          "numReplicas": 1
+        }
+      },
+      "awsRegions": {
+        "ap-southeast-1": {
+          "replicas": 1
+        }
+      },
+      "source": {
+        "repo": "omnipair/dusk-indexer",
+        "branch": "chore/devnet-layout16-pin",
+        "commit": "3cff56d755f0ff4ce516d480caf24dc2c0af4987",
+        "imageDigest": "sha256:6252865ca7b1bf8a346bcbe17310af73979660f6142cdb0ec2589a866d52915c"
+      },
+      "entrypoint": null,
+      "sourcePublicSettings": {
+        "PORT": "50051",
+        "GRPC_PORT": "50051"
+      },
+      "variableNames": [
+        "ALLOWED_ORIGINS",
+        "DATABASE_URL",
+        "DUSK_API_URL",
+        "DUSK_BUILD_REVISION",
+        "GRPC_PORT",
+        "PORT",
+        "RAILWAY_DOCKERFILE_PATH",
+        "RUST_LOG"
+      ],
+      "restart": {
+        "policy": "ON_FAILURE",
+        "maxRetries": 10
+      },
+      "volumeMounts": [],
+      "sourceLimits": {
+        "cpuLimit": 24,
+        "memoryLimitMB": 24576
+      }
+    },
+    {
+      "name": "dusk-lifecycle-keeper",
+      "replicas": 1,
+      "sourceRegions": {
+        "asia-southeast1-eqsg3a": {
+          "numReplicas": 1
+        }
+      },
+      "awsRegions": {
+        "ap-southeast-1": {
+          "replicas": 1
+        }
+      },
+      "source": {
+        "repo": "omnipair/dusk-keepers",
+        "branch": "chore/devnet-layout16-pin",
+        "commit": "3de8eb320b18d5c08946c85e532ab18b8436c958",
+        "imageDigest": "sha256:353e41d691c121d6f09eeb649d0e0eb34b5af9fee67334d473f5b79bfa833261"
+      },
+      "entrypoint": null,
+      "sourcePublicSettings": {
+        "KEEPER_MODE": "shadow",
+        "KEEPER_PROFILE": "lifecycle",
+        "DISCOVERY_INTERVAL_MS": "30000"
+      },
+      "variableNames": [
+        "DISCOVERY_INTERVAL_MS",
+        "KEEPER_LIQUIDATION_LOOKUP_TABLE",
+        "KEEPER_MODE",
+        "KEEPER_PROFILE",
+        "KEEPER_SHADOW_PUBLIC_KEY",
+        "KEEPER_SIGNER_KEY",
+        "RAILWAY_DOCKERFILE_PATH",
+        "SOLANA_RPC_HTTP_URL"
+      ],
+      "restart": {
+        "policy": "ON_FAILURE",
+        "maxRetries": 10
+      },
+      "volumeMounts": [],
+      "sourceLimits": {
+        "cpuLimit": 24,
+        "memoryLimitMB": 24576
+      }
+    },
+    {
+      "name": "dusk-api",
+      "replicas": 1,
+      "sourceRegions": {
+        "asia-southeast1-eqsg3a": {
+          "numReplicas": 1
+        }
+      },
+      "awsRegions": {
+        "ap-southeast-1": {
+          "replicas": 1
+        }
+      },
+      "source": {
+        "repo": "omnipair/dusk-indexer",
+        "branch": "chore/devnet-layout16-pin",
+        "commit": "3cff56d755f0ff4ce516d480caf24dc2c0af4987",
+        "imageDigest": "sha256:3faf452311d7c8515324d2fa7c412af7dc0563aae47242dbcc782e1bb16de458"
+      },
+      "entrypoint": null,
+      "sourcePublicSettings": {
+        "DUSK_CLUSTER": "devnet",
+        "ENABLE_V1_ROUTES": "true",
+        "NODE_ENV": "production"
+      },
+      "variableNames": [
+        "CORS_ORIGIN",
+        "DATABASE_URL",
+        "DUSK_BUILD_REVISION",
+        "DUSK_CLUSTER",
+        "DUSK_PRIMARY_MARKET",
+        "DUSK_RPC_URL",
+        "ENABLE_V1_ROUTES",
+        "NODE_ENV",
+        "RAILWAY_DOCKERFILE_PATH"
+      ],
+      "restart": {
+        "policy": "ON_FAILURE",
+        "maxRetries": 10
+      },
+      "volumeMounts": [],
+      "sourceLimits": {
+        "cpuLimit": 24,
+        "memoryLimitMB": 24576
+      }
+    },
+    {
+      "name": "dusk-yield-claims",
+      "replicas": 1,
+      "sourceRegions": {
+        "asia-southeast1-eqsg3a": {
+          "numReplicas": 1
+        }
+      },
+      "awsRegions": {
+        "ap-southeast-1": {
+          "replicas": 1
+        }
+      },
+      "source": {
+        "repo": "omnipair/dusk-indexer",
+        "branch": "chore/devnet-layout16-pin",
+        "commit": "3cff56d755f0ff4ce516d480caf24dc2c0af4987",
+        "imageDigest": "sha256:bf0c196f171a67dea1820c6e6003622bb38590505cf783103f1e2b93a7a02672"
+      },
+      "entrypoint": "node dist/scripts/duskYieldClaimsWorker.js",
+      "sourcePublicSettings": {
+        "DUSK_CLUSTER": "devnet",
+        "NODE_ENV": "production"
+      },
+      "variableNames": [
+        "DATABASE_URL",
+        "DUSK_BUILD_REVISION",
+        "DUSK_CLUSTER",
+        "DUSK_PRIMARY_MARKET",
+        "DUSK_RPC_URL",
+        "NODE_ENV",
+        "RAILWAY_DOCKERFILE_PATH"
+      ],
+      "restart": {
+        "policy": "ON_FAILURE",
+        "maxRetries": 10
+      },
+      "volumeMounts": [],
+      "sourceLimits": {
+        "cpuLimit": 24,
+        "memoryLimitMB": 24576
+      }
+    },
+    {
+      "name": "dusk-hlp-recovery",
+      "replicas": 1,
+      "sourceRegions": {
+        "asia-southeast1-eqsg3a": {
+          "numReplicas": 1
+        }
+      },
+      "awsRegions": {
+        "ap-southeast-1": {
+          "replicas": 1
+        }
+      },
+      "source": {
+        "repo": "omnipair/dusk-keepers",
+        "branch": "chore/devnet-layout16-pin",
+        "commit": "3de8eb320b18d5c08946c85e532ab18b8436c958",
+        "imageDigest": "sha256:2b52fda68a7dcaf0d21bd6e121ef258cb134be75d72ab2348f8a5160bdaf15d2"
+      },
+      "entrypoint": null,
+      "sourcePublicSettings": {
+        "KEEPER_MODE": "shadow",
+        "KEEPER_PROFILE": "hlp-recovery",
+        "PORT": "8080"
+      },
+      "variableNames": [
+        "DUSK_PROTOCOL_LOCK",
+        "KEEPER_HLP_MARKET",
+        "KEEPER_HLP_MAX_PAYMENT_DEBIT",
+        "KEEPER_HLP_MAX_SOCIALIZED_LOSS",
+        "KEEPER_HLP_MIN_BOUNTY_OUT",
+        "KEEPER_HLP_MIN_COLLATERAL_CREDIT",
+        "KEEPER_LIQUIDATION_LOOKUP_TABLE",
+        "KEEPER_MODE",
+        "KEEPER_PROFILE",
+        "KEEPER_SHADOW_PUBLIC_KEY",
+        "PORT",
+        "RAILWAY_DOCKERFILE_PATH",
+        "SOLANA_RPC_HTTP_URL"
+      ],
+      "restart": {
+        "policy": "ON_FAILURE",
+        "maxRetries": 10
+      },
+      "volumeMounts": [],
+      "sourceLimits": {
+        "cpuLimit": 24,
+        "memoryLimitMB": 24576
+      }
+    },
+    {
+      "name": "dusk-sentinel",
+      "replicas": 1,
+      "sourceRegions": {
+        "asia-southeast1-eqsg3a": {
+          "numReplicas": 1
+        }
+      },
+      "awsRegions": {
+        "ap-southeast-1": {
+          "replicas": 1
+        }
+      },
+      "source": {
+        "repo": "omnipair/dusk-keepers",
+        "branch": "chore/devnet-layout16-pin",
+        "commit": "3de8eb320b18d5c08946c85e532ab18b8436c958",
+        "imageDigest": "sha256:caf59aa8b2a7633c4d421b1f7358739adad1a8b50de6a611c6e53d4a9f77ba70"
+      },
+      "entrypoint": null,
+      "sourcePublicSettings": {
+        "KEEPER_MODE": "shadow",
+        "KEEPER_PROFILE": "sentinel",
+        "DISCOVERY_INTERVAL_MS": "15000"
+      },
+      "variableNames": [
+        "DISCOVERY_INTERVAL_MS",
+        "KEEPER_MODE",
+        "KEEPER_PROFILE",
+        "RAILWAY_DOCKERFILE_PATH",
+        "SOLANA_RPC_HTTP_URL"
+      ],
+      "restart": {
+        "policy": "ON_FAILURE",
+        "maxRetries": 10
+      },
+      "volumeMounts": [],
+      "sourceLimits": {
+        "cpuLimit": 24,
+        "memoryLimitMB": 24576
+      }
+    },
+    {
+      "name": "dusk-leverage-keeper",
+      "replicas": 1,
+      "sourceRegions": {
+        "asia-southeast1-eqsg3a": {
+          "numReplicas": 1
+        }
+      },
+      "awsRegions": {
+        "ap-southeast-1": {
+          "replicas": 1
+        }
+      },
+      "source": {
+        "repo": "omnipair/dusk-keepers",
+        "branch": "chore/devnet-layout16-pin",
+        "commit": "3de8eb320b18d5c08946c85e532ab18b8436c958",
+        "imageDigest": "sha256:c8a51f56d7b0804f30c6aa6ec5cdb6c1a5df12797819e2ffc334ac8346b4e731"
+      },
+      "entrypoint": null,
+      "sourcePublicSettings": {
+        "KEEPER_MODE": "shadow",
+        "KEEPER_PROFILE": "leverage",
+        "DISCOVERY_INTERVAL_MS": "30000"
+      },
+      "variableNames": [
+        "DISCOVERY_INTERVAL_MS",
+        "KEEPER_LIQUIDATION_LOOKUP_TABLE",
+        "KEEPER_MODE",
+        "KEEPER_ORDER_MARKET",
+        "KEEPER_ORDER_MIN_BOUNTY_CREDIT",
+        "KEEPER_PROFILE",
+        "KEEPER_SHADOW_PUBLIC_KEY",
+        "KEEPER_SIGNER_KEY",
+        "RAILWAY_DOCKERFILE_PATH",
+        "SOLANA_RPC_HTTP_URL"
+      ],
+      "restart": {
+        "policy": "ON_FAILURE",
+        "maxRetries": 10
+      },
+      "volumeMounts": [],
+      "sourceLimits": {
+        "cpuLimit": 24,
+        "memoryLimitMB": 24576
+      }
+    }
+  ],
+  "excludedStoppedServices": [
+    "dusk-lending-trigger",
+    "dusk-lending-settler"
+  ],
+  "database": {
+    "postgres": "17.11",
+    "shared_buffers": "5722MB",
+    "work_mem": "7629kB",
+    "max_connections": "100",
+    "timescale_version": "2.29.2",
+    "volumeMount": "/var/lib/postgresql/data",
+    "sourceVolumeLimitMB": 50000,
+    "sourceImage": "timescale/timescaledb:latest-pg17",
+    "sourceImageDigest": "sha256:bc8527e62f70f0766b29515077965025872fabb5349db421565f69ee273baf2d",
+    "mainnetData": "fresh identity-scoped mainnet database; never import devnet observations or cursors",
+    "pinnedImage": "timescale/timescaledb:2.29.2-pg17@sha256:bc8527e62f70f0766b29515077965025872fabb5349db421565f69ee273baf2d"
+  },
+  "observedHourlyMetrics": {
+    "railway-db-metrics-7d-raw": {
+      "CPU_LIMIT": {
+        "points": 169,
+        "mean": 24,
+        "max": 24,
+        "p95": 24,
+        "last": {
+          "ts": "2026-11-14T15:00:00+00:00",
+          "value": 24
+        }
+      },
+      "CPU_USAGE": {
+        "points": 169,
+        "mean": 0.7140683832790927,
+        "max": 6.390987394722222,
+        "p95": 2.288601971388889,
+        "last": {
+          "ts": "2026-11-14T15:00:00+00:00",
+          "value": 0.20904308638888888
+        }
+      },
+      "DISK_USAGE_GB": {
+        "points": 169,
+        "mean": 14.793651582678349,
+        "max": 14.920690701298703,
+        "p95": 14.90437433469388,
+        "last": {
+          "ts": "2026-11-14T15:00:00+00:00",
+          "value": 14.920690701298703
+        }
+      },
+      "MEMORY_LIMIT_GB": {
+        "points": 169,
+        "mean": 24,
+        "max": 24,
+        "p95": 24,
+        "last": {
+          "ts": "2026-11-14T15:00:00+00:00",
+          "value": 24
+        }
+      },
+      "MEMORY_USAGE_GB": {
+        "points": 169,
+        "mean": 6.758339783475664,
+        "max": 7.221305649021277,
+        "p95": 7.089292773052631,
+        "last": {
+          "ts": "2026-11-14T15:00:00+00:00",
+          "value": 6.541713461194806
+        }
+      }
+    },
+    "railway-api-metrics-7d-raw": {
+      "CPU_LIMIT": {
+        "points": 169,
+        "mean": 24,
+        "max": 24,
+        "p95": 24,
+        "last": {
+          "ts": "2026-11-14T15:00:00+00:00",
+          "value": 24
+        }
+      },
+      "CPU_USAGE": {
+        "points": 169,
+        "mean": 0.14300297141518736,
+        "max": 0.4650888577777778,
+        "p95": 0.31488046000000003,
+        "last": {
+          "ts": "2026-11-14T15:00:00+00:00",
+          "value": 0.18392383166666668
+        }
+      },
+      "MEMORY_LIMIT_GB": {
+        "points": 169,
+        "mean": 24,
+        "max": 24,
+        "p95": 24,
+        "last": {
+          "ts": "2026-11-14T15:00:00+00:00",
+          "value": 24
+        }
+      },
+      "MEMORY_USAGE_GB": {
+        "points": 169,
+        "mean": 0.2735892672921716,
+        "max": 1.2919972113449114,
+        "p95": 0.42877523397938144,
+        "last": {
+          "ts": "2026-11-14T15:00:00+00:00",
+          "value": 0.5117283691354838
+        }
+      }
+    }
+  },
+  "releaseOverrides": [
+    "Bind all services to the agreed mainnet IDs, stable SDK and Helius mainnet endpoint.",
+    "Remove devnet mock prices, mock-oracle credentials, mock mints, selected market addresses and devnet lookup-table references.",
+    "Use the five already-provisioned AWS KMS keys and distinct worker IAM roles for signing. Sentinel remains wallet-free.",
+    "Preserve the existing shadow keeper mode during migration; live mode still requires the frozen lock and verified release gates.",
+    "Populate secrets directly from the existing secure configuration into the AWS secret store; never export plaintext credentials."
+  ],
+  "sizing": {
+    "decision": "Preserve services/settings; size from measured usage with headroom",
+    "confirmedByUser": true,
+    "note": "Railway limits are usage ceilings, not dedicated allocations. Previous redundant-API / RDS-standby estimate is superseded.",
+    "services": {
+      "timescaledb": {
+        "platform": "EC2",
+        "instanceType": "c7i.2xlarge",
+        "vcpu": 8,
+        "memoryGiB": 16,
+        "dataVolumeGiB": 50
+      },
+      "dusk-market-activity": {
+        "platform": "ECS Fargate",
+        "vcpu": 0.25,
+        "memoryGiB": 0.5
+      },
+      "dusk-portfolio-snapshots": {
+        "platform": "ECS Fargate",
+        "vcpu": 0.25,
+        "memoryGiB": 0.5
+      },
+      "dusk-indexer": {
+        "platform": "ECS Fargate",
+        "vcpu": 0.25,
+        "memoryGiB": 0.5
+      },
+      "dusk-auction-arbitrageur": {
+        "platform": "ECS Fargate",
+        "vcpu": 0.25,
+        "memoryGiB": 0.5
+      },
+      "dusk-lending-keeper": {
+        "platform": "ECS Fargate",
+        "vcpu": 0.25,
+        "memoryGiB": 0.5
+      },
+      "dusk-prices": {
+        "platform": "ECS Fargate",
+        "vcpu": 0.25,
+        "memoryGiB": 0.5
+      },
+      "dusk-grpc": {
+        "platform": "ECS Fargate",
+        "vcpu": 0.25,
+        "memoryGiB": 0.5
+      },
+      "dusk-lifecycle-keeper": {
+        "platform": "ECS Fargate",
+        "vcpu": 0.25,
+        "memoryGiB": 0.5
+      },
+      "dusk-api": {
+        "platform": "ECS Fargate",
+        "vcpu": 1,
+        "memoryGiB": 2
+      },
+      "dusk-yield-claims": {
+        "platform": "ECS Fargate",
+        "vcpu": 0.25,
+        "memoryGiB": 0.5
+      },
+      "dusk-hlp-recovery": {
+        "platform": "ECS Fargate",
+        "vcpu": 0.25,
+        "memoryGiB": 0.5
+      },
+      "dusk-sentinel": {
+        "platform": "ECS Fargate",
+        "vcpu": 0.25,
+        "memoryGiB": 0.5
+      },
+      "dusk-leverage-keeper": {
+        "platform": "ECS Fargate",
+        "vcpu": 0.25,
+        "memoryGiB": 0.5
+      }
+    },
+    "measurementCaveat": "Measurements are hourly samples from the existing devnet deployment. They are sizing evidence, not a mainnet load test or instantaneous peak guarantee.",
+    "provisioningStatus": "Proposed mapping; resources not created"
+  }
+}
