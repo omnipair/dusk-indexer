@@ -53,6 +53,10 @@ test('service parity, immutable images, network boundaries and isolated signer p
   assert.ok(fleetSerialized.includes('169.254.169.254/32'));
   assert.ok(!fleetSerialized.includes('"Privileged":true'));
   const webTargets = Object.entries(fleetTemplate.findResources('AWS::ElasticLoadBalancingV2::TargetGroup')) as [string, any][];
+  const apiTarget = webTargets.find(([, resource]) => resource.Properties.Port === 3000);
+  assert.equal(apiTarget?.[1].Properties.HealthCheckPath, '/api/dusk/v1/status');
+  const apiRoutes = readFileSync(new URL('../../../../api/src/routes/v1/duskRoutes.ts', import.meta.url), 'utf8');
+  assert.match(apiRoutes, /router\.get\(\s*'\/status'/, 'ALB probe must be a registered readiness route');
   const webTarget = webTargets.find(([, resource]) => resource.Properties.Port === 50051 && resource.Properties.ProtocolVersion === 'HTTP1');
   assert.ok(webTarget);
   const listenerRules = Object.values(fleetTemplate.findResources('AWS::ElasticLoadBalancingV2::ListenerRule')) as any[];

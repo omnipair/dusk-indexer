@@ -249,7 +249,7 @@ export class ServicesStack extends Stack {
       const apiTarget = listener.addTargets('Api', {
         priority: 10, conditions: [elb.ListenerCondition.hostHeaders(['api.dusk.omnipair.fi'])],
         port: 3000, protocol: elb.ApplicationProtocol.HTTP,
-        targets: [services['dusk-api']], healthCheck: { path: '/api/dusk/v1/deployment', healthyHttpCodes: '200', interval: Duration.seconds(30) },
+        targets: [services['dusk-api']], healthCheck: { path: '/api/dusk/v1/status', healthyHttpCodes: '200', interval: Duration.seconds(30) },
         deregistrationDelay: Duration.seconds(60),
       });
       const grpcWebTarget = listener.addTargets('GrpcWeb', {
