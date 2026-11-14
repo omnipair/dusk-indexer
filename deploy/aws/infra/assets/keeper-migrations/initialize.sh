@@ -4,7 +4,7 @@
 (
   set -euo pipefail
   cd /keeper-migrations
-  sha256sum --check --status SHA256SUMS
+  sha256sum -c SHA256SUMS > /dev/null
   script=$(mktemp)
   trap 'rm -f "$script"' EXIT
   cat > "$script" <<'SQL'

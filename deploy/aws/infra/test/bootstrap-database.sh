@@ -68,8 +68,9 @@ bash "$infra/assets/database.sh" start > "$scratch/bootstrap.log" 2>&1 &
 bootstrap_pid=$!
 ready=false
 for _ in $(seq 1 120); do
-  if docker exec --user postgres dusk-db psql -XAt -U postgres -d dusk_keeper_mainnet -c 'SELECT count(*) FROM keeper_release.applied_migrations' 2>/dev/null | rg -qx 3; then ready=true; break; fi
-  kill -0 "$bootstrap_pid" 2>/dev/null || { echo 'Production database bootstrap failed'; exit 1; }
+  if docker exec --user postgres dusk-db psql -XAt -U postgres -d dusk_keeper_mainnet -c 'SELECT count(*) FROM keeper_release.applied_migrations' 2>/dev/null | grep -qx 3; then ready=true; break; fi
+  # Every credential here is an explicit disposable fixture, never AWS data.
+  kill -0 "$bootstrap_pid" 2>/dev/null || { echo 'Production database bootstrap failed'; tail -80 "$scratch/bootstrap.log"; exit 1; }
   sleep 2
 done
 [[ "$ready" == true ]]
@@ -79,7 +80,7 @@ docker exec --user postgres dusk-db psql -XAt -U postgres -d dusk_mainnet -c "SE
 docker exec --user postgres dusk-db bash /keeper-migrations/initialize.sh > /dev/null
 connection="host=db.dusk.omnipair.fi hostaddr=127.0.0.1 port=5432 user=dusk_app dbname=dusk_mainnet"
 export PGPASSWORD=BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
-psql "$connection sslmode=verify-full sslrootcert=$scratch/cert/ca.pem" -XAtqc 'SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()' | rg -qx t
+psql "$connection sslmode=verify-full sslrootcert=$scratch/cert/ca.pem" -XAtqc 'SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()' | grep -qx t
 if psql "$connection sslmode=disable" -XAtqc 'SELECT 1' >/dev/null 2>&1; then echo 'Non-TLS connection unexpectedly accepted'; exit 1; fi
 if psql "$connection sslmode=verify-full sslrootcert=/etc/ssl/certs/ca-certificates.crt" -XAtqc 'SELECT 1' >/dev/null 2>&1; then echo 'Untrusted certificate unexpectedly accepted'; exit 1; fi
 if psql "host=wrong.invalid hostaddr=127.0.0.1 port=5432 user=dusk_app dbname=dusk_mainnet sslmode=verify-full sslrootcert=$scratch/cert/ca.pem" -XAtqc 'SELECT 1' >/dev/null 2>&1; then echo 'Wrong hostname unexpectedly accepted'; exit 1; fi
