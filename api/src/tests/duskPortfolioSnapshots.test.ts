@@ -150,3 +150,27 @@ test('junior receipt replay retains the holder and requires authenticated retire
   group.juniorCohorts = [];
   assert.throws(() => projectPortfolioSource(source),/no cohort evidence/);
 });
+
+test('portfolio replay uses only the dated provider evidence saved with its captured bank',() => {
+  const fixture = portfolioFixture({ references: false }),group = fixture.source.groups[0];
+  const decoder = new BorshCoder(simulation.duskRawIdl());
+  const market = decoder.accounts.decode('Market',Buffer.from(group.marketAccount.data,'base64')) as any;
+  group.displayPriceObservations = ['base','quote'].map((side,index) => ({
+    observationId: String(index+1),mint: market[`${side}_side`].asset_mint.toBase58(),
+    decimals: Number(market[`${side}_side`].asset_decimals),priceUsd: index === 0 ? '2.5' : '1',
+    provider: 'jupiter',sourceTime: '2026-09-01T23:59:40.000Z',observedAt: '2026-09-01T23:59:41.000Z',
+    deploymentIdentitySha256: group.deploymentIdentitySha256,
+  }));
+  assert.equal(projectPortfolioSource(fixture.source).owners[0].valuations.netPositionValueUsd,'51.95');
+  assert.ok(projectPortfolioSource(fixture.source).owners[0].components.every(row => row.valuation.priceQualities.includes('external-observation')));
+  for (const failure of ['future','old','wrong-deployment']) {
+    const source = structuredClone(fixture.source);
+    for (const price of source.groups[0].displayPriceObservations!) {
+      if (failure === 'future') price.observedAt = '2026-09-02T00:00:01Z';
+      if (failure === 'old') price.sourceTime = '2026-09-01T23:58:00Z';
+      if (failure === 'wrong-deployment') price.deploymentIdentitySha256 = 'a'.repeat(64);
+    }
+    assert.equal(projectPortfolioSource(source).owners[0].valuations.netPositionValueUsd,null,failure);
+  }
+  assert.equal(projectPortfolioSource(fixture.source).owners[0].valuations.netPositionValueUsd,'51.95');
+});

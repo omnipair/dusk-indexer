@@ -9,7 +9,7 @@ import { ACTIVITY_EVENTS, ACTIVITY_METRICS, ActivityMetric, ActivityPriceBasis, 
 import { formatUsd, usdUnits } from './duskPortfolioMath';
 import { activePriceReferences, projectObservedPrices, projectReferencePrices } from './duskPriceMath';
 import { HistoryDeploymentQuery, historyDeploymentIdentities } from './duskHistoryDeployment';
-import { historyScanCovers, readHistoryScan } from './duskHistoryCoverage';
+import { historyScanCovers, marketCreationCovers, readHistoryScan } from './duskHistoryCoverage';
 
 const identity = (pin = loadPinnedProtocol()) => {
   return [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
@@ -195,13 +195,22 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
     if (page.rows.length<500) break;
     prices.clear();
   } while (true);
+  const created = await client.query<{ market: string; createdAt: string; createdSlot: string }>(`
+    SELECT market,created_slot::text AS "createdSlot",
+      to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt"
+    FROM dusk_ingestion.streamed_markets WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
+      AND market=ANY($5::text[]) AND created_at<=$6::timestamptz ORDER BY market`,[...active,[...byMarket.keys()],options.until]);
+  const creations = new Map(created.rows.map(row => [row.market,{ createdAt: row.createdAt,createdSlot: row.createdSlot }]));
   const summary = coverage.rows[0];
   digest.update(JSON.stringify(historyScan));
+  digest.update(JSON.stringify(created.rows));
   return {
     schemaVersion: 'dusk-market-activity.v1' as const,
     window: { since: options.since ? new Date(options.since).toISOString() : null,until: new Date(options.until).toISOString() },
     metrics: metricResponse(all),volumes: volumeResponse(all),events: count,swaps,
-    markets: [...byMarket].sort(([a],[b]) => a.localeCompare(b)).map(([market,value]) => ({ market,metrics: metricResponse(value.metrics),volumes: volumeResponse(value.metrics),events: value.events,swaps: value.swaps })),
+    markets: [...byMarket].sort(([a],[b]) => a.localeCompare(b)).map(([market,value]) => ({ market,metrics: metricResponse(value.metrics),volumes: volumeResponse(value.metrics),events: value.events,swaps: value.swaps,
+      ...(creations.has(market) ? { history: { ...creations.get(market)!,
+        completeFromCreation: summary.indexed === summary.projected && marketCreationCovers(historyScan,creations.get(market),options.until) } } : {}) })),
     coverage: { cluster: active[0],programId: active[1],idlSha256: active[2],protocolRevision: active[3],commitment: 'confirmed' as const,
       deploymentIdentitySha256: options.deploymentIdentitySha256,basis: 'recorded-economic-events.v1' as const,
       historyRangeComplete: summary.indexed === summary.projected && historyScanCovers(historyScan,options.since,options.until),historyScan,

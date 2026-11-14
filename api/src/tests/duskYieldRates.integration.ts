@@ -4,6 +4,7 @@ import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
 import { readTrailingSrlpRate, readYieldRates } from '../services/duskYieldRates';
+import { storeExternalPrices } from '../services/duskExternalPrices';
 import { Q64 } from './duskYieldCheckpointFixtures';
 import { key, observedMarket, streamedEvent, streamedIdentity, streamedSwapSnapshot, useFixtureReferences } from './duskStreamedFixtures';
 
@@ -121,4 +122,26 @@ test('a quiet market is measured at zero growth instead of being left out',() =>
 test('trailing windows outside one hour to ninety days are rejected',() => transaction(async client => {
   for (const windowMs of [3599_999,91*DAY,Number.NaN])
     await assert.rejects(trailing(client,windowMs),/Invalid trailing yield window/);
+}));
+
+
+test('floating-asset yield boundaries use their own dated provider observations without backdating current prices',() => transaction(async client => {
+  const mints = { baseMint: key(150),quoteMint: key(151) };
+  await seed(client,{ mints });
+  const save = async (boundary: string,seconds: number,hash = query.deploymentIdentitySha256) => {
+    const time = new Date(Date.parse(boundary)+seconds*1000).toISOString();
+    await storeExternalPrices(client,[{ mint: mints.baseMint,decimals: 9,priceUsd: '2.5',provider: 'jupiter',externalMint: mints.baseMint,sourceTime: time,observedAt: time },
+      { mint: mints.quoteMint,decimals: 6,priceUsd: '1',provider: 'jupiter',externalMint: mints.quoteMint,sourceTime: time,observedAt: time }],hash);
+  };
+  await save(query.since,1); await save(query.until,1); // Quotes observed after the bank cannot value it.
+  assert.equal((await readYieldRates(client,query)).markets[0].rates.claimableRatePct,null);
+  await save(query.since,-20,'f'.repeat(64)); await save(query.until,-20,'f'.repeat(64));
+  assert.equal((await readYieldRates(client,query)).markets[0].rates.claimableRatePct,null);
+  await save(query.since,-20); await save(query.until,-20);
+  const result = (await readYieldRates(client,query)).markets[0];
+  assert.equal(result.rates.missingMints.length,0);
+  assert.notEqual(result.rates.claimableRatePct,null);
+  assert.equal(result.provenance.initialPrice?.externalObservations.length,2);
+  const meta = { ...live,...mints };
+  assert.notEqual((await trailing(client,DAY,query.until,meta)).swapRatePct,null);
 }));

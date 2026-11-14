@@ -54,8 +54,7 @@ export async function captureStatisticsSnapshot(
       start = end - 86_400_000;
     if (
       through <= now &&
-      now - through < 120_000 &&
-      start > Date.parse(scan.releaseBlockTime)
+      now - through < 120_000
     ) {
       request = {
         since: new Date(start).toISOString(),

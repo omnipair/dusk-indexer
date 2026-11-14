@@ -3,6 +3,7 @@ import { PublicKey } from '@solana/web3.js';
 import { DuskPinnedProtocol } from '../config/duskProtocol';
 import { priceMarketBindings, projectMarketPrices } from './duskPriceMath';
 import { unsigned } from './duskYieldAccounting';
+import { withDisplayPriceObservations, DisplayPriceObservation } from './duskDisplayPrices';
 
 const NAD = 1_000_000_000n,U64 = (1n<<64n)-1n,U128 = (1n<<128n)-1n,USD_SCALE = 10n**36n;
 export type PortfolioKind = 'borrow'|'leverage'|'srlp'|'junior'|'base_hlp'|'quote_hlp';
@@ -120,6 +121,8 @@ export function projectPortfolioComponent(input: {
   /** Set only after validating same-bank retired-cohort evidence. */
   retiredHlp?: boolean;
   retiredJunior?: boolean;
+  displayPriceObservations?: DisplayPriceObservation[];
+  deploymentIdentitySha256?: string;
 }) {
   const market = nativeFields(input.market),state = nativeFields(input.state);
   const bound = priceMarketBindings(input.pin.dusk.programId,input.marketAddress,market);
@@ -182,7 +185,11 @@ export function projectPortfolioComponent(input: {
   }
   const priced = preview ? projectMarketPrices({ pin: input.pin,marketAddress: input.marketAddress,market,preview,
     slot: input.slot,blockTime: input.blockTime,references: input.references }) : null;
-  const valuation: PortfolioValuation = (input.retiredHlp || input.retiredJunior) ? valuePortfolioBalances(balances,[]) : priced ? valuePortfolioBalances(balances,priced.prices)
+  const display = priced && input.displayPriceObservations && input.deploymentIdentitySha256
+    ? withDisplayPriceObservations({ ...bound,state: { previewStatus: 'available' },
+      displayPrices: { observedAt: input.blockTime,prices: priced.prices } },
+      input.displayPriceObservations,[input.deploymentIdentitySha256]).displayPrices.prices : priced?.prices;
+  const valuation: PortfolioValuation = (input.retiredHlp || input.retiredJunior) ? valuePortfolioBalances(balances,[]) : priced ? valuePortfolioBalances(balances,display!)
     : { assetsUsd: null,debtUsd: null,netUsd: null,missingMints: [],priceQualities: [],rounding: 'down-36-decimals' };
   if (valuation.missingMints.length) issues.push('missing-price-reference');
   return { address: input.address,owner,market: input.marketAddress,kind: input.kind,balances,valuation,issues,

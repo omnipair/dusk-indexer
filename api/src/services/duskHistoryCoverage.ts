@@ -79,3 +79,14 @@ export function historyScanCovers(scan: HistoryScan | null,since: string | undef
   return Boolean(scan && since && Date.parse(since)>Date.parse(scan.releaseBlockTime)
     && Date.parse(until)<Date.parse(scan.throughBlockTime));
 }
+
+
+/** Creation observed inside this stream proves that the market had no earlier
+ * activity, even when a trailing day begins before the release was registered. */
+export function marketCreationCovers(scan: HistoryScan | null,creation: { createdAt: string; createdSlot: string } | undefined,until: string): boolean {
+  if (!scan || !creation) return false;
+  const slot = Number(creation.createdSlot),at = Date.parse(creation.createdAt),end = Date.parse(until);
+  return Number.isSafeInteger(slot) && slot>=Number(scan.firstSlot) && slot<=Number(scan.throughSlot)
+    && Number.isFinite(at) && at>Date.parse(scan.releaseBlockTime) && at<=end
+    && end<Date.parse(scan.throughBlockTime);
+}
