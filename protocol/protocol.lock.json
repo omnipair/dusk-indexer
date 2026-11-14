@@ -1,62 +1,62 @@
 {
   "$schema": "./protocol/schemas/protocol-lock.schema.json",
   "schemaVersion": 1,
-  "revision": "devnet-2026-11-14-main-grid",
+  "revision": "mainnet-2026-11-14",
   "status": "deployed",
-  "generatedAt": "2026-11-13T22:10:58.283Z",
+  "generatedAt": "2026-11-14T14:04:05.804Z",
   "source": {
     "repository": "https://github.com/omnipair/dusk",
-    "branch": "feat/devnet-main-grid-release",
-    "gitCommit": "474ddcf4fcaecd1ed055238f1105a0a1323d7313",
-    "note": "Both generated IDLs match the reviewed candidate. Finalized ProgramData executable bytes match the local release payload plus zero allocation padding."
+    "branch": "main",
+    "gitCommit": "0acc9057b53a0495571f1bbf8a18e5db0f2efd45",
+    "note": "Finalized program bytes and both Anchor IDLs match the tested production release bundle. Independent source verification passed for both programs."
   },
   "cluster": {
-    "name": "devnet",
-    "genesisHash": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
+    "name": "mainnet-beta",
+    "genesisHash": "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d"
   },
   "programs": [
     {
       "name": "dusk",
-      "programId": "9gEvWS1Vqxmd9qr9w5KpEN2PGcn9DN1rE5NptD1ZcqXH",
+      "programId": "DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj",
       "binary": {
-        "path": "on-chain (devnet)",
-        "sha256": "c55950bd00435270afd8a1a92aad1660660a25826a8ff108c787f6304298a899"
+        "path": "on-chain (mainnet-beta)",
+        "sha256": "047a30c6396791c962c62a958c1b099b12e5994bc07dfffc69d5bd2a91031b0a"
       },
       "idl": {
         "path": "protocol/idl/dusk.json",
-        "sha256": "b30882fc7e8d6b6187fb8f4836cfcfaff964aa5e7eaa162278efc5bcd812baab",
-        "canonicalSha256": "41514930e6b50197ea124cbeb2bea395286aca6935597b2945f92efb5affbdd1"
+        "sha256": "b78cbeef3301d2ba650e66065424356d410cbee94f43f2aea6912991ab79736a",
+        "canonicalSha256": "dfd05743bca263f84193acbe882d281cb532806928fa357fc4ce0f07a4ec383c"
       },
       "deployment": {
-        "programData": "HH1G4929meiudDbjNUcER4xZEr5oxeiYfztZPfw35HWN",
-        "deploySlot": 521965404,
-        "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
-        "allocatedBinaryBytes": 4017680
+        "programData": "58HpCNM5jydkig5bhy8BR77DJn2E3KcuD9hruj13mUqz",
+        "deploySlot": 469349657,
+        "upgradeAuthority": "EdYBBhu2PU84eNt6r8zPWkaxrxbXVAzVvAz3tR3XveRq",
+        "allocatedBinaryBytes": 4058688
       }
     },
     {
       "name": "leverage_delegate",
-      "programId": "5yeZJw1bNer5jq4GVNa7ifsgnM7ivxXQLCK6ro8EJ3Ue",
+      "programId": "DeLegABhDLREbDpwwcsbkHvDS5MwqKPAw1CJKoooUXFQ",
       "binary": {
-        "path": "on-chain (devnet)",
-        "sha256": "ddba1309507319e696fe55447396afe78ff933441531fe37cfef418a50d56a4e"
+        "path": "on-chain (mainnet-beta)",
+        "sha256": "0b62f3ea48dbddadf5935ec57f0de907bcf26b99793d6ce7c2155225097c5e6e"
       },
       "idl": {
         "path": "protocol/idl/leverage_delegate.json",
-        "sha256": "9ec0716753c6f6e235546df9cd9b24087e1e7e9d5a9ee73edde804b6a08d6221",
-        "canonicalSha256": "c2c7188aa2c099b45cc4055e17122f026a4cebf00df9729c6d7722d478f88895"
+        "sha256": "a5047b952378f89c34ee94823d033ad43727b99e27615b0645a347a463ec8524",
+        "canonicalSha256": "58f03db70f59e04ed594848bda54dcf5a05b4fa9ef31868c4d98273443321d22"
       },
       "deployment": {
-        "programData": "AtGU4f2RVkMLuaJ7TuT9QqZwRafxgy79iuKHirN69iLH",
-        "deploySlot": 521967168,
-        "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
-        "allocatedBinaryBytes": 1270928
+        "programData": "4VHNxPfE4w6hUj2RT1jPhP6FzRjno7V1ZDn52hH1vvqT",
+        "deploySlot": 469350143,
+        "upgradeAuthority": "EdYBBhu2PU84eNt6r8zPWkaxrxbXVAzVvAz3tR3XveRq",
+        "allocatedBinaryBytes": 1289240
       }
     }
   ],
   "sdk": {
     "package": "@omnipair/dusk-sdk",
-    "version": "2.24.1-next.20261114",
-    "sha256": "cf4ccde7b69c68fb15fd75034edefb1ac6298330cbad37d6e92c75668a1df603"
+    "version": "2.27.0",
+    "sha256": "9e34054a83f7bb8ced8cd61b36ab12d34053365ee4d2a25846ffef2f250fb3e5"
   }
 }

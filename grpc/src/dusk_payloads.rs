@@ -165,6 +165,8 @@ mod tests {
         ))
         .unwrap();
         let deployment = &mut frame["deployment"];
+        deployment["network"] = pin["cluster"]["name"].clone();
+        deployment["genesisHash"] = pin["cluster"]["genesisHash"].clone();
         let programs = pin["programs"].as_array().unwrap();
         let floor = programs
             .iter()

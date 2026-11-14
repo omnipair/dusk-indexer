@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "dusk-price-references.v1",
+  "cluster": "mainnet-beta",
+  "programId": "DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj",
+  "idlSha256": "dfd05743bca263f84193acbe882d281cb532806928fa357fc4ce0f07a4ec383c",
+  "protocolRevision": "mainnet-2026-11-14",
+  "effectiveFrom": "2026-11-14T14:04:05.804Z",
+  "references": [
+    {
+      "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "priceUsd": "1",
+      "usdStablecoin": true,
+      "note": "Circle native mainnet USDC, valued at its explicit USD peg. SOL and other assets require live prices; devnet demo values are never mainnet prices."
+    }
+  ]
+}

@@ -1,0 +1,94 @@
+{
+  "capturedAt": "2026-11-15",
+  "method": "AWS Price List API via authenticated local CLI, public on-demand rates; no discounts/credits",
+  "rates": {
+    "databaseHour": {
+      "usd": "0.4116000000",
+      "unit": "Hrs",
+      "sku": "3XYMP49R4PHJEXJV",
+      "usageType": "APS1-BoxUsage:c7i.2xlarge",
+      "operation": "RunInstances",
+      "publicationDate": "2026-11-14T01:29:26Z"
+    },
+    "singaporeMemoryGiBHour": {
+      "usd": "0.0055300000",
+      "unit": "hours",
+      "sku": "QS3CZ6GMHQ9NKE65",
+      "usageType": "APS1-Fargate-GB-Hours",
+      "operation": "",
+      "publicationDate": "2026-11-11T23:46:23Z"
+    },
+    "singaporeCpuHour": {
+      "usd": "0.0505600000",
+      "unit": "hours",
+      "sku": "YQWFZ9WNR4X9DUPX",
+      "usageType": "APS1-Fargate-vCPU-Hours:perCPU",
+      "operation": "",
+      "publicationDate": "2026-11-11T23:46:23Z"
+    },
+    "oregonCpuHour": {
+      "usd": "0.0404800000",
+      "unit": "hours",
+      "sku": "EKCCQUSFCBDDTKTS",
+      "usageType": "USW2-Fargate-vCPU-Hours:perCPU",
+      "operation": "",
+      "publicationDate": "2026-11-11T23:46:23Z"
+    },
+    "oregonMemoryGiBHour": {
+      "usd": "0.0044450000",
+      "unit": "hours",
+      "sku": "NTC2QZFJW79R5XVK",
+      "usageType": "USW2-Fargate-GB-Hours",
+      "operation": "",
+      "publicationDate": "2026-11-11T23:46:23Z"
+    },
+    "albLcuHour": {
+      "usd": "0.0080000000",
+      "unit": "LCU-Hrs",
+      "sku": "45KY3J5YX2QM6KS7",
+      "usageType": "APS1-LCUUsage",
+      "operation": "LoadBalancing:Application",
+      "publicationDate": "2026-11-11T15:36:21Z"
+    },
+    "albHour": {
+      "usd": "0.0252000000",
+      "unit": "Hrs",
+      "sku": "UXD3JNG6UAM79CW6",
+      "usageType": "APS1-LoadBalancerUsage",
+      "operation": "LoadBalancing:Application",
+      "publicationDate": "2026-11-11T15:36:21Z"
+    },
+    "natHour": {
+      "usd": "0.0590000000",
+      "unit": "Hrs",
+      "sku": "98TA3WPUP3A4AH4Y",
+      "usageType": "APS1-NatGateway-Hours",
+      "operation": "NatGateway",
+      "publicationDate": "2026-11-14T01:29:26Z"
+    },
+    "natGiB": {
+      "usd": "0.0590000000",
+      "unit": "GB",
+      "sku": "E9U985ZGMWKXKT47",
+      "usageType": "APS1-NatGateway-Bytes",
+      "operation": "NatGateway",
+      "publicationDate": "2026-11-14T01:29:26Z"
+    },
+    "gp3GiBMonth": {
+      "usd": "0.0960000000",
+      "unit": "GB-Mo",
+      "sku": "X8SY8CJFS8WV7VQN",
+      "usageType": "APS1-EBS:VolumeUsage.gp3",
+      "operation": "",
+      "publicationDate": "2026-11-14T01:29:26Z"
+    },
+    "ipv4Hour": {
+      "usd": "0.0050000000",
+      "unit": "Hrs",
+      "sku": "C8D8VMQRDHMB9KRU",
+      "usageType": "APS1-PublicIPv4:InUseAddress",
+      "operation": "",
+      "publicationDate": "2026-11-05T18:19:45Z"
+    }
+  }
+}

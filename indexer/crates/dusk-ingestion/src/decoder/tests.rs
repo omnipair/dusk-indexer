@@ -6,7 +6,7 @@ use {
     std::collections::BTreeSet,
 };
 
-const DUSK_EVENTS: [&str; 59] = [
+const DUSK_EVENTS: [&str; 60] = [
     "BorrowInterestAccrued",
     "BorrowInterestPaid",
     "BorrowPositionLiquidated",
@@ -48,6 +48,7 @@ const DUSK_EVENTS: [&str; 59] = [
     "OperatorChangeResolved",
     "OperatorChanged",
     "OperatorRevenueClaimed",
+    "OrphanedHlpClosed",
     "ProtocolAuctionConfigUpdated",
     "ProtocolAuctionRecipientsUpdated",
     "ProtocolAuctionConfigured",
@@ -70,7 +71,7 @@ const DUSK_EVENTS: [&str; 59] = [
 
 const DELEGATE_EVENTS: [&str; 2] = ["OrderProtocolFeePaid", "ProtectionExecuted"];
 
-const DELEGATE_INSTRUCTIONS: [&str; 18] = [
+const DELEGATE_INSTRUCTIONS: [&str; 19] = [
     "after_close_order",
     "before_stop_loss",
     "before_take_profit",
@@ -78,6 +79,7 @@ const DELEGATE_INSTRUCTIONS: [&str; 18] = [
     "cancel_leverage_entry_order",
     "cancel_leverage_order",
     "cancel_protection_order",
+    "close_protection_order",
     "create_hlp_order",
     "create_leverage_entry_order",
     "create_leverage_order",
@@ -305,10 +307,10 @@ fn anchor_tags_and_every_idl_discriminator_are_cryptographically_verified() {
     anchor_event_digest.reverse();
     assert_eq!(anchor_event_digest, ANCHOR_EVENT_CPI_TAG);
     let decoder = decoder();
-    assert_eq!(decoder.dusk.events.len(), 59);
+    assert_eq!(decoder.dusk.events.len(), 60);
     assert_eq!(decoder.dusk.instructions.len(), 79);
     assert_eq!(decoder.delegate.events.len(), 2);
-    assert_eq!(decoder.delegate.instructions.len(), 18);
+    assert_eq!(decoder.delegate.instructions.len(), 19);
 
     let mut idl: Value = serde_json::from_slice(DUSK_IDL).unwrap();
     idl["events"][0]["discriminator"][0] = json!(0);
@@ -715,6 +717,41 @@ fn all_pinned_account_declarations_decode_and_project_deterministically() {
 }
 
 #[test]
+fn leverage_order_projections_keep_historical_and_ema_triggers_distinct() {
+    let address = DUSK_PROGRAM_ID;
+    let common = serde_json::json!({
+        "owner": address, "market": address, "position": address,
+        "order_id": "1", "kind": "1", "staged_owner_token_account": address,
+        "staged_output_mint": address, "staged_output_amount": "0"
+    });
+    for (trigger, minimum) in [
+        ("trigger_closeout_price_nad", None),
+        ("trigger_price_nad", Some("0")),
+        ("trigger_price_nad", Some("50")),
+    ] {
+        let mut fields = common.clone();
+        fields[trigger] = serde_json::json!("1000000000");
+        if let Some(value) = minimum {
+            fields["min_owner_payout"] = serde_json::json!(value);
+        } else {
+            fields["staged_margin"] = serde_json::json!("0");
+        }
+        let result =
+            projections::build_product_projections("LeverageOrder", address, &fields).unwrap();
+        let portfolio = serde_json::to_value(result.portfolio.unwrap()).unwrap();
+        let keeper = serde_json::to_value(&result.keeper_discovery[0]).unwrap();
+        for projection in [portfolio, keeper] {
+            assert_eq!(projection[trigger], "1000000000");
+            assert_eq!(projection["min_owner_payout"].as_str(), minimum);
+            assert_eq!(
+                projection.get("trigger_closeout_price_nad").is_some(),
+                minimum.is_none()
+            );
+        }
+    }
+}
+
+#[test]
 fn shared_account_discriminators_never_override_runtime_owner_identity() {
     let decoder = decoder();
     let dusk_data = account_data(&decoder, PinnedProgram::Dusk, "Market");
@@ -953,7 +990,7 @@ fn oracle_candidate_matches_sdk_wire_bytes_without_promoting_the_pin() {
             )
             .is_err()
     );
-    assert_eq!(crate::PROTOCOL_REVISION, "devnet-2026-11-14-main-grid");
+    assert_eq!(crate::PROTOCOL_REVISION, "mainnet-2026-11-14");
 }
 
 #[test]
@@ -961,7 +998,8 @@ fn layout16_market_projects_continuous_auctions_without_moving_reserves() {
     let idl = include_bytes!(
         "../../../../../protocol/candidates/devnet-2026-11-14-main-grid/idl/dusk.json"
     );
-    let registry = ProgramRegistry::from_bytes(idl, DUSK_PROGRAM_ID).unwrap();
+    let candidate_id = "9gEvWS1Vqxmd9qr9w5KpEN2PGcn9DN1rE5NptD1ZcqXH";
+    let registry = ProgramRegistry::from_bytes(idl, candidate_id).unwrap();
     let bytes = include_bytes!("../../../../../api/src/tests/fixtures/market-layout16.bin");
     let (fields, padding) = registry
         .types

@@ -22,7 +22,7 @@ type Fixture=ReturnType<typeof fixture>;
 async function register(client:PoolClient,value:Fixture) {
   const body=JSON.stringify(value.pin),hash=createHash('sha256').update(body).digest('hex');
   await client.query('SELECT dusk_ingestion.record_deployment_interval($1,$2,$3,$4,$5,$6)',
-    [pinned.cluster,value.revision,value.first,value.through,hash,body]);
+    [value.pin.cluster.name,value.revision,value.first,value.through,hash,body]);
 }
 async function identity(client:PoolClient,value:Fixture,hash=pinned.dusk.idlCanonicalSha256) {
   await client.query('INSERT INTO dusk_ingestion.protocol_identities(cluster,program_id,idl_hash,protocol_revision) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING',
@@ -56,6 +56,25 @@ test('registered release accepts events from its first slot on and rejects old a
   const foreign='b'.repeat(64); await identity(client,value,foreign);
   await rejected(client,()=>source(client,value,value.first,foreign));
   assert.equal((await client.query('SELECT count(*) FROM dusk_ingestion.event_observations WHERE protocol_revision=$1',[value.revision])).rows[0].count,'3');
+}));
+
+test('registration accepts each supported cluster only with its exact genesis', () => transaction(async (client) => {
+  for (const [name, genesisHash] of [
+    ['devnet', 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG'],
+    ['mainnet-beta', '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d'],
+  ]) {
+    const value = fixture();
+    value.pin.cluster = { name, genesisHash };
+    await register(client, value);
+    const mismatch = fixture();
+    mismatch.pin.cluster = { name, genesisHash: name === 'devnet'
+      ? '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d'
+      : 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG' };
+    await rejected(client, () => register(client, mismatch));
+  }
+  const unsupported = fixture();
+  unsupported.pin.cluster.name = 'testnet';
+  await rejected(client, () => register(client, unsupported));
 }));
 
 test('deployment identity is immutable and the verified upper bound only advances',()=>transaction(async(client,value)=>{

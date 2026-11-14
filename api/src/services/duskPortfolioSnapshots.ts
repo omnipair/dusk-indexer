@@ -302,7 +302,7 @@ export async function captureDuskPortfolioSnapshots(dependencies?: {
     || Date.now()-Date.parse(catalog.streamTime)>maxCatalogAgeSeconds*1000) throw new Error('The Dusk stream is stale; portfolio discovery is not current');
   const root = process.env.DUSK_PROTOCOL_DIR?.trim() || resolve(__dirname,'../../../protocol');
   const references = parsePriceReferences(JSON.parse(readFileSync(process.env.DUSK_PRICE_REFERENCES_FILE?.trim()
-    || resolve(root,'devnet-price-references.json'),'utf8')),loadPinnedProtocol());
+    || resolve(root,'mainnet-price-references.json'),'utf8')),loadPinnedProtocol());
   const groups: PortfolioMarketSnapshot[] = [];
   // Valuations read finalized banks at or after the stream's slot, so every
   // discovered position exists at its valuation bank.

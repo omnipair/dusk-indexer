@@ -10,6 +10,7 @@ import {
   Subscriber,
 } from './duskSnapshotStream';
 import { openDuskChangeFeed, DuskChangeSink } from './duskChangeStream';
+import { allowsOrigin, corsOrigins } from '../utils/corsOrigins';
 
 export interface DuskSocketSources {
   payload: {
@@ -46,16 +47,17 @@ export function createDuskSocketServer(
   feeds = sources,
   origin = process.env.CORS_ORIGIN || '*',
 ) {
+  const allowedOrigins = corsOrigins(origin);
   const io = new Server(http, {
     path: '/socket.io',
     serveClient: false,
     transports: ['websocket'],
     maxHttpBufferSize: 16 * 1024,
-    cors: { origin },
+    cors: { origin: allowedOrigins },
     allowRequest: (req, done) =>
       done(
         null,
-        origin === '*' || !req.headers.origin || req.headers.origin === origin,
+        allowsOrigin(allowedOrigins, req.headers.origin),
       ),
   });
   let subscriptions = 0;

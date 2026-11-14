@@ -338,32 +338,41 @@ mod tests {
         assert_eq!(event_time(None, arrived), arrived);
     }
 
-    /// A real devnet swap, delivered the way the Helius datasource delivers it
-    /// (base64 transaction, meta converted to Carbon's types, no block), comes
-    /// back out of the pinned decoder with the native swap event.
+    /// A synthetic current-program transport fixture derived from a real
+    /// devnet capture. The archived capture remains unchanged; only the
+    /// in-memory program identity is rebound to test streaming through the
+    /// active decoder.
     #[test]
-    fn a_streamed_devnet_swap_decodes_its_event() {
+    fn a_streamed_current_program_swap_decodes_its_event() {
         let source = include_str!("../fixtures/swap-executed-layout15-devnet.json");
         let expected: serde_json::Value = serde_json::from_str(include_str!(
             "../fixtures/swap-executed-layout15-devnet.expected.json"
         ))
         .unwrap();
-        assert_eq!(
-            expected["programId"],
-            dusk_indexer_foundation::DUSK_PROGRAM_ID
-        );
-        assert_eq!(
-            expected["protocolRevision"],
-            dusk_indexer_foundation::PROTOCOL_REVISION
-        );
+        let original_id = expected["programId"].as_str().unwrap();
+        assert_eq!(expected["protocolRevision"], "devnet-2026-11-14-main-grid");
         let fixture: EncodedConfirmedTransactionWithStatusMeta =
             serde_json::from_str(source).unwrap();
-        let streamed = TransactionMetadata {
+        let mut streamed = TransactionMetadata {
             block_time: None,
             ..metadata_from_rpc(&fixture).unwrap()
         };
+        let keys = match &mut streamed.message {
+            solana_message::VersionedMessage::Legacy(message) => &mut message.account_keys,
+            solana_message::VersionedMessage::V0(message) => &mut message.account_keys,
+        };
+        for key in keys {
+            if key.to_string() == original_id {
+                *key = dusk_indexer_foundation::DUSK_PROGRAM_ID.parse().unwrap();
+            }
+        }
+        if let Some(logs) = &mut streamed.meta.log_messages {
+            for log in logs {
+                *log = log.replace(original_id, dusk_indexer_foundation::DUSK_PROGRAM_ID);
+            }
+        }
         let signature = streamed.signature.to_string();
-        let decoder = PinnedIdlDecoder::new("devnet").unwrap();
+        let decoder = PinnedIdlDecoder::new("mainnet-beta").unwrap();
         let observed = extract::decode_transaction(
             &decoder,
             &signature,

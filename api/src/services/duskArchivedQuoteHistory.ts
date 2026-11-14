@@ -48,8 +48,8 @@ const successors: Record<string, string> = {
 
 /** Historical display only. Each release keeps its original tuple, envelope,
  * IDL decoder and immutable source bytes; no rows are copied or relabelled. */
-export async function readArchivedQuoteHistory(client: PoolClient,query: QuoteHistoryQuery, revision: string) {
-  const active = loadPinnedProtocol();
+export async function readArchivedQuoteHistory(client: PoolClient,query: QuoteHistoryQuery, revision: string,
+  active = loadPinnedProtocol()) {
   if (!Object.prototype.hasOwnProperty.call(successors, revision) || revision === active.revision
       || active.revision !== ACTIVE_REVISION)
     throw Object.assign(new Error('Unsupported quote archive'),{status:400});

@@ -12,7 +12,7 @@ test('database hints require a complete active identity and a valid release slot
   const valid = { cluster: pin.cluster, programId: pin.dusk.programId, idlHash: pin.dusk.idlCanonicalSha256,
     protocolRevision: pin.revision, slot: pin.historyFirstSlot };
   assert.deepEqual(parseDuskReadChange(JSON.stringify(valid)), { kind: 'change', sourceSlot: pin.historyFirstSlot });
-  for (const patch of [{ cluster: 'mainnet-beta' }, { programId: 'wrong' }, { idlHash: '0'.repeat(64) },
+  for (const patch of [{ cluster: pin.cluster === 'mainnet-beta' ? 'devnet' : 'mainnet-beta' }, { programId: 'wrong' }, { idlHash: '0'.repeat(64) },
     { protocolRevision: 'old' }, { slot: pin.historyFirstSlot - 1 }, { slot: null }, { slot: '1' },
     { slot: Number.MAX_SAFE_INTEGER + 1 }, { slot: 1.5 }])
     assert.equal(parseDuskReadChange(JSON.stringify({ ...valid, ...patch })), null);

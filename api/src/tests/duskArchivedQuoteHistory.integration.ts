@@ -11,6 +11,7 @@ import {verifyStoredPriceCapture,StoredPriceCapture} from '../services/duskPrice
 
 if(process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS!=='true'||!process.env.DATABASE_URL) throw new Error('Disposable database required');
 after(()=>pool.end());
+const devnetActive = loadProtocolAt(resolve(__dirname,'../../../protocol/archive/devnet-2026-11-14-main-grid'));
 for (const [revision, suffix] of [[ARCHIVED_QUOTE_REVISION, ''], [PREVIOUS_QUOTE_REVISION, '-1fa72d3']]) {
 const root=resolve(__dirname,'../../../protocol/archive',revision),pin=loadProtocolAt(root);
 const coder=new BorshCoder(JSON.parse(readFileSync(resolve(root,'idl/dusk.json'),'utf8')) as Idl);
@@ -32,7 +33,7 @@ test(`${revision}: archived candles retain their original evidence and remain ex
       await client.query('INSERT INTO dusk_ingestion.market_quote_projections(capture_id,base_mint,quote_mint,base_decimals,quote_decimals,base_spot_price_nad,quote_spot_price_nad) VALUES($1,$2,$3,$4,$5,$6,$7)',[inserted.rows[0].capture_id,b.baseMint,b.quoteMint,b.baseDecimals,b.quoteDecimals,projected.spotPrices.base,projected.spotPrices.quote]);
     }
     const query={market:'7Rjrf8i81hZihsuFdPfzTaP6SiQ3JEmQs7Hfg7YNjkNm',side:'base' as const,since:'2026-09-14T00:00:00Z',until:'2026-09-18T11:28:00Z',resolutionSeconds:900,deploymentIdentitySha256:envelopes[0].deploymentIdentitySha256};
-    const archived=await readArchivedQuoteHistory(client,query,revision);
+    const archived=await readArchivedQuoteHistory(client,query,revision,devnetActive);
     assert.equal(archived.history.coverage.protocolRevision,pin.revision);
     assert.ok(archived.history.candles.length > 0);
     // Saved preview captures carry no swap start price.
@@ -44,7 +45,10 @@ test(`${revision}: archived candles retain their original evidence and remain ex
     } else {
       assert.ok(Number(archived.history.coverage.firstSourceSlot) > 499930981);
     }
-    assert.ok(Number(archived.history.coverage.lastSourceSlot)<loadPinnedProtocol().dusk.deployment.deploySlot);
+    assert.ok(Number(archived.history.coverage.lastSourceSlot)<devnetActive.dusk.deployment.deploySlot);
+    // The default mainnet read must never serve this devnet lineage.
+    assert.equal(loadPinnedProtocol().cluster,'mainnet-beta');
+    await assert.rejects(readArchivedQuoteHistory(client,query,revision),/Unsupported/);
     assert.equal((await readQuoteHistory(client,query)).candles.length,0);
     await assert.rejects(readArchivedQuoteHistory(client,query,'unknown'),/Unsupported/);
   } finally {await client.query('ROLLBACK');client.release();}

@@ -1,0 +1,28 @@
+{
+  "account": "009853298730",
+  "primaryRegion": "ap-southeast-1",
+  "indexerRegion": "us-west-2",
+  "apiCertificateArn": "arn:aws:acm:ap-southeast-1:009853298730:certificate/17a25c2a-2042-48ac-b2d2-57cf549a9c68",
+  "kms": {
+    "lending": {
+      "keyArn": "arn:aws:kms:us-east-1:009853298730:key/ef212f1b-013d-4eca-95f4-d96b4cbdcea7",
+      "publicKey": "FuHpTy934etQ7SMerdaij8sHGScf91oCBRbbtU4D5oEd"
+    },
+    "leverage": {
+      "keyArn": "arn:aws:kms:us-east-1:009853298730:key/84c73eb6-1c04-47c0-a52e-81512a7ccd46",
+      "publicKey": "5jw5Tj5FX8xm691NkKDJonUMZR1zmDng31frQ5yszRpi"
+    },
+    "hlp-recovery": {
+      "keyArn": "arn:aws:kms:us-east-1:009853298730:key/6ff0c491-5568-412b-9df5-794b07bfc682",
+      "publicKey": "4QGby7wF9GQLSt2JfUf3Wfs6wsECDRWA6ffnLmqtspQE"
+    },
+    "auction-arbitrage": {
+      "keyArn": "arn:aws:kms:us-east-1:009853298730:key/fb65a3ce-8ca9-47a5-97e5-783daf896484",
+      "publicKey": "J4Csj4QX9UzmVwyMEBTJctmRKQUEwX5ExpGtDtDspMm5"
+    },
+    "lifecycle": {
+      "keyArn": "arn:aws:kms:us-east-1:009853298730:key/57b6043b-d82b-49e7-b890-641023cdc0f4",
+      "publicKey": "D7V9MGmMTUhVFkVjtVtp327iypFhuspdNU4dFdcBiFPT"
+    }
+  }
+}

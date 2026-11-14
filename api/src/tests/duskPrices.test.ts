@@ -33,7 +33,7 @@ test('missing or not-yet-effective references leave prices unavailable rather th
 });
 test('reference policies reject other networks, revisions and duplicate mints',() => {
   const refs = priceFixture().references;
-  assert.throws(() => parsePriceReferences({ ...refs,cluster: 'mainnet-beta' },pin),/identity/);
+  assert.throws(() => parsePriceReferences({ ...refs,cluster: pin.cluster === 'mainnet-beta' ? 'devnet' : 'mainnet-beta' },pin),/identity/);
   assert.throws(() => parsePriceReferences({ ...refs,protocolRevision: 'old' },pin),/identity/);
   assert.throws(() => parsePriceReferences({ ...refs,references: [...refs.references,...refs.references] },pin),/Duplicate/);
 });
@@ -44,8 +44,8 @@ test('a USD stablecoin is an explicit one-dollar peg, and unmarked references no
   assert.deepEqual(Object.keys(parsePriceReferences(refs,pin).references[0]),['mint','priceUsd','note']);
   for (const change of [{ usdStablecoin: false },{ usdStablecoin: 'true' },{ usdStablecoin: true,priceUsd: '0.99' }])
     assert.throws(() => parsePriceReferences({ ...refs,references: [{ ...reference,...change }] },pin),/stablecoin/);
-  const devnet = parsePriceReferences(JSON.parse(readFileSync(resolve(__dirname,'../../../protocol/devnet-price-references.json'),'utf8')),pin);
-  assert.deepEqual(devnet.references.filter((entry) => entry.usdStablecoin).map((entry) => entry.mint),['G8XEiNtP7TZ2cZRbUdtcPoc3C19T2GgYxTJqBpWz5ZDV']);
+  const mainnet = parsePriceReferences(JSON.parse(readFileSync(resolve(__dirname,'../../../protocol/mainnet-price-references.json'),'utf8')),pin);
+  assert.deepEqual(mainnet.references.filter((entry) => entry.usdStablecoin).map((entry) => entry.mint),['EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v']);
 });
 test('before a first swap only each mint\'s own dated reference prices a market',() => {
   const fixture = priceFixture(),at = '2026-09-02T00:00:00Z';

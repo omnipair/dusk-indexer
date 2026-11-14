@@ -9,6 +9,7 @@ import dotenv from 'dotenv';
 import routes from './routes';
 import { errorHandler, notFound } from './middleware/errorHandler';
 import { perfMetrics } from './utils/perfMetrics';
+import { corsOrigins } from './utils/corsOrigins';
 
 dotenv.config();
 
@@ -21,7 +22,7 @@ app.use('/docs-assets', express.static(path.join(__dirname, '../public')));
 app.use(compression());
 app.use(helmet());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: corsOrigins(),
   credentials: true,
   exposedHeaders: ['Retry-After', 'x-request-id']
 }));
