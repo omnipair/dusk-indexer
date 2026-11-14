@@ -33,7 +33,8 @@ SQL
     # The captured files each own one flat BEGIN/COMMIT transaction. Keep the
     # schema and its checksum ledger in the same atomic commit.
     sed '/^BEGIN;$/d; /^COMMIT;$/d' "$name"
-    printf "INSERT INTO keeper_release.applied_migrations VALUES ('%s','%s',now());\nCOMMIT;\n\\endif\n" "$name" "$checksum"
+    printf "INSERT INTO keeper_release.applied_migrations VALUES ('%s','%s',now());\nCOMMIT;\n" "$name" "$checksum"
+    printf '%s\n' '\endif'
     } >> "$script"
   done < SHA256SUMS
   printf 'SELECT pg_advisory_unlock(482193016);\n' >> "$script"

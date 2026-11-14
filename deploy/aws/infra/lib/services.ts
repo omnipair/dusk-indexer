@@ -252,7 +252,10 @@ export class ServicesStack extends Stack {
       listener.addTargets('GrpcWeb', {
         priority: 20, conditions: [elb.ListenerCondition.hostHeaders(['grpc.dusk.omnipair.fi']), elb.ListenerCondition.httpHeader('content-type', ['application/grpc-web*'])],
         port: 50051, protocol: elb.ApplicationProtocol.HTTP, protocolVersion: elb.ApplicationProtocolVersion.HTTP1,
-        targets: [services['dusk-grpc']], healthCheck: { path: '/grpc.health.v1.Health/Check', healthyHttpCodes: '200' },
+        // tonic-web rejects an HTTP/1 GET without grpc-web content type with
+        // HTTP400. This probe checks the web transport; the second target group
+        // below still requires a successful real gRPC health response (code0).
+        targets: [services['dusk-grpc']], healthCheck: { path: '/grpc.health.v1.Health/Check', healthyHttpCodes: '400' },
       });
       const grpcTarget = listener.addTargets('Grpc', {
         priority: 30, conditions: [elb.ListenerCondition.hostHeaders(['grpc.dusk.omnipair.fi'])],
