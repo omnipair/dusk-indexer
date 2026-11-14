@@ -232,12 +232,18 @@ export function loadProtocolAt(root: string): DuskPinnedProtocol {
   }
 
   const dusk=loadProgram(duskEntry,root),leverageDelegate=loadProgram(delegateEntry,root);
-  if (lock.cluster?.name!=='devnet' || lock.cluster.genesisHash!=='EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG')
-    throw new Error('Protocol lock must identify Solana devnet');
+  const cluster = requireString(lock.cluster?.name, 'cluster.name');
+  const genesisHash = requireString(lock.cluster?.genesisHash, 'cluster.genesisHash');
+  const genesisByCluster: Record<string, string> = {
+    devnet: 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG',
+    'mainnet-beta': '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d',
+  };
+  if (genesisByCluster[cluster] !== genesisHash)
+    throw new Error('Protocol lock must identify the exact supported Solana cluster and genesis');
   const pin = {
     revision: requireString(lock.revision, 'revision'),
-    cluster: requireString(lock.cluster?.name, 'cluster.name'),
-    genesisHash: requireString(lock.cluster?.genesisHash, 'cluster.genesisHash'),
+    cluster,
+    genesisHash,
     dusk,
     leverageDelegate,
     historyFirstSlot:Math.max(dusk.deployment.deploySlot,leverageDelegate.deployment.deploySlot)+1,

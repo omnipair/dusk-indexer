@@ -19,7 +19,7 @@ interface Packet {
   event: string;
   data: string;
 }
-async function harness(t: TestContext, acknowledge = true) {
+async function harness(t: TestContext, acknowledge = true, origin = 'https://webapp.example') {
   let revision = 'r1',
     identity = 'a'.repeat(64),
     reads = 0;
@@ -56,7 +56,7 @@ async function harness(t: TestContext, acknowledge = true) {
           subscribe: () => () => {},
         }),
     },
-    'https://webapp.example',
+    origin,
   );
   http.listen(0, '127.0.0.1');
   await once(http, 'listening');
@@ -68,11 +68,11 @@ async function harness(t: TestContext, acknowledge = true) {
     clients.forEach((client) => client.disconnect());
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
-  const client = async () => {
+  const client = async (browserOrigin = 'https://webapp.example') => {
     const socket = io(url, {
       transports: ['websocket'],
       reconnection: false,
-      extraHeaders: { Origin: 'https://webapp.example' },
+      extraHeaders: { Origin: browserOrigin },
     });
     clients.push(socket);
     socket.on('dusk:frame', (_packet: Packet, ack: () => void) => {
@@ -270,6 +270,19 @@ test('websocket handshake enforces the configured browser origin', async (t) => 
   t.after(() => client.disconnect());
   await next(client, 'connect_error');
   assert.equal(h.server.of('/').sockets.size, 1);
+});
+
+test('websocket release preview can share the exact production origin allowlist', async t => {
+  const h = await harness(t, true, 'https://webapp.example,https://release.example');
+  const preview = await h.client('https://release.example');
+  assert.equal(preview.connected, true);
+  const untrusted = io(h.url, {
+    transports: ['websocket'], reconnection: false,
+    extraHeaders: { Origin: 'https://release.example.attacker.test' },
+  });
+  t.after(() => untrusted.disconnect());
+  await next(untrusted, 'connect_error');
+  assert.equal(h.server.of('/').sockets.size, 2);
 });
 
 test('brief acknowledgement latency queues frames in sequence instead of dropping the subscription', async (t) => {

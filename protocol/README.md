@@ -1,4 +1,19 @@
-# Dusk devnet protocol pin
+# Dusk mainnet protocol pin
+
+The active revision is `mainnet-2026-11-14`, from deployed Dusk commit `0acc9057b53a0495571f1bbf8a18e5db0f2efd45`. Both mainnet programs and published Anchor IDLs match the tested production release and passed independent source verification. The exact registry SDK is `@omnipair/dusk-sdk@2.27.0`.
+
+- Dusk: `DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj`, deployed at slot 469349657.
+- Delegate: `DeLegABhDLREbDpwwcsbkHvDS5MwqKPAw1CJKoooUXFQ`, deployed at slot 469350143.
+- The complete revision begins at **469350144**. Use fresh mainnet cursors and a mainnet database identity. No production market was created during this release.
+
+The former active devnet pin, IDLs, executable and price policy are preserved byte-for-byte in `archive/devnet-2026-11-14-main-grid/`. Do not relabel their observations or reuse their cursors. Historical devnet quote lineage remains isolated from mainnet reads.
+
+`mainnet-price-references.json` provides only the explicit native USDC dollar peg. SOL and other assets require event-time provider prices or native market-derived references; devnet demo prices are not mainnet valuations. An environment override must carry the exact active identity.
+
+See [mainnet rollout](../docs/mainnet-release.md) for deployment and acceptance steps.
+
+## Historical devnet release notes
+
 
 The active revision is `devnet-2026-11-09-fresh-layout14`. Dusk is
 `2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y`; the delegate is

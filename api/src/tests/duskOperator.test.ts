@@ -6,7 +6,7 @@ import type { Connection } from '@solana/web3.js';
 import { captureMarketOperator } from '../services/duskOperator';
 import type { DuskDeploymentEnvelope } from '../services/duskDeploymentService';
 import { createVirtualBookRuntime } from '../services/virtualBook/native';
-import fixture from './fixtures/virtual-book-layout16.json';
+import fixture from './fixtures/virtual-book-layout17.json';
 
 async function setup() {
   const raw = fixture.result.value.accounts[0];

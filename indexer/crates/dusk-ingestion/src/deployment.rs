@@ -66,8 +66,14 @@ impl DeploymentPin {
         let invalid =
             || FoundationError::InvalidProtocolLock("invalid deployed program identity".into());
         if pin.revision != PROTOCOL_REVISION
-            || pin.cluster.name != "devnet"
-            || pin.cluster.genesis_hash != "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
+            || !matches!(
+                (pin.cluster.name.as_str(), pin.cluster.genesis_hash.as_str()),
+                ("devnet", "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG")
+                    | (
+                        "mainnet-beta",
+                        "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d"
+                    )
+            )
             || pin.programs.len() != 2
         {
             return Err(invalid());
@@ -201,7 +207,7 @@ mod tests {
     #[test]
     fn interval_starts_after_both_programs_are_active() {
         let pin = pinned_deployment().unwrap();
-        assert_eq!(pin.first_slot(), 521_967_169);
+        assert_eq!(pin.first_slot(), 469_350_144);
         let archived: serde_json::Value = serde_json::from_str(include_str!(
             "../../../../protocol/archive/next-2026-10-31-layouts/protocol.lock.json"
         ))
@@ -228,7 +234,7 @@ mod tests {
         let historical = pinned_deployment().unwrap();
         let current = current_deployment().unwrap();
         assert_eq!(historical.revision, current.revision);
-        assert_eq!(historical.first_slot(), 521_967_169);
+        assert_eq!(historical.first_slot(), 469_350_144);
         let metadata: serde_json::Value = serde_json::from_str(include_str!(
             "../../../../protocol/compatible-deployment.json"
         ))
@@ -324,9 +330,26 @@ mod tests {
                         serde_json::json!("invalid")
                 }
                 "duplicate" => lock["programs"][1] = lock["programs"][0].clone(),
-                _ => lock["cluster"]["name"] = serde_json::json!("mainnet-beta"),
+                _ => lock["cluster"]["name"] = serde_json::json!("testnet"),
             }
             assert!(DeploymentPin::from_value(lock).is_err(), "{case}");
+        }
+    }
+
+    #[test]
+    fn releases_require_the_exact_genesis_for_the_selected_cluster() {
+        for (cluster, genesis) in [
+            ("devnet", "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"),
+            (
+                "mainnet-beta",
+                "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d",
+            ),
+        ] {
+            let mut lock = vendored_protocol_lock();
+            lock["cluster"] = serde_json::json!({"name":cluster,"genesisHash":genesis});
+            assert!(DeploymentPin::from_value(lock.clone()).is_ok());
+            lock["cluster"]["genesisHash"] = serde_json::json!("another-network");
+            assert!(DeploymentPin::from_value(lock).is_err());
         }
     }
 }
