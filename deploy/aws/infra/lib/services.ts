@@ -251,13 +251,21 @@ export class ServicesStack extends Stack {
         targets: [services['dusk-api']], healthCheck: { path: '/api/dusk/v1/deployment', healthyHttpCodes: '200', interval: Duration.seconds(30) },
         deregistrationDelay: Duration.seconds(60),
       });
-      listener.addTargets('GrpcWeb', {
+      const grpcWebTarget = listener.addTargets('GrpcWeb', {
         priority: 20, conditions: [elb.ListenerCondition.hostHeaders(['grpc.dusk.omnipair.fi']), elb.ListenerCondition.httpHeader('content-type', ['application/grpc-web*'])],
         port: 50051, protocol: elb.ApplicationProtocol.HTTP, protocolVersion: elb.ApplicationProtocolVersion.HTTP1,
         // tonic-web rejects an HTTP/1 GET without grpc-web content type with
         // HTTP400. This probe checks the web transport; the second target group
         // below still requires a successful real gRPC health response (code0).
         targets: [services['dusk-grpc']], healthCheck: { path: '/grpc.health.v1.Health/Check', healthyHttpCodes: '400' },
+      });
+      // Browser preflight has Access-Control-Request-Headers, but no grpc-web
+      // Content-Type. Send OPTIONS to HTTP/1 so tonic's CORS layer can answer;
+      // the native gRPC target group rejects non-gRPC requests at the ALB.
+      listener.addAction('GrpcWebPreflight', {
+        priority: 15,
+        conditions: [elb.ListenerCondition.hostHeaders(['grpc.dusk.omnipair.fi']), elb.ListenerCondition.httpRequestMethods(['OPTIONS'])],
+        action: elb.ListenerAction.forward([grpcWebTarget]),
       });
       const grpcTarget = listener.addTargets('Grpc', {
         priority: 30, conditions: [elb.ListenerCondition.hostHeaders(['grpc.dusk.omnipair.fi'])],

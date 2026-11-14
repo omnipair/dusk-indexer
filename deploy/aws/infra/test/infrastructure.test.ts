@@ -48,6 +48,14 @@ test('service parity, immutable images, network boundaries and isolated signer p
   assert.ok(fleetSerialized.includes('t3a.medium'));
   assert.ok(fleetSerialized.includes('169.254.169.254/32'));
   assert.ok(!fleetSerialized.includes('"Privileged":true'));
+  const webTargets = Object.entries(fleetTemplate.findResources('AWS::ElasticLoadBalancingV2::TargetGroup')) as [string, any][];
+  const webTarget = webTargets.find(([, resource]) => resource.Properties.Port === 50051 && resource.Properties.ProtocolVersion === 'HTTP1');
+  assert.ok(webTarget);
+  const listenerRules = Object.values(fleetTemplate.findResources('AWS::ElasticLoadBalancingV2::ListenerRule')) as any[];
+  const preflight = listenerRules.find(rule => rule.Properties.Conditions.some((condition: any) => condition.Field === 'http-request-method' && condition.HttpRequestMethodConfig.Values.includes('OPTIONS')));
+  assert.ok(preflight, 'gRPC-Web preflight needs an HTTP/1 route before native gRPC');
+  assert.ok(preflight.Properties.Conditions.some((condition: any) => condition.Field === 'host-header' && condition.HostHeaderConfig.Values.includes('grpc.dusk.omnipair.fi')));
+  assert.equal(preflight.Properties.Actions[0].TargetGroupArn.Ref, webTarget[0]);
   indexerTemplate.resourceCountIs('AWS::ECS::Service', 1);
   assert.equal(parity.services.length, 14);
   for (const template of [fleetTemplate, indexerTemplate]) {
