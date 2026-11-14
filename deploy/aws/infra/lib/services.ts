@@ -101,7 +101,8 @@ export class ServicesStack extends Stack {
         requireImdsv2: true,
         cpuCredits: ec2.CpuCredits.UNLIMITED,
         userData: ec2.UserData.forLinux(),
-        blockDevices: [{ deviceName: '/dev/xvda', volume: ec2.BlockDeviceVolume.ebs(20, { encrypted: true, volumeType: ec2.EbsDeviceVolumeType.GP3 }) }],
+        // The ECS-optimized AL2023 AMI has a 30 GiB root snapshot.
+        blockDevices: [{ deviceName: '/dev/xvda', volume: ec2.BlockDeviceVolume.ebs(30, { encrypted: true, volumeType: ec2.EbsDeviceVolumeType.GP3 }) }],
       });
       const group = new autoscaling.AutoScalingGroup(this, 'SharedAppHosts', {
         vpc: props.network.vpc, vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
@@ -248,7 +249,7 @@ export class ServicesStack extends Stack {
       const apiTarget = listener.addTargets('Api', {
         priority: 10, conditions: [elb.ListenerCondition.hostHeaders(['api.dusk.omnipair.fi'])],
         port: 3000, protocol: elb.ApplicationProtocol.HTTP,
-        targets: [services['dusk-api']], healthCheck: { path: '/api/dusk/v1/deployment', healthyHttpCodes: '200', interval: Duration.seconds(30) },
+        targets: [services['dusk-api']], healthCheck: { path: '/api/dusk/v1/status', healthyHttpCodes: '200', interval: Duration.seconds(30) },
         deregistrationDelay: Duration.seconds(60),
       });
       const grpcWebTarget = listener.addTargets('GrpcWeb', {

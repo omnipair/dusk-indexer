@@ -2,7 +2,7 @@
 
 **Approved design:** the owner authorized the shared ECS setup and a USD 400/month planning budget on November 15, 2026. All fourteen services, five signing keys and backups are retained. Provisioning and rollout remain subject to the release checks below. No deployment step creates a market.
 
-The [shared ECS estimate](shared-cost-estimate.json) recomputes with `python3 scripts/estimate-shared.py`: USD 350.94/month at the stated usage, or USD 355.94 in the first month with certificate issuance. USD 400 is a planning amount, not a hard cap. Singapore uses a separate t3a.xlarge database and one shared t3a.medium ECS node; the Oregon daemon stays on Fargate.
+The [shared ECS estimate](shared-cost-estimate.json) recomputes with `python3 scripts/estimate-shared.py`: USD 351.90/month at the stated usage, or USD 356.90 in the first month with certificate issuance. USD 400 is a planning amount, not a hard cap. Singapore uses a separate t3a.xlarge database and one shared t3a.medium ECS node; the Oregon daemon stays on Fargate.
 
 This CDK project implements the reviewed [Railway parity snapshot](../railway-parity.json): one TimescaleDB, API, gRPC service, ingestion daemon, four projection workers and six native keeper profiles. Singapore hosts the database and twelve tasks; Oregon hosts the ingestion daemon. Vercel and v1 remain on their current infrastructure. Helius is reused.
 

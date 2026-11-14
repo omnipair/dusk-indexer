@@ -311,10 +311,10 @@
       "rate": "ipv4Hour"
     },
     {
-      "name": "90 GiB encrypted gp3: data50 plus two root20",
+      "name": "100 GiB encrypted gp3: data50 plus database root20 and ECS root30",
       "group": "Network and disks",
       "fixed": true,
-      "quantity": "90",
+      "quantity": "100",
       "rate": "gp3GiBMonth"
     },
     {
