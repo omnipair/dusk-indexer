@@ -1,4 +1,4 @@
-import { CfnOutput, CfnParameter, Duration, Fn, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
+import { ArnFormat, CfnOutput, CfnParameter, Duration, Fn, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
@@ -94,6 +94,12 @@ export class ServicesStack extends Stack {
         assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
         managedPolicies: [iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore')],
       });
+      // Service Connect polls task-set resources without the ecs:cluster
+      // context required by CDK's ordinary container-instance Poll grant.
+      hostRole.addToPolicy(new iam.PolicyStatement({
+        actions: ['ecs:Poll'],
+        resources: [this.formatArn({ service: 'ecs', resource: 'task-set', resourceName: `${cluster.clusterName}/*`, arnFormat: ArnFormat.SLASH_RESOURCE_NAME })],
+      }));
       const launchTemplate = new ec2.LaunchTemplate(this, 'AppLaunchTemplate', {
         instanceType: new ec2.InstanceType('t3a.medium'),
         machineImage: ecs.EcsOptimizedImage.amazonLinux2023(),

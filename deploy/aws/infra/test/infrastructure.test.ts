@@ -79,6 +79,10 @@ test('service parity, immutable images, network boundaries and isolated signer p
   }
   const statements = (Object.values(fleetTemplate.findResources('AWS::IAM::Policy')) as any[])
     .flatMap(policy => policy.Properties.PolicyDocument.Statement);
+  const serviceConnectPoll = statements.find(s => s.Action === 'ecs:Poll' && !s.Condition);
+  assert.ok(serviceConnectPoll, 'Service Connect needs task-set polling independent of the ordinary cluster context');
+  assert.ok(JSON.stringify(serviceConnectPoll.Resource).includes(':task-set/'));
+  assert.ok(!JSON.stringify(serviceConnectPoll.Resource).includes('task-set/*'), 'Poll stays scoped to this cluster');
   const signing = statements.filter(s => s.Action === 'kms:Sign');
   assert.equal(signing.length, 5);
   assert.equal(new Set(signing.map(s => s.Resource)).size, 5);
