@@ -41,6 +41,15 @@ test('service parity, immutable images, network boundaries and isolated signer p
   const grpcService = fleetServices.find(([name]) => name.startsWith('duskgrpcService'))!;
   assert.ok(grpcService[1].DependsOn.includes(apiService[0]), 'gRPC must discover the API endpoint after its service is created');
   const fleetTasks = Object.values(fleetTemplate.findResources('AWS::ECS::TaskDefinition')) as any[];
+  const alarms = Object.entries(fleetTemplate.findResources('AWS::CloudWatch::Alarm')) as [string, any][];
+  const snapshotMemory = alarms.find(([name]) => name.startsWith('duskportfoliosnapshotsMemoryUtilizationHigh'))![1].Properties;
+  assert.equal(snapshotMemory.Threshold,85);
+  assert.equal(snapshotMemory.EvaluationPeriods,3);
+  assert.equal(snapshotMemory.Metrics.find((metric:any)=>metric.Expression)?.Expression,'reserved * 0.125');
+  const keeperMemory = alarms.find(([name]) => name.startsWith('dusklendingkeeperMemoryUtilizationHigh'))![1].Properties;
+  assert.equal(keeperMemory.Metrics.find((metric:any)=>metric.Expression)?.Expression,'reserved * 0.0625');
+  const apiMemory = alarms.find(([name]) => name.startsWith('duskapiMemoryUtilizationHigh'))![1].Properties;
+  assert.equal(apiMemory.MetricName,'MemoryUtilization','Service Connect task alarms retain their complete task-memory denominator');
   assert.ok(fleetTasks.every(t => t.Properties.NetworkMode === 'bridge' && t.Properties.RequiresCompatibilities.includes('EC2')));
   const capacity = Object.values(fleetTemplate.findResources('AWS::AutoScaling::AutoScalingGroup')) as any[];
   fleetTemplate.resourceCountIs('AWS::AutoScaling::LaunchConfiguration', 0);
