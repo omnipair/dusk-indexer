@@ -117,6 +117,8 @@ export async function capturePayload(
                 selection.owner,
                 deployment,
                 controller.signal,
+                undefined,
+                observedAt,
               )
             : await captureStatisticsSnapshot(
                 selection.range,

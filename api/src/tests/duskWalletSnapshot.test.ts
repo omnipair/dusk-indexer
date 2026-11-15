@@ -124,6 +124,20 @@ test('wallet positions, exact quotes and orders share one complete bounded revis
   assert.equal(result.accounts, f.capturedAccounts);
 });
 
+test('auxiliary LP history is bounded by the original streamed wallet observation', async () => {
+  const f = await fixture();
+  const payloadObservedAt = Date.now() - 100;
+  let historyObservation: string | undefined;
+  f.deps.lpPerformance = async (_owner, _balances, deployment) => {
+    historyObservation = deployment.observedAt;
+    return [];
+  };
+  const result = await captureWalletSnapshot(f.dusk, {} as DuskReadBoundary,
+    f.selection.owner, f.deployment, undefined, f.deps, payloadObservedAt);
+  assert.equal(result.observedAt, payloadObservedAt);
+  assert.equal(historyObservation, new Date(result.observedAt).toISOString());
+});
+
 test('program-rejected quotes are explicit unavailable rows; transport errors reject the batch', async () => {
   const f = await fixture();
   f.deps.valuation = async () => {

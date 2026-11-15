@@ -24,11 +24,14 @@ test('LP capital is priced from canonical history and reconciled to streamed own
     await new Promise(resolve=>setTimeout(resolve,35));
     await client.query(`UPDATE dusk_ingestion.ingestion_cursors SET updated_at=$1 WHERE cluster=$2 AND protocol_revision=$3 AND stream_name='helius-atlas-ws'`,
       [at(20),streamedIdentity[0],streamedIdentity[3]]);
-    const envelope={...historyDeploymentFixture(),sourceSlot:900_100_500};
+    const envelope={...historyDeploymentFixture(),sourceSlot:900_100_500,observedAt:at(20)};
     const deployment={...envelope,deploymentIdentitySha256:deploymentIdentityFingerprint(envelope)};
     const balances=[{market:m.market,lpMint:m.srlp,kind:'srlp' as const,amount:'100'}];
     let [result]=await readLpPerformance(owner,balances,deployment,client);
     assert.equal(result.remainingBasisUsd,'100');assert.equal(result.claimedYieldUsd,'0');
+    const [earlier]=await readLpPerformance(owner,balances,{...deployment,observedAt:at(4)},client);
+    assert.equal(earlier.throughTime,at(4),'a later cursor must not advance the original wallet observation');
+    assert.equal(earlier.remainingBasisUsd,null,'a later deposit cannot value an earlier capture');
     await streamedEvent(client,'LpTransferred',{market:m.market,lp_mint:m.srlp,token_kind:'0',source_owner:owner,destination_owner:key(202),amount:'1'},900_100_020,at(10));
     [result]=await readLpPerformance(owner,balances,deployment,client);
     assert.equal(result.remainingBasisUsd,null,'a transfer needs its own acquisition basis');
