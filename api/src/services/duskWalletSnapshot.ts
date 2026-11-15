@@ -63,9 +63,9 @@ export async function captureWalletSnapshot(
   deployment: DuskDeploymentEnvelope,
   signal?: AbortSignal,
   deps = walletCaptureDependencies,
+  observedAt = Date.now(),
 ) {
-  const observedAt = Date.now(),
-    selection = { owner, kind: 'leverage' as const };
+  const selection = { owner, kind: 'leverage' as const };
   const accounts = await deps.accounts(dusk, selection, deployment, signal);
   const open = accounts.accounts.filter((row) => {
     const p = dusk.program.coder.accounts.decode<LeveragePosition>(
@@ -183,7 +183,11 @@ export async function captureWalletSnapshot(
   const cashFlows = await deps.cashFlows(owner,cashFlowPositions,deployment.sourceSlot).catch(() =>
     cashFlowPositions.map(p => ({address:p.address,market:p.market,openedSlot:p.openedSlot,
       sourceSlot:verified.sourceSlot,status:'unavailable' as const,reason:'history-unavailable' as const})));
-  const lpPerformance = await deps.lpPerformance(owner,hlpBalances.lpBalances,deployment).catch(() => []);
+  // Streams retain the wallet capture's original observation time. Auxiliary
+  // history must stop at that time even if ingestion advances during the read.
+  const lpPerformance = await deps.lpPerformance(owner,hlpBalances.lpBalances,{
+    ...deployment,observedAt:new Date(observedAt).toISOString(),
+  }).catch(() => []);
   for (const value of valuations) {
     if ('status' in value) continue;
     const raw = accounts.accounts.find(

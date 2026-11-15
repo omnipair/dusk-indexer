@@ -116,7 +116,7 @@ export async function readLpPerformance(owner: string,balances: StreamedLpBalanc
     const pin=loadPinnedProtocol(),active=[pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
     const scan=await readHistoryScan(client);
     if (!scan || Date.now()-Date.parse(scan.throughBlockTime)>30000) throw new Error('LP history is stale');
-    const until=new Date(Date.parse(scan.throughBlockTime)-1).toISOString();
+    const until=new Date(Math.min(Date.parse(scan.throughBlockTime)-1,Date.parse(deployment.observedAt))).toISOString();
     const catalog=await client.query<{market:string;srlp_mint:string;base_mint:string;quote_mint:string;base_decimals:number;quote_decimals:number;created_slot:string;created_at:Date}>(`
       SELECT market,srlp_mint,base_mint,quote_mint,base_decimals,quote_decimals,created_slot::text,created_at
       FROM dusk_ingestion.streamed_markets WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4

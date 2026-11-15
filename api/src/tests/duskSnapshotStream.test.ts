@@ -112,6 +112,24 @@ test('slow captures never overlap and disconnected results cannot reach clients'
   assert.equal(frames, 0);
   assert.equal(hub.size, 0);
 });
+
+test('depth waits for transit-safe frames and does not replay a nearly expired cached book', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100_000 });
+  const first = snapshot('near-expiry', 2000);
+  let next = first;
+  const hub = createVirtualBookHub(async () => next);
+  const early = client(hub);
+  await flush();
+  assert.deepEqual(early.frames, []);
+  next = snapshot('fresh');
+  t.mock.timers.tick(1000);
+  await flush();
+  assert.deepEqual(early.frames, ['fresh']);
+  t.mock.timers.tick(17_000);
+  const late = client(hub);
+  assert.deepEqual(late.frames, [], 'no cached frame with only two seconds left');
+  early.stop(); late.stop();
+});
 test('a passing capture failure keeps every subscriber on the latest frame', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100_000 });
   const warnings = quietWarnings(t);
@@ -176,7 +194,7 @@ test('a sustained failure ends exactly when the latest frame expires', async (t)
   await flush();
   assert.equal(closing.outages + passive.outages, 0);
   const late = client(hub);
-  assert.deepEqual(late.frames, ['r1']);
+  assert.deepEqual(late.frames, []);
   t.mock.timers.tick(1);
   await flush();
   assert.equal(Date.now(), captured.data.expiresAt);

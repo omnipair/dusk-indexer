@@ -55,6 +55,7 @@ export function snapshotFailureReason(error: unknown): string {
 export function createDuskSnapshotHub<S, T extends SnapshotValue>(
   read: (selection: S) => Promise<T | null>,
   keyFor: (selection: S) => string,
+  minimumDeliveryLifetimeMs = 0,
 ) {
   const topics = new Map<
     string,
@@ -116,7 +117,8 @@ export function createDuskSnapshotHub<S, T extends SnapshotValue>(
               fresh = true;
               state.failures = 0;
               state.outage = false;
-              if (snapshot.data.revision !== state.latest?.data.revision)
+              if (snapshot.data.expiresAt - Date.now() > minimumDeliveryLifetimeMs &&
+                  snapshot.data.revision !== state.latest?.data.revision)
                 publish(snapshot);
             }
           } catch (error) {
@@ -144,7 +146,7 @@ export function createDuskSnapshotHub<S, T extends SnapshotValue>(
         });
       }
       topic.listeners.add(subscriber);
-      if (topic.latest && topic.latest.data.expiresAt > Date.now())
+      if (topic.latest && topic.latest.data.expiresAt - Date.now() > minimumDeliveryLifetimeMs)
         subscriber.snapshot(topic.latest);
       const selected = topic;
       return () => {
@@ -168,6 +170,9 @@ export function createVirtualBookHub(read = currentVirtualBook) {
     read,
     (selection) =>
       `${selection.market}:${selection.groupingBps}:${selection.levels}`,
+    // Leave transit time for a late subscriber. Never extend the capture's
+    // original twenty-second expiry or deliver a nearly expired cached book.
+    2000,
   );
 }
 export const virtualBookHub = createVirtualBookHub();
