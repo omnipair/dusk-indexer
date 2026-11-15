@@ -25,7 +25,37 @@ npm run synth -- --no-lookups --quiet
 npm run synth -- --no-lookups --quiet -c services=true --output cdk.out.services
 ```
 
-The example contains public account, certificate, KMS ARNs and Solana wallet addresses only. Optional `browserOrigins` lists exact HTTPS origins for production and a verified owned release preview; REST, Socket.IO and gRPC use the same allowlist. Never allow all Vercel hostnames. `release.config.json` is ignored. Keep private material out of it. The account-specific availability-zone lookup is checked in; changing regions or account requires new measured sizing, network review and actual AZ lookup. Review `cdk diff` before every deployment. Never use production hotswap, Express mode or a wildcard service deployment with placeholder image digests.
+The example contains public account, certificate, KMS ARNs and Solana wallet addresses only. Optional `browserOrigins` lists exact HTTPS origins for production and verified owned previews; REST, Socket.IO and gRPC use the same allowlist. Never allow all Vercel hostnames. `release.config.json` is ignored. Keep private material out of it. The account-specific availability-zone lookup is checked in; changing regions or account requires new measured sizing, network review and actual AZ lookup. Review `cdk diff` before every deployment. Never use production hotswap, Express mode or a wildcard service deployment with placeholder image digests.
+
+### Mainnet frontend previews
+
+A server-rendered first page does not prove browser access. A preview built with
+mainnet settings also needs its exact origin in both AWS browser allowlists.
+Register an owned, ready preview using the authenticated Vercel CLI:
+
+```sh
+node scripts/register-preview.mjs \
+  --origin https://dusk-webapp-git-feat-first-visit-tour-omnipair.vercel.app \
+  --origin https://dusk-webapp-git-feat-beta-comments-omnipair.vercel.app
+# Review the public ownership receipt, then repeat with --write.
+```
+
+The helper verifies the immutable Vercel project/team IDs and GitHub repository
+identity through Vercel's API. It adds only each requested origin and the exact
+immutable deployment URL; it preserves existing origins and other configuration.
+`--write` changes only the local release configuration. It does not deploy or
+change Vercel environments. Keep the preview's SDK, network and backend settings
+on the matching mainnet identity, including its server-side Jupiter key.
+
+Run the infrastructure checks and inspect `cdk diff` for
+`DuskServicesSingapore` with every current CloudFormation image digest and
+`indexerCommit` parameter preserved. Deploy that stack exclusively. An origin-only
+change replaces the API/gRPC task definitions, so no new images, SDK publication,
+program upgrade, database or Oregon rollout are required. Keep image build
+provenance unchanged. Test REST and Socket.IO from the actual preview browser,
+gRPC-Web preflight, and rejection of an unrelated Vercel origin. Stable branch
+aliases remain allowed across redeployments; register a new immutable URL when
+testing a new deployment directly. Remove retired preview origins after review.
 
 CI synthesizes both phases without AWS credentials, checks IAM/network/parity invariants, and starts the exact pinned PostgreSQL 17.11 / TimescaleDB 2.29.2 image using synthetic AWS responses. It verifies certificate trust and hostname refusal, rejection of non-TLS access, non-superuser roles, idempotent keeper migrations, readable logical backups and certificate reload. CI uses 128 MB shared buffers because its runner is smaller; production keeps the measured 5722 MB setting.
 

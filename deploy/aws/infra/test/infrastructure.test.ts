@@ -30,7 +30,8 @@ test('service parity, immutable images, network boundaries and isolated signer p
   const westSpecs = parity.services.filter(s => s.name === 'dusk-indexer');
   const mainSecrets = new RuntimeSecretsStack(app, 'Secrets', { ...common, env: primaryEnv, services: mainSpecs });
   const westSecrets = new RuntimeSecretsStack(app, 'WestSecrets', { ...common, env: westEnv, services: westSpecs });
-  const fleet = new ServicesStack(app, 'Fleet', { ...common, env: primaryEnv, network: primary, registry, runtimeSecrets: mainSecrets, specs: mainSpecs, parity, config, primary: true });
+  const browserOrigins = ['https://beta.omnipair.fi', 'https://dusk-webapp-git-feat-test-omnipair.vercel.app'];
+  const fleet = new ServicesStack(app, 'Fleet', { ...common, env: primaryEnv, network: primary, registry, runtimeSecrets: mainSecrets, specs: mainSpecs, parity, config: { ...config, browserOrigins }, primary: true });
   const indexer = new ServicesStack(app, 'Indexer', { ...common, env: westEnv, network: west, registry, runtimeSecrets: westSecrets, specs: westSpecs, parity, config, primary: false });
   app.synth();
   const fleetTemplate = Template.fromStack(fleet);
@@ -42,6 +43,9 @@ test('service parity, immutable images, network boundaries and isolated signer p
   assert.ok(grpcService[1].DependsOn.includes(apiService[0]), 'gRPC must discover the API endpoint after its service is created');
   const fleetTasks = Object.values(fleetTemplate.findResources('AWS::ECS::TaskDefinition')) as any[];
   const apiTask = fleetTasks.find(task => task.Properties.ContainerDefinitions[0].Name === 'dusk-api')!;
+  const grpcTask = fleetTasks.find(task => task.Properties.ContainerDefinitions[0].Name === 'dusk-grpc')!;
+  assert.equal(apiTask.Properties.ContainerDefinitions[0].Environment.find((entry: any) => entry.Name === 'CORS_ORIGIN').Value, browserOrigins.join(','));
+  assert.equal(grpcTask.Properties.ContainerDefinitions[0].Environment.find((entry: any) => entry.Name === 'ALLOWED_ORIGINS').Value, browserOrigins.join(','));
   assert.equal(apiTask.Properties.Cpu, '1280', 'API task keeps one core plus Service Connect headroom');
   assert.equal(apiTask.Properties.ContainerDefinitions[0].Cpu, 1024);
   const reservedCpu = fleetTasks.reduce((sum, task) => sum + (task.Properties.Cpu
@@ -148,7 +152,7 @@ test('configuration rejects shared wallets, extra signers and mismatched geograp
   assert.throws(() => validateConfig(extra), /distinct/);
   const wrong = copy(); wrong.primaryRegion = 'us-east-1';
   assert.throws(() => validateConfig(wrong), /Railway/);
-  for (const origin of ['*', 'https://beta.omnipair.fi/path', 'http://beta.omnipair.fi']) {
+  for (const origin of ['*', 'https://*.vercel.app', 'https://beta.omnipair.fi/path', 'http://beta.omnipair.fi']) {
     const invalid = copy(); invalid.browserOrigins = [origin];
     assert.throws(() => validateConfig(invalid), /exact HTTPS/);
   }
