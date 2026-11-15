@@ -16,7 +16,7 @@ const executableAddresses = new Map<string,string>();
 const digest = (value: Uint8Array) => createHash('sha256').update(value).digest('hex');
 
 /** A distinct payer keeps the requested owner's balance unchanged by capture fees. */
-export async function captureLeverageQuoteBank(input: LeverageMaximumInput, keys: PublicKey[], payer: string, rpc: Connection): Promise<FrozenLeverageBank> {
+export async function captureLeverageQuoteBank(input: Pick<LeverageMaximumInput, 'minimumSourceSlot' | 'owner'>, keys: PublicKey[], payer: string, rpc: Connection): Promise<FrozenLeverageBank> {
   const unique = new Map(keys.map((key) => [key.toBase58(),key]));
   unique.set(SYSVAR_CLOCK_PUBKEY.toBase58(),SYSVAR_CLOCK_PUBKEY);
   unique.set(SYSVAR_RENT_PUBKEY.toBase58(),SYSVAR_RENT_PUBKEY);
