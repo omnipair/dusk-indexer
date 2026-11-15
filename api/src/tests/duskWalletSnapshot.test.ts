@@ -77,6 +77,7 @@ async function fixture() {
     f.deployment,
   );
   const deps: typeof walletCaptureDependencies = {
+    lpPerformance: async () => [],
     cashFlows: async (_owner, positions, sourceSlot) => positions.map(p=>({address:p.address,market:p.market,
       openedSlot:p.openedSlot,sourceSlot,status:'unavailable',reason:'history-unavailable'})),
     accounts: async () => accounts,

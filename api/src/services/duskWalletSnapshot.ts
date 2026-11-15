@@ -13,6 +13,7 @@ import { captureBorrowValuation, readStreamedBorrowPositions } from './duskBorro
 import { captureHlpPositions, readStreamedHlpBalances } from './duskHlpPositions';
 import { readLeverageCashFlows } from './duskLeverageCashFlows';
 import { readJuniorExitPositions } from './duskJuniorPositions';
+import { readLpPerformance } from './duskLpPerformance';
 
 /** Publish only complete batches; retain original per-observation slots. */
 export async function completeBatch<T, R>(
@@ -53,6 +54,7 @@ export const walletCaptureDependencies = {
   hlpPositions: captureHlpPositions,
   cashFlows: readLeverageCashFlows,
   juniorExits: readJuniorExitPositions,
+  lpPerformance: readLpPerformance,
 };
 export async function captureWalletSnapshot(
   dusk: Dusk,
@@ -181,6 +183,7 @@ export async function captureWalletSnapshot(
   const cashFlows = await deps.cashFlows(owner,cashFlowPositions,deployment.sourceSlot).catch(() =>
     cashFlowPositions.map(p => ({address:p.address,market:p.market,openedSlot:p.openedSlot,
       sourceSlot:verified.sourceSlot,status:'unavailable' as const,reason:'history-unavailable' as const})));
+  const lpPerformance = await deps.lpPerformance(owner,hlpBalances.lpBalances,deployment).catch(() => []);
   for (const value of valuations) {
     if ('status' in value) continue;
     const raw = accounts.accounts.find(
@@ -245,6 +248,7 @@ export async function captureWalletSnapshot(
     valuations,
     oracleValuations,
     cashFlows,
+    lpPerformance,
     borrowValuations,
     lpBalances: { basis: 'streamed-events.v1' as const, sourceSlot: hlpBalances.sourceSlot, balances: hlpBalances.lpBalances },
     juniorExits: { basis: 'streamed-events.v1' as const, sourceSlot: juniorExits.sourceSlot, positions: juniorExits.positions },

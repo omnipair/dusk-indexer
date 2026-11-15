@@ -104,6 +104,7 @@ async function fixture() {
     leverageDelegateProgramId: delegate.programId.toBase58(),
   };
   const deps: typeof walletCaptureDependencies = {
+    lpPerformance: async () => [],
     cashFlows: async () => [],
     oracle: async () => [],
     accounts: async () => ({
