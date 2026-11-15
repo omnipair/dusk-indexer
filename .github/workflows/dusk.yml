@@ -36,6 +36,7 @@ jobs:
           node --check deploy/aws/infra/scripts/aws-cli.mjs
           node --check deploy/aws/infra/scripts/seed-runtime.mjs
           node --check deploy/aws/infra/scripts/seed-provider-prices.mjs
+          node --check deploy/aws/infra/scripts/register-preview.mjs
       - name: Exercise production bootstrap on the exact pinned TimescaleDB image
         run: sudo --preserve-env=CI bash deploy/aws/infra/test/bootstrap-database.sh
   native-grpc:
