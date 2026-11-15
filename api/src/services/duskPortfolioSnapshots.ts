@@ -13,22 +13,25 @@ import { parsePriceReferences, priceMarketBindings } from './duskPriceMath';
 import { readStreamCursor } from './duskHistoryCoverage';
 import { readProviderPriceObservations, DisplayPriceObservation } from './duskDisplayPrices';
 import { assertRetiredHlpCohort, hlpCohortAddress } from './duskHlpCohort';
+import { readPortfolioIncomeItems,incomeAddresses,capturePortfolioIncomeArchives,projectPortfolioIncome } from './duskPortfolioIncome';
+import type { PortfolioIncomeItem,PortfolioIncomeEvidence,PortfolioIncomeProjection } from './duskPortfolioIncome';
 
 const identity = () => {
   const pin = loadPinnedProtocol();
   return [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision];
 };
 export interface PortfolioCatalogItem { address: string; market: string; owner: string; kind: PortfolioKind; sourceSlot: number; lpMint?: string }
-interface PortfolioMarketSnapshot extends MarketSimulationSnapshot { hlpCohorts?: MarketSimulationSnapshot['accounts']; juniorCohorts?: MarketSimulationSnapshot['accounts']; displayPriceObservations?: DisplayPriceObservation[] }
+interface PortfolioMarketSnapshot extends MarketSimulationSnapshot { hlpCohorts?: MarketSimulationSnapshot['accounts']; juniorCohorts?: MarketSimulationSnapshot['accounts']; displayPriceObservations?: DisplayPriceObservation[]; incomeEvidence?:PortfolioIncomeEvidence }
 interface PortfolioCandidateIdentity { cluster: string; programId: string; idlHash: string; protocolRevision: string }
 /** Archived events supply addresses only. Current-bank accounts decide their state and value. */
 export interface PortfolioCatalog {
   basis: 'streamed-events.v1' | 'streamed-event-candidates.v2'; throughSlot: number; streamTime: string; sourceFloor: number;
   markets: string[]; items: PortfolioCatalogItem[]; knownOwners: string[];
+  incomeItems?:PortfolioIncomeItem[];
   candidateIdentities?: PortfolioCandidateIdentity[];
 }
 export interface PortfolioCaptureSource {
-  schemaVersion: 'dusk-portfolio-capture.v2'; catalog: PortfolioCatalog; groups: PortfolioMarketSnapshot[];
+  schemaVersion: 'dusk-portfolio-capture.v2'|'dusk-portfolio-capture.v3'; catalog: PortfolioCatalog; groups: PortfolioMarketSnapshot[];
   references: unknown; observedAt: string; deploymentIdentitySha256: string; maxCatalogAgeSeconds: number;
 }
 const checkedSlot = (value: number) => {
@@ -104,14 +107,15 @@ export async function readPortfolioCatalog(client: PoolClient): Promise<Portfoli
     UNION SELECT owner FROM dusk_ingestion.streamed_borrow_positions WHERE ${programFilter} AND owner IS NOT NULL
     UNION SELECT owner FROM dusk_ingestion.streamed_leverage_positions WHERE ${programFilter} AND owner IS NOT NULL
     UNION SELECT owner FROM dusk_ingestion.streamed_lp_balances WHERE ${programFilter} AND owner IS NOT NULL`,active);
-  const knownOwners = [...new Set([...found.rows.map((row) => nativeKey(row.owner)),...pastOwners.rows.map((row) => nativeKey(row.owner))])].sort();
+  const incomeItems=await readPortfolioIncomeItems(client);
+  const knownOwners = [...new Set([...found.rows.map((row) => nativeKey(row.owner)),...pastOwners.rows.map((row) => nativeKey(row.owner)),...incomeItems.map(item=>item.owner)])].sort();
   if (items.length>100000 || knownOwners.length>100000) throw new Error('Portfolio catalog exceeds the bounded capture capacity');
   const throughSlot = checkedSlot(Number(stream.throughSlot));
   const hasArchivedCandidates = candidates.some((candidate) => candidate.idlHash !== active[2] || candidate.protocolRevision !== active[3]);
   return { basis: hasArchivedCandidates ? 'streamed-event-candidates.v2' : 'streamed-events.v1',
     ...(hasArchivedCandidates ? { candidateIdentities: candidates } : {}),
     throughSlot,streamTime: stream.time.toISOString(),sourceFloor: throughSlot,
-    markets: marketAddresses,items: items.sort((a,b) => a.address.localeCompare(b.address)),knownOwners };
+    markets: marketAddresses,items: items.sort((a,b) => a.address.localeCompare(b.address)),knownOwners,incomeItems };
 }
 
 function rawAccount(value: SnapshotAccount,program: string): AccountInfo<Buffer> {
@@ -124,7 +128,7 @@ function rawAccount(value: SnapshotAccount,program: string): AccountInfo<Buffer>
 export function projectPortfolioSource(source: PortfolioCaptureSource) {
   const pin = loadPinnedProtocol(),decoder = new BorshCoder(duskRawIdl()),catalog = source.catalog,coords = coordinates(source);
   const catalogAge = Date.parse(source.observedAt)-Date.parse(catalog.streamTime);
-  if (source.schemaVersion !== 'dusk-portfolio-capture.v2'
+  if (!['dusk-portfolio-capture.v2','dusk-portfolio-capture.v3'].includes(source.schemaVersion)
     || !['streamed-events.v1','streamed-event-candidates.v2'].includes(catalog.basis)
     || !Number.isSafeInteger(source.maxCatalogAgeSeconds) || source.maxCatalogAgeSeconds<1 || source.maxCatalogAgeSeconds>600
     || !Number.isFinite(catalogAge) || catalogAge>source.maxCatalogAgeSeconds*1000
@@ -139,6 +143,9 @@ export function projectPortfolioSource(source: PortfolioCaptureSource) {
   const expected = new Map(catalog.items.map((item) => [nativeKey(item.address),item]));
   if (expected.size !== catalog.items.length || new Set(catalog.markets).size !== catalog.markets.length) throw new Error('Duplicate portfolio discovery addresses');
   const seen = new Set<string>(),markets = new Set<string>(),owners = new Map<string,ReturnType<typeof projectPortfolioComponent>[]>();
+  const expectedIncome=new Map((catalog.incomeItems??[]).map(item=>[item.address,item]));
+  const seenIncome=new Set<string>(),income:PortfolioIncomeProjection={streams:[],unavailable:[]};
+  if(source.schemaVersion==='dusk-portfolio-capture.v3'&&(!catalog.incomeItems||expectedIncome.size!==catalog.incomeItems.length))throw new Error('Incomplete portfolio income catalog');
   for (const owner of catalog.knownOwners) owners.set(nativeKey(owner),[]);
   for (const item of catalog.items) {
     if (!catalog.markets.includes(item.market) || item.sourceSlot>catalog.sourceFloor || !owners.has(item.owner)
@@ -147,7 +154,7 @@ export function projectPortfolioSource(source: PortfolioCaptureSource) {
   }
   const closed: string[] = [],moved: { address: string; previousOwner: string; owner: string }[] = [];
   for (const group of source.groups) {
-    const captured = [...group.accounts,...(group.hlpCohorts ?? []),...(group.juniorCohorts ?? [])];
+    const captured = [...group.accounts,...(group.hlpCohorts ?? []),...(group.juniorCohorts ?? []),...(group.incomeEvidence?.accounts??[])];
     if ((group.commitment !== undefined && group.commitment !== 'finalized') || !catalog.markets.includes(group.market) || group.accounts.length>20 || group.deploymentIdentitySha256 !== source.deploymentIdentitySha256
       || captured.length>20
       || group.previewUnavailable !== (group.preview === null) || (group.preview === null ? group.basis !== 'rpc-account' : group.basis !== 'simulation-post-state'))
@@ -158,6 +165,15 @@ export function projectPortfolioSource(source: PortfolioCaptureSource) {
     const market = decoder.accounts.decode('Market',rawAccount(group.marketAccount,pin.dusk.programId).data);
     priceMarketBindings(pin.dusk.programId,group.market,market);
     const preview = group.preview === null ? null : decoder.types.decode('MarketPreview',Buffer.from(group.preview,'base64'));
+    if(source.schemaVersion==='dusk-portfolio-capture.v3'){
+      if(!group.incomeEvidence)throw new Error('Missing same-bank income evidence');
+      for(const item of group.incomeEvidence.items){
+        if(seenIncome.has(item.address)||canonicalJson(item)!==canonicalJson(expectedIncome.get(item.address))||!owners.has(item.owner))throw new Error('Portfolio income catalog binding differs');
+        seenIncome.add(item.address);
+      }
+      const projected=projectPortfolioIncome(group,group.incomeEvidence,[...(group.hlpCohorts??[]),...(group.juniorCohorts??[])]);
+      income.streams.push(...projected.streams);income.unavailable.push(...projected.unavailable);
+    }
     for (const entry of group.accounts) {
       const item = expected.get(entry.address);
       if (!item || seen.has(entry.address) || item.market !== group.market) throw new Error('Portfolio snapshot omits or duplicates its discovery set');
@@ -212,8 +228,9 @@ export function projectPortfolioSource(source: PortfolioCaptureSource) {
     }
   }
   if (seen.size !== expected.size || markets.size !== catalog.markets.length) throw new Error('Portfolio capture does not cover its complete catalog');
+  if(source.schemaVersion==='dusk-portfolio-capture.v3'&&seenIncome.size!==expectedIncome.size)throw new Error('Portfolio income capture is incomplete');
   const referenceHash = sha256(canonicalJson(parsePriceReferences(source.references,pin)));
-  return { ...coords,owners: [...owners].sort(([a],[b]) => a.localeCompare(b)).map(([owner,components]) => ({ owner,
+  return { ...coords,income,owners: [...owners].sort(([a],[b]) => a.localeCompare(b)).map(([owner,components]) => ({ owner,
     components: components.sort((a,b) => a.address.localeCompare(b.address)),valuations: totalPortfolioComponents(components) })),
     coverage: { basis: 'sampled-native-positions.v1',catalogComplete: true,atomicAcrossMarkets: false,historyComplete: false,
       discoveryAtomicWithValuation: false,completeAtValuationSlot: false,
@@ -240,7 +257,7 @@ export async function storePortfolioCapture(client: PoolClient,source: Portfolio
   const id = inserted.rows[0].capture_id;
   for (const group of source.groups) {
     const facts = [{ address: group.market,basis: group.basis,state: [group.marketAccount,group.preview] },
-      ...[...group.accounts,...(group.hlpCohorts ?? []),...(group.juniorCohorts ?? [])].map((entry) => ({ address: entry.address,basis: 'rpc-account',state: entry.account }))];
+      ...[...group.accounts,...(group.hlpCohorts ?? []),...(group.juniorCohorts ?? []),...(group.incomeEvidence?.accounts??[])].map((entry) => ({ address: entry.address,basis: 'rpc-account',state: entry.account }))];
     for (const fact of facts) {
       const stateHash = sha256(canonicalJson([group.blockhash,fact.state]));
       await client.query(`INSERT INTO dusk_ingestion.portfolio_account_evidence(capture_id,account,slot,basis,blockhash,state_hash)
@@ -249,7 +266,7 @@ export async function storePortfolioCapture(client: PoolClient,source: Portfolio
   }
   return id;
 }
-async function assertNoPortfolioConflict(client: PoolClient) {
+export async function assertNoPortfolioConflict(client: PoolClient) {
   const conflicts = await client.query(`SELECT 1 FROM dusk_ingestion.portfolio_account_evidence e JOIN dusk_ingestion.portfolio_capture_observations o USING(capture_id)
     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
     GROUP BY account,slot,basis HAVING count(DISTINCT (blockhash,state_hash))>1 LIMIT 1`,identity());
@@ -281,6 +298,11 @@ export async function projectPortfolioCapture(client: PoolClient,captureId: stri
     (cluster,program_id,idl_hash,protocol_revision,owner,bucket,observed_at,source_min_slot,source_max_slot,components,coverage,valuations,capture_id)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,[...active,owner.owner,projected.captureTime,row.observed_at,projected.minSlot,projected.maxSlot,
       JSON.stringify(owner.components),JSON.stringify(coverage),JSON.stringify(owner.valuations),captureId]);
+  if((row.source as PortfolioCaptureSource).schemaVersion==='dusk-portfolio-capture.v3')for(const owner of projected.owners){
+    const value={streams:projected.income.streams.filter(stream=>stream.owner===owner.owner),unavailable:projected.income.unavailable.filter(entry=>entry.owner===owner.owner)};
+    await client.query(`INSERT INTO dusk_ingestion.portfolio_income_checkpoints(capture_id,owner,source_hash,income,content_hash)
+      VALUES($1,$2,$3,$4,$5)`,[captureId,owner.owner,row.content_hash,JSON.stringify(value),sha256(canonicalJson([captureId,owner.owner,row.content_hash,value]))]);
+  }
   await client.query('INSERT INTO dusk_ingestion.portfolio_capture_projections(capture_id,owner_count) VALUES($1,$2)',[captureId,projected.owners.length]);
   return projected.owners.length;
 }
@@ -320,39 +342,51 @@ export async function captureDuskPortfolioSnapshots(dependencies?: {
   // Valuations read finalized banks at or after the stream's slot, so every
   // discovered position exists at its valuation bank.
   const readFloor = Math.max(catalog.sourceFloor,checkedSlot(Number(before.programDataSlot)),checkedSlot(Number(before.leverageDelegateProgramDataSlot)));
-  const jobs: { market: string; addresses: string[]; cohorts: string[]; juniorCohorts: string[] }[] = [];
+  const jobs: { market: string; addresses: string[]; cohorts: string[]; juniorCohorts: string[]; incomeItems:PortfolioIncomeItem[]; incomeAddresses:string[] }[] = [];
   for (const market of catalog.markets) {
-    const items = catalog.items.filter((item) => item.market === market);
-    for (let offset=0; offset<Math.max(items.length,1); offset+=10) {
-      const batch = items.slice(offset,offset+10);
-      const cohorts = [...new Set(batch.filter((item) => item.kind === 'base_hlp' || item.kind === 'quote_hlp').map((item) => {
-        if (!item.lpMint) throw new Error('hLP portfolio discovery omitted its mint');
-        return hlpCohortAddress(new PublicKey(market),new PublicKey(item.lpMint),new PublicKey(loadPinnedProtocol().dusk.programId))[0].toBase58();
+    const units=new Map<string,{item?:PortfolioCatalogItem;income?:PortfolioIncomeItem}>();
+    for(const item of catalog.items.filter(item=>item.market===market))units.set(item.address,{item});
+    for(const income of (catalog.incomeItems??[]).filter(item=>item.market===market))units.set(income.address,{...units.get(income.address),income});
+    const values=[...units.values()];
+    // At most three LP holdings + six yield accounts + three cohort proofs.
+    for (let offset=0; offset<Math.max(values.length,1); offset+=3) {
+      const batch = values.slice(offset,offset+3);
+      const cohorts = [...new Set(batch.filter(({item,income}) => income?.kind==='hlp'||item?.kind === 'base_hlp' || item?.kind === 'quote_hlp').map(({item,income}) => {
+        const mint=income?.lpMint??item?.lpMint;
+        if (!mint) throw new Error('hLP portfolio discovery omitted its mint');
+        return hlpCohortAddress(new PublicKey(market),new PublicKey(mint),new PublicKey(loadPinnedProtocol().dusk.programId))[0].toBase58();
       }))];
-      const juniorCohorts = [...new Set(batch.filter((item) => item.kind === 'junior').map((item) => {
-        if (!item.lpMint) throw new Error('Junior portfolio discovery omitted its mint');
-        return PublicKey.findProgramAddressSync([Buffer.from('junior_cohort'),new PublicKey(market).toBuffer(),new PublicKey(item.lpMint).toBuffer()],new PublicKey(loadPinnedProtocol().dusk.programId))[0].toBase58();
+      const juniorCohorts = [...new Set(batch.filter(({item,income}) => income?.kind==='junior'||item?.kind === 'junior').map(({item,income}) => {
+        const mint=income?.lpMint??item?.lpMint;
+        if (!mint) throw new Error('Junior portfolio discovery omitted its mint');
+        return PublicKey.findProgramAddressSync([Buffer.from('junior_cohort'),new PublicKey(market).toBuffer(),new PublicKey(mint).toBuffer()],new PublicKey(loadPinnedProtocol().dusk.programId))[0].toBase58();
       }))];
-      jobs.push({ market,addresses: batch.map((item) => item.address),cohorts,juniorCohorts });
+      const addresses=batch.flatMap(({item})=>item?[item.address]:[]);
+      const incomeItems=batch.flatMap(({income})=>income?[income]:[]);
+      const extra=[...new Set(incomeItems.flatMap(incomeAddresses))].filter(address=>!addresses.includes(address));
+      jobs.push({ market,addresses,cohorts,juniorCohorts,incomeItems,incomeAddresses:extra });
     }
   }
   for (let offset=0; offset<jobs.length; offset+=4) {
     const captured = await Promise.all(jobs.slice(offset,offset+4).map((job) =>
-      (dependencies?.capture ?? captureMarketSimulation)(job.market,readFloor,[...job.addresses,...job.cohorts,...job.juniorCohorts])));
+      (dependencies?.capture ?? captureMarketSimulation)(job.market,readFloor,[...job.addresses,...job.cohorts,...job.juniorCohorts,...job.incomeAddresses])));
     for (const [index,group] of captured.entries()) {
       if (group.deploymentIdentitySha256 !== before.deploymentIdentitySha256) throw new Error('Deployment changed during portfolio capture');
-      const { cohorts,juniorCohorts } = jobs[offset+index];
+      const { addresses,cohorts,juniorCohorts,incomeItems,incomeAddresses:extra } = jobs[offset+index];
       const decoded = new BorshCoder(duskRawIdl()).accounts.decode('Market',rawAccount(group.marketAccount,loadPinnedProtocol().dusk.programId).data);
       const bound = priceMarketBindings(loadPinnedProtocol().dusk.programId,group.market,decoded);
       const displayPriceObservations = await readProviderPriceObservations({ ...bound,
         state: { previewStatus: group.preview === null ? 'unavailable' : 'available' },
         displayPrices: { observedAt: group.blockTime } },[group.deploymentIdentitySha256]);
-      groups.push({ ...group,...(displayPriceObservations.length ? { displayPriceObservations } : {}),accounts: group.accounts.filter((entry) => !cohorts.includes(entry.address) && !juniorCohorts.includes(entry.address)),
+      const incomeEvidence:PortfolioIncomeEvidence={items:incomeItems,accounts:group.accounts.filter(entry=>extra.includes(entry.address)),archives:[]};
+      try{incomeEvidence.archives=await capturePortfolioIncomeArchives({...group,accounts:group.accounts.filter(entry=>addresses.includes(entry.address))},incomeEvidence);}
+      catch{incomeEvidence.archivesUnavailable=true;}
+      groups.push({ ...group,incomeEvidence,...(displayPriceObservations.length ? { displayPriceObservations } : {}),accounts: group.accounts.filter((entry) => addresses.includes(entry.address)),
         ...(cohorts.length ? { hlpCohorts: group.accounts.filter((entry) => cohorts.includes(entry.address)) } : {}),
         ...(juniorCohorts.length ? { juniorCohorts: group.accounts.filter((entry) => juniorCohorts.includes(entry.address)) } : {}) });
     }
   }
-  const source: PortfolioCaptureSource = { schemaVersion: 'dusk-portfolio-capture.v2',catalog,groups,references,
+  const source: PortfolioCaptureSource = { schemaVersion: 'dusk-portfolio-capture.v3',catalog,groups,references,
     observedAt: new Date().toISOString(),deploymentIdentitySha256: before.deploymentIdentitySha256,maxCatalogAgeSeconds };
   if (Date.parse(source.observedAt)-Date.parse(catalog.streamTime)>maxCatalogAgeSeconds*1000)
     throw new Error('Portfolio catalog aged out during capture; retry');
