@@ -233,8 +233,20 @@ export class ServicesStack extends Stack {
           securityGroups: [props.network.serviceGroup],
         });
       services[spec.name] = service;
-      for (const [metric, threshold] of [[service.metricCpuUtilization(), 85], [service.metricMemoryUtilization(), 85]] as const) {
-        new cloudwatch.Alarm(this, `${spec.name}${metric.metricName}High`, {
+      // ECS divides service memory by MemoryReservation when one is present.
+      // Workers reserve 32/64 MiB for placement but have a 512 MiB hard limit;
+      // normalize that percentage before treating it as capacity pressure.
+      const memory = service.metricMemoryUtilization();
+      const memoryCapacity = usesServiceConnect ? memory : new cloudwatch.MathExpression({
+        expression: `reserved * ${(profile ? 32 : 64) / 512}`,
+        usingMetrics: { reserved: memory }, period: memory.period,
+        label: 'Memory used (% of container limit)',
+      });
+      for (const [name, metric, threshold] of [
+        ['CPUUtilization', service.metricCpuUtilization(), 85],
+        ['MemoryUtilization', memoryCapacity, 85],
+      ] as const) {
+        new cloudwatch.Alarm(this, `${spec.name}${name}High`, {
           metric, threshold, evaluationPeriods: 3, datapointsToAlarm: 3,
           alarmDescription: `${spec.name}: sustained capacity pressure; review sizing before scaling single-writer workers`,
           treatMissingData: cloudwatch.TreatMissingData.MISSING,
