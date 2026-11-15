@@ -609,3 +609,31 @@ Railway health check endpoint: `GET /health`
 ---
 
 **Note**: This API server is currently in active development. Authentication, advanced caching, and WebSocket endpoints are planned for future releases.
+
+### Native portfolio range breakdown
+
+`GET /api/dusk/v1/owners/:owner/portfolio-attribution?startCaptureId=…&endCaptureId=…`
+accepts the exact two capture IDs selected by the owner's portfolio chart. It returns the
+normal deployment envelope and `dusk-portfolio-attribution.v1` data. Reads use one
+repeatable-read transaction, saved finalized account bytes and canonical streamed payments;
+they do not fetch current RPC balances or live prices.
+
+- Earned income is LP yield paid during the period plus the change in gross claimable yield.
+  Zero LP holdings and settled hLP escrows retain earned rights. Compounded income stays in NAV.
+- Borrowing cost is direct borrow/leverage interest paid plus the change in unpaid indexed
+  interest. Principal repayments and aggregate hLP-vault funding are excluded. A debt write-off
+  can produce a signed credit.
+- Token deltas use recorded closing-period USD prices, including validated historical price
+  repairs. Repricing earlier unpaid balances is not new earned income.
+- The remaining change is net position-value change minus earned income plus borrowing cost.
+  Net value excludes wallet balances and unclaimed yield, so this remainder includes the
+  offset for income outside positions, net transfers, price changes, compounding and other fees.
+- Missing income evidence or prices returns `null` independently from borrowing cost;
+  a lifetime total is never substituted for a range. Legacy captures can establish a zero
+  income boundary only when all recorded income growth and books prove zero.
+
+Apply `056_dusk_portfolio_income.sql` before starting this API and its snapshot worker.
+Capture v3 saves same-bank holding/yield accounts and immutable ended income epochs, then
+stores a hash-bound income projection in a separate append-only table. Original portfolio
+observations and value checkpoints are unchanged. Failed epoch reads leave income unavailable;
+the next capture retries, while existing net-value history remains usable.

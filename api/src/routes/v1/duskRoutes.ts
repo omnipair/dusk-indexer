@@ -52,6 +52,7 @@ import { clearQuoteHistoryCache, listQuoteHistory } from '../../services/duskQuo
 import { listArchivedQuoteHistory } from '../../services/duskArchivedQuoteHistory';
 import { openDuskChangeStream } from '../../services/duskChangeStream';
 import { listPortfolioHistory, portfolioSampleSeconds } from '../../services/duskPortfolioSnapshots';
+import { listPortfolioAttribution } from '../../services/duskPortfolioAttribution';
 import { currentMarketOperator } from '../../services/duskOperator';
 import { currentLiquidations } from '../../services/duskLiquidations';
 import { currentReferralPartner } from '../../services/duskReferralPartner';
@@ -379,6 +380,18 @@ router.get(
 /** Current operator/manager and single pending bundle, read by the indexer. */
 router.get('/markets/:market/operator', asyncRoute(async (req, res) => {
   res.set('Cache-Control', 'no-store').json(await currentMarketOperator(req.params.market));
+}));
+
+router.get('/owners/:owner/portfolio-attribution',asyncRoute(async(req,res)=>{
+  try{if(new PublicKey(req.params.owner).toBase58()!==req.params.owner)throw new Error('noncanonical');}
+  catch{res.status(400).json({success:false,error:'invalid portfolio owner address'});return;}
+  if(typeof req.query.startCaptureId!=='string'||typeof req.query.endCaptureId!=='string'){
+    res.status(400).json({success:false,error:'Both portfolio capture IDs are required'});return;
+  }
+  const options={owner:req.params.owner,startCaptureId:req.query.startCaptureId,endCaptureId:req.query.endCaptureId};
+  res.set('Cache-Control','no-store').json(await withDeploymentRead(async()=>{
+    const data=await listPortfolioAttribution(options);return {data,sourceSlot:data.coverage.sourceSlot};
+  }));
 }));
 
 router.get('/owners/:owner/portfolio-snapshots',asyncRoute(async (req,res) => {
