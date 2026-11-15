@@ -190,7 +190,7 @@ router.get('/history/events', asyncRoute(async (req, res) => {
     res.json(await withDeploymentRead(async deployment => {
       const data = await listEventHistory({ market: stringParameter('market'), since: stringParameter('since'), until,
         owner: stringParameter('owner'), category, version: version === '2' ? 2 : 1,
-        cursor: stringParameter('cursor'), limit, deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
+        cursor: stringParameter('cursor'), limit, deployment,deploymentIdentitySha256: deployment.deploymentIdentitySha256 });
       const sourceSlot = data.events.reduce((highest, row) => Math.max(highest, Number(row.slot)), 0);
       if (!Number.isSafeInteger(sourceSlot)) throw new Error('Invalid event-history source slot');
       return { data, sourceSlot };

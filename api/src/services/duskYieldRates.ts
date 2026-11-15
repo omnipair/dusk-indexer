@@ -30,8 +30,8 @@ async function observedPricesAt(client: PoolClient,pin: ReturnType<typeof loadPi
   const projected = projectObservedPrices({ pin,observation: row.payload,blockTime: row.time.toISOString(),references });
   const view = { ...projected.bound,state: { previewStatus: 'available' },
     displayPrices: { observedAt: point.blockTime,prices: projected.prices } };
-  const external = await readProviderPriceObservations(view,deployments,client);
-  const priced = withDisplayPriceObservations(view,external,deployments);
+  const external = await readProviderPriceObservations(view,deployments,client,'historical');
+  const priced = withDisplayPriceObservations(view,external,deployments,'historical');
   return { prices: priced.displayPrices.prices,provenance: { sourceSlot: row.slot,blockTime: row.time.toISOString(),
     deploymentIdentitySha256,contentHash: row.payload_hash,referenceHash: projected.referenceHash,externalObservations: external } };
 }
@@ -156,11 +156,11 @@ export async function readTrailingSrlpRate(client: PoolClient,options: HistoryDe
     if (points[row.boundary]) throw new Error('FINALIZED_INVARIANT: duplicate yield growth boundary');
     const projected = projectObservedPrices({ pin,observation,blockTime,references });
     const view = { ...projected.bound,state: { previewStatus: 'available' },displayPrices: { observedAt: blockTime,prices: projected.prices } };
-    const external = await readProviderPriceObservations(view,deployments,client);
+    const external = await readProviderPriceObservations(view,deployments,client,'historical');
     points[row.boundary] = {
       point: observedGrowthPoint({ pin,marketAddress: meta.market,observation,slot: Number(row.slot),blockTime,
         deploymentIdentitySha256: options.deploymentIdentitySha256 }),
-      prices: withDisplayPriceObservations(view,external,deployments).displayPrices.prices,
+      prices: withDisplayPriceObservations(view,external,deployments,'historical').displayPrices.prices,
     };
   }
   const start = points.before ?? points.first,end = points.end;

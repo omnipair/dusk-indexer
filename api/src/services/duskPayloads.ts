@@ -158,6 +158,7 @@ export async function capturePayload(
         market: selection.market,
         until,
         limit: 100,
+        deployment,
         deploymentIdentitySha256: deployment.deploymentIdentitySha256,
       });
       return {

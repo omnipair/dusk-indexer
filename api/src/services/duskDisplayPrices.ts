@@ -10,8 +10,9 @@ export interface DisplayPriceObservation {
   provider: 'jupiter' | 'birdeye'; sourceTime: string; observedAt: string;
   deploymentIdentitySha256: string;
 }
+export type ProviderPriceMode = 'live' | 'historical';
 
-export function withDisplayPriceObservations(market: Record<string, any>, observations: DisplayPriceObservation[], eligibleDeployments?: readonly string[]) {
+export function withDisplayPriceObservations(market: Record<string, any>, observations: DisplayPriceObservation[], eligibleDeployments?: readonly string[], mode: ProviderPriceMode = 'live') {
   const display = market.displayPrices;
   if (market.state?.previewStatus !== 'available' || !display || !Array.isArray(display.prices)) return market;
   const at = Date.parse(display.observedAt);
@@ -24,7 +25,7 @@ export function withDisplayPriceObservations(market: Record<string, any>, observ
       || !/^[a-f0-9]{64}$/.test(observation.deploymentIdentitySha256)
       || eligibleDeployments && !eligibleDeployments.includes(observation.deploymentIdentitySha256)
       || !Number.isFinite(at) || !Number.isFinite(sourceTime) || !Number.isFinite(observedAt)
-      || sourceTime > observedAt || observedAt > at || at - sourceTime > DISPLAY_PRICE_MAX_AGE_MS
+      || sourceTime > observedAt || observedAt > at || mode === 'live' && at - sourceTime > DISPLAY_PRICE_MAX_AGE_MS
       || prices.get(observation.mint)?.quality === 'configured-reference') continue;
     let priceUsd: string;
     try { priceUsd = positiveDecimal(observation.priceUsd); } catch { continue; }
@@ -38,9 +39,11 @@ export function withDisplayPriceObservations(market: Record<string, any>, observ
   return { ...market, displayPrices: { ...display, prices: [...prices.values()] } };
 }
 
-/** The same deployment and a quote already observed by the market's bank time. */
+/** Live quotes expire after 90 seconds. Historical reads use the last quote
+ * actually observed before that point, as economic-event valuation does;
+ * present-day observations are never backdated into an old bank. */
 export async function readProviderPriceObservations(market: Record<string, any>, deploymentIdentities: readonly string[],
-  client: Pool | PoolClient = pool) {
+  client: Pool | PoolClient = pool, mode: ProviderPriceMode = 'live') {
   const pin = loadPinnedProtocol();
   if (pin.cluster !== 'mainnet-beta' || market.state?.previewStatus !== 'available') return [];
   if (!deploymentIdentities.length || deploymentIdentities.some(value => !/^[a-f0-9]{64}$/.test(value))) throw new Error('Invalid provider deployment selection');
@@ -57,10 +60,10 @@ export async function readProviderPriceObservations(market: Record<string, any>,
       AND source_evidence->>'basis'='dusk-provider.v1' AND source_evidence->>'sourceCluster'='mainnet-beta'
       AND source_evidence->>'externalMint'=mint AND source_evidence->>'deploymentIdentitySha256'=ANY($6::text[])
       AND source_time<=observed_at AND observed_at<=$7::timestamptz
-      AND source_time>=$7::timestamptz-($8::int*interval '1 millisecond')
+      AND ($8::int IS NULL OR source_time>=$7::timestamptz-($8::int*interval '1 millisecond'))
     ORDER BY mint,source_time DESC,observation_id DESC`,
     [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision,
-      market.baseMint,deploymentIdentities,market.displayPrices.observedAt,DISPLAY_PRICE_MAX_AGE_MS,
+      market.baseMint,deploymentIdentities,market.displayPrices.observedAt,mode === 'live' ? DISPLAY_PRICE_MAX_AGE_MS : null,
       market.baseDecimals,market.quoteMint,market.quoteDecimals]);
   return result.rows;
 }
