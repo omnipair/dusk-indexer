@@ -18,6 +18,7 @@
     "start:prices-worker": "node dist/scripts/duskPricesWorker.js",
     "start:market-activity-worker": "node dist/scripts/duskMarketActivityWorker.js",
     "start:native-portfolio-worker": "node dist/scripts/duskPortfolioSnapshotsWorker.js",
+    "repair:native-portfolio-prices": "npm run build && node dist/scripts/duskPortfolioPriceRepair.js",
     "start:lp-valuation-reconciler": "node dist/scripts/lpValuationReconciler.js",
     "backfill-volume": "npm run build && node dist/scripts/backfillVolume.js",
     "backfill-token-prices": "npm run build && node dist/scripts/backfillTokenPrices.js",
