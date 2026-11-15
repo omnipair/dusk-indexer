@@ -147,3 +147,25 @@ test('another worker holding the identity-scoped advisory lock prevents a concur
     assert.equal(blocked.busy,true); assert.equal(blocked.providerRequests,0); assert.equal(blocked.examinedCaptures,0);
   } finally { await client.query('SELECT pg_advisory_unlock(hashtextextended($1,0))',[lock]); }
 }));
+
+test('multi-bank capture times crossing a six-hour batch boundary make progress over successive cycles',() => transaction(async client => {
+  const fixture = portfolioFixture({ references: false });
+  const group = fixture.source.groups[0],laterBank = portfolioFixture({ references: false,slot: group.slot+1 }).source.groups[0];
+  fixture.source.groups = [{ ...group,accounts: [group.accounts[0]] },{ ...laterBank,
+    blockTime: '2026-09-02T00:05:00.000Z',observedAt: '2026-09-02T00:05:05.000Z',accounts: [laterBank.accounts[1]] }];
+  fixture.source.observedAt='2026-09-02T00:05:05.000Z'; fixture.source.maxCatalogAgeSeconds=600;
+  await projectPortfolioCapture(client,await storePortfolioCapture(client,fixture.source));
+  const later = await seed(client,{ slot: 910_000_010 },'2026-09-02T06:04:00.000Z');
+  const fetchPrices: NonNullable<PortfolioPriceRepairOptions['fetchPrices']> = async (mint,start,end) => {
+    assert.ok(end.getTime()-start.getTime()<=6*3600_000);
+    const points = [];
+    for (let time=start.getTime(); time<=end.getTime(); time+=60_000)
+      points.push({ mint,provider: 'birdeye' as const,timestamp: new Date(time),priceUsd: mint===later.mints[0] ? 2.5 : 1 });
+    return points;
+  };
+  const first = await repairPortfolioPriceBatch(client,{ now: () => new Date('2026-09-02T12:00:00Z'),fetchPrices });
+  assert.equal(first.repairedCheckpoints,1); assert.equal(first.unresolvedCheckpoints,1);
+  const second = await repairPortfolioPriceBatch(client,{ now: () => new Date('2026-09-02T12:05:00Z'),fetchPrices });
+  assert.equal(second.repairedCheckpoints,1); assert.equal(second.unresolvedCheckpoints,0);
+  assert.equal((await readPortfolioHistory(client,query(later.owner))).coverage.unvaluedSnapshots,0);
+}));

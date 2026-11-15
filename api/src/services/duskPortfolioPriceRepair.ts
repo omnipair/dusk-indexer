@@ -72,12 +72,14 @@ export async function repairPortfolioPriceBatch(client: PoolClient,options: Port
   }
   const times = [...needs.values()].flatMap(value => [...value]).map(Date.parse);
   const from = new Date(Math.floor(Math.min(...times)/60_000)*60_000);
-  const until = new Date(Math.floor(Math.min(Math.max(...times),started.getTime()-HISTORICAL_PRICE_MATURITY_MS)/60_000)*60_000);
+  const until = new Date(Math.min(from.getTime()+HISTORICAL_PRICE_WINDOW_MS,
+    Math.floor(Math.min(Math.max(...times),started.getTime()-HISTORICAL_PRICE_MATURITY_MS)/60_000)*60_000));
   let points: HistoricalPoint[] = [];
-  if (times.length && until.getTime()-from.getTime()<=HISTORICAL_PRICE_WINDOW_MS) {
+  if (times.length) {
     points = await readPoints(client,[...needs.keys()],from,until);
     for (const [mint,required] of [...needs].sort(([a],[b]) => a.localeCompare(b))) {
-      if ([...required].every(at => historicalPriceAt(points,mint,at)) || stats.providerRequests>=maxRequests) continue;
+      const within = [...required].filter(at => Date.parse(at)>=from.getTime() && Date.parse(at)<until.getTime()+60_000);
+      if (!within.length || within.every(at => historicalPriceAt(points,mint,at)) || stats.providerRequests>=maxRequests) continue;
       stats.providerRequests++;
       let normalized: HistoricalPoint[];
       try {
