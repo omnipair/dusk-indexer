@@ -115,7 +115,25 @@ export function hlpPortfolioPrincipal(market: Record<string,unknown>,preview: Re
   return { amount: unsigned(principal,U64),signedVaultNav: signedNav.toString(),quantityDecimals: scale,underwater: signedNav<0n };
 }
 
-export function projectPortfolioComponent(input: {
+export interface PortfolioPriceSource {
+  pin: DuskPinnedProtocol; marketAddress: string; market: unknown; preview: unknown | null;
+  slot: number; blockTime: string; references: unknown;
+  displayPriceObservations?: DisplayPriceObservation[];
+  deploymentIdentitySha256?: string;
+}
+/** Prices retained by the original capture, including its dated policy. */
+export function portfolioDisplayPrices(input: PortfolioPriceSource) {
+  if (input.preview === null) return null;
+  const bound = priceMarketBindings(input.pin.dusk.programId,input.marketAddress,input.market);
+  const priced = projectMarketPrices(input);
+  return input.displayPriceObservations && input.deploymentIdentitySha256
+    ? withDisplayPriceObservations({ ...bound,state: { previewStatus: 'available' },
+      displayPrices: { observedAt: input.blockTime,prices: priced.prices } },
+      input.displayPriceObservations,[input.deploymentIdentitySha256]).displayPrices.prices as typeof priced.prices
+    : priced.prices;
+}
+
+export function projectPortfolioComponent(input: PortfolioPriceSource & {
   pin: DuskPinnedProtocol; kind: PortfolioKind; address: string; marketAddress: string; market: unknown; preview: unknown | null;
   state: unknown; slot: number; blockTime: string; references: unknown;
   /** Set only after validating same-bank retired-cohort evidence. */
@@ -183,13 +201,8 @@ export function projectPortfolioComponent(input: {
       if (hlpNav.underwater) issues.push('hlp-underwater');
     }
   }
-  const priced = preview ? projectMarketPrices({ pin: input.pin,marketAddress: input.marketAddress,market,preview,
-    slot: input.slot,blockTime: input.blockTime,references: input.references }) : null;
-  const display = priced && input.displayPriceObservations && input.deploymentIdentitySha256
-    ? withDisplayPriceObservations({ ...bound,state: { previewStatus: 'available' },
-      displayPrices: { observedAt: input.blockTime,prices: priced.prices } },
-      input.displayPriceObservations,[input.deploymentIdentitySha256]).displayPrices.prices : priced?.prices;
-  const valuation: PortfolioValuation = (input.retiredHlp || input.retiredJunior) ? valuePortfolioBalances(balances,[]) : priced ? valuePortfolioBalances(balances,display!)
+  const display = portfolioDisplayPrices(input);
+  const valuation: PortfolioValuation = (input.retiredHlp || input.retiredJunior) ? valuePortfolioBalances(balances,[]) : display ? valuePortfolioBalances(balances,display)
     : { assetsUsd: null,debtUsd: null,netUsd: null,missingMints: [],priceQualities: [],rounding: 'down-36-decimals' };
   if (valuation.missingMints.length) issues.push('missing-price-reference');
   return { address: input.address,owner,market: input.marketAddress,kind: input.kind,balances,valuation,issues,

@@ -16,6 +16,7 @@ export interface BirdeyePriceOptions {
   baseUrl?: string;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
+  resolution?: '1H' | '1m';
 }
 
 function parsePositiveNumber(value: unknown): number | null {
@@ -105,13 +106,14 @@ export function extractBirdeyePricePoints(responseBody: unknown): Array<{ timest
   return points;
 }
 
-function createHistoryUrl(baseUrl: string, mint: string, from: Date, to: Date): string {
+function createHistoryUrl(baseUrl: string, mint: string, from: Date, to: Date, resolution: '1H' | '1m' = '1H'): string {
   const fromSeconds = Math.floor(from.getTime() / 1000);
   const toSeconds = Math.floor(to.getTime() / 1000);
   const params = new URLSearchParams({
     address: mint,
     address_type: 'token',
-    type: '1H',
+    type: resolution,
+    ui_amount_mode: 'raw',
     time_from: String(fromSeconds),
     time_to: String(toSeconds),
   });
@@ -195,7 +197,7 @@ export async function fetchBirdeyeHistoricalPriceRange(
   options: BirdeyePriceOptions = {}
 ): Promise<BirdeyeHistoricalPricePoint[] | null> {
   const baseUrl = (options.baseUrl ?? process.env.BIRDEYE_API_URL ?? DEFAULT_BIRDEYE_API_URL).replace(/\/$/, '');
-  const body = await fetchBirdeyeJson(mint, createHistoryUrl(baseUrl, mint, from, to), options);
+  const body = await fetchBirdeyeJson(mint, createHistoryUrl(baseUrl, mint, from, to, options.resolution), options);
   if (!body) {
     return null;
   }

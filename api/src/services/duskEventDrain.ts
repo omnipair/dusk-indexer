@@ -27,7 +27,8 @@ export function coalescedDrain(drain: () => Promise<void>) {
  * lost, so every connection drains once it is listening. A failed pass
  * rejects; a lost connection reconnects. `--once` drains and returns.
  */
-export function drainOnEvents(pool: Pool,label: string,drain: (stopping: () => boolean) => Promise<void>): Promise<void> {
+export function drainOnEvents(pool: Pool,label: string,drain: (stopping: () => boolean) => Promise<void>,signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(signal.reason);
   let stopped = false, finish: ((error?: unknown) => void) | undefined;
   const stopping = () => stopped;
   const stop = () => { if (finish) finish(); else stopped = true; };
@@ -41,10 +42,15 @@ export function drainOnEvents(pool: Pool,label: string,drain: (stopping: () => b
     finish = (error?: unknown) => {
       if (stopped) return;
       stopped = true;
+      signal?.removeEventListener('abort',aborted);
+      process.removeListener('SIGINT',stop);
+      process.removeListener('SIGTERM',stop);
       client?.release(true);
       client = undefined;
       if (error === undefined) resolve(); else reject(error);
     };
+    const aborted = () => finish!(signal?.reason ?? new Error(`${label}: aborted`));
+    signal?.addEventListener('abort',aborted,{ once: true });
     const failed = (error: unknown) => finish!(error ?? new Error(`${label}: drain failed`));
     const listen = async () => {
       if (stopped) return;

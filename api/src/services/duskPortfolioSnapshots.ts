@@ -255,16 +255,27 @@ async function assertNoPortfolioConflict(client: PoolClient) {
     GROUP BY account,slot,basis HAVING count(DISTINCT (blockhash,state_hash))>1 LIMIT 1`,identity());
   if (conflicts.rowCount) throw Object.assign(new Error('FINALIZED_INVARIANT: contradictory finalized portfolio account evidence'),{ status: 503 });
 }
+/** Verify immutable evidence before either original projection or a price repair. */
+export function verifyStoredPortfolioCapture(row: Record<string,any>) {
+  const source = row.source as PortfolioCaptureSource,coords = coordinates(source);
+  if (JSON.stringify([row.cluster,row.program_id,row.idl_hash,row.protocol_revision]) !== JSON.stringify(identity())
+    || sourceHash(source) !== row.content_hash || source.deploymentIdentitySha256 !== row.deployment_identity_sha256
+    || coords.minSlot !== Number(row.source_min_slot) || coords.maxSlot !== Number(row.source_max_slot)
+    || coords.captureTime !== new Date(row.capture_time).toISOString()
+    || new Date(source.observedAt).toISOString() !== new Date(row.observed_at).toISOString())
+    throw new Error('FINALIZED_INVARIANT: saved portfolio identity/hash mismatch');
+  return projectPortfolioSource(source);
+}
 export async function projectPortfolioCapture(client: PoolClient,captureId: string): Promise<number> {
   const active = identity();
   await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`dusk:portfolio:${JSON.stringify(active)}`]);
   await assertNoPortfolioConflict(client);
   const result = await client.query(`SELECT * FROM dusk_ingestion.portfolio_capture_observations WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND capture_id=$5`,[...active,captureId]);
   const row = result.rows[0];
-  if (!row || sourceHash(row.source) !== row.content_hash) throw new Error('FINALIZED_INVARIANT: saved portfolio identity/hash mismatch');
+  if (!row) throw new Error('FINALIZED_INVARIANT: saved portfolio identity/hash mismatch');
+  const projected = verifyStoredPortfolioCapture(row);
   const previous = await client.query('SELECT owner_count FROM dusk_ingestion.portfolio_capture_projections WHERE capture_id=$1',[captureId]);
   if (previous.rows[0]) return previous.rows[0].owner_count;
-  const projected = projectPortfolioSource(row.source);
   const coverage = { ...projected.coverage,sourceHash: row.content_hash,deploymentIdentitySha256: row.deployment_identity_sha256 };
   for (const owner of projected.owners) await client.query(`INSERT INTO dusk_ingestion.portfolio_checkpoints
     (cluster,program_id,idl_hash,protocol_revision,owner,bucket,observed_at,source_min_slot,source_max_slot,components,coverage,valuations,capture_id)
@@ -369,7 +380,7 @@ export async function readPortfolioHistory(client: PoolClient,options: Portfolio
   }
   await assertNoPortfolioConflict(client);
   const seconds = portfolioSampleSeconds(options.sampleSeconds);
-  const filtered = `filtered AS (SELECT * FROM dusk_ingestion.portfolio_checkpoints WHERE ${filters.join(' AND ')})`;
+  const filtered = `filtered AS (SELECT * FROM dusk_ingestion.portfolio_effective_checkpoints WHERE ${filters.join(' AND ')})`;
   // Keep both sides of each availability transition before downsampling.
   // Otherwise an unavailable interval inside one display bucket disappears.
   const selection = seconds === 0 ? `${filtered},selected AS (SELECT * FROM filtered)` : `${filtered},
@@ -386,8 +397,9 @@ export async function readPortfolioHistory(client: PoolClient,options: Portfolio
   if (seconds !== 0) values.push(seconds);
   const summary = await client.query(`WITH ${selection} SELECT count(*)::text AS total,min(bucket) AS first_time,max(bucket) AS last_time,
     max(source_max_slot)::text AS last_slot,
-    encode(sha256(convert_to(coalesce(string_agg(capture_id::text,',' ORDER BY capture_id),''),'UTF8')),'hex') AS selection_hash,
+    encode(sha256(convert_to(coalesce(string_agg(capture_id::text||':'||valuation_revision,',' ORDER BY capture_id),''),'UTF8')),'hex') AS selection_hash,
     (SELECT count(*)::text FROM filtered) AS raw_total,
+    (SELECT count(*)::text FROM filtered WHERE valuation_revision<>'original') AS repaired_snapshots,
     (SELECT count(*)::text FROM filtered WHERE valuations->>'quality' NOT IN ('reference-valued','empty')
       OR valuations->>'netPositionValueUsd' IS NULL OR (valuations->>'unvaluedComponents')::int>0) AS unvalued_snapshots
     FROM selected`,values);
@@ -406,6 +418,7 @@ export async function readPortfolioHistory(client: PoolClient,options: Portfolio
     coverage: { available: rows.rows.length>0,historyComplete: false,atomicAcrossMarkets: false,basis: 'sampled-native-positions.v1',
       sampleSeconds: seconds,selectionHash: summary.rows[0].selection_hash as string,gapBoundariesRetained: true,
       rawTotal: Number(summary.rows[0].raw_total),unvaluedSnapshots: Number(summary.rows[0].unvalued_snapshots),
+      repairedSnapshots: Number(summary.rows[0].repaired_snapshots),
       firstSnapshotAt: summary.rows[0].first_time?.toISOString() ?? null,lastSnapshotAt: summary.rows[0].last_time?.toISOString() ?? null,
       lastSourceSlot: summary.rows[0].last_slot as string | null,pendingCaptures: pending.rows[0].count as string } };
 }

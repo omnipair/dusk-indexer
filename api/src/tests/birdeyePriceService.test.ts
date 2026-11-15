@@ -105,3 +105,16 @@ test('fetchBirdeyeHistoricalPriceRange returns parsed hourly points', async () =
   assert.match(requestedUrl, /time_from=1778256000/);
   assert.match(requestedUrl, /time_to=1778263200/);
 });
+
+test('minute repair requests use raw-token prices and retain the returned historical timestamp',async () => {
+  const from = new Date('2026-11-14T22:30:00Z');
+  const points = await fetchBirdeyeHistoricalPriceRange('So11111111111111111111111111111111111111112',from,
+    new Date('2026-11-14T22:31:00Z'),{ apiKey: 'test-key',resolution: '1m',fetchImpl: async (input,init) => {
+      const url = new URL(String(input));
+      assert.equal(url.searchParams.get('type'),'1m'); assert.equal(url.searchParams.get('ui_amount_mode'),'raw');
+      assert.equal(url.searchParams.get('time_from'),String(from.getTime()/1000));
+      assert.equal((init?.headers as Record<string,string>)['X-API-KEY'],'test-key');
+      return new Response(JSON.stringify({ data: { items: [{ unixTime: from.getTime()/1000,value: 3.1 }] } }),{ status: 200 });
+    } });
+  assert.equal(points?.[0].timestamp.toISOString(),from.toISOString()); assert.equal(points?.[0].priceUsd,3.1);
+});
