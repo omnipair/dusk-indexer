@@ -39,6 +39,14 @@ CI synthesizes both phases without AWS credentials, checks IAM/network/parity in
 
 Deploy `DuskIndexerOregon` first and verify its deployment registration and heartbeat before starting `DuskServicesSingapore`; API health depends on that registration. The commands below show the parameters for both stacks; execute them separately in that order. Replace every placeholder with the reviewed workflow output:
 
+If GitHub has integrated the reviewed PR commit into `main` but failed to enqueue
+its push workflow, run `gh workflow run dusk.yml --repo omnipair/dusk-indexer --ref main`.
+Wait for all six checks on that exact main commit before dispatching image
+publication. The publisher accepts successful push or manual native integration
+runs on `main` for its exact source SHA; PR and other-branch checks do not satisfy
+the gate. Never retry an interrupted merge until checking the actual main ref
+and commit parents; a failed merge response can still have integrated the code.
+
 ```sh
 npm run deploy -- --profile dusk-mainnet -c services=true \
   DuskServicesSingapore DuskIndexerOregon \
