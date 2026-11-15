@@ -66,7 +66,14 @@ export async function captureWalletSnapshot(
   observedAt = Date.now(),
 ) {
   const selection = { owner, kind: 'leverage' as const };
-  const accounts = await deps.accounts(dusk, selection, deployment, signal);
+  // These independent reads belong to the same deployment. Join them before
+  // previews, whose slot floors and final inventory verification still apply.
+  const [accounts, borrowPositions, hlpBalances, juniorExits] = await Promise.all([
+    deps.accounts(dusk, selection, deployment, signal),
+    deps.borrowPositions({ owner }),
+    deps.hlpBalances(owner),
+    deps.juniorExits(owner),
+  ]);
   const open = accounts.accounts.filter((row) => {
     const p = dusk.program.coder.accounts.decode<LeveragePosition>(
       'leveragePosition',
@@ -84,14 +91,9 @@ export async function captureWalletSnapshot(
     undefined;
   // Borrow positions and hLP holdings are discovered from streamed events;
   // their live values are previewed at or after the stream's slot.
-  const [borrowPositions, hlpBalances, juniorExits] = await Promise.all([
-    deps.borrowPositions({ owner }),
-    deps.hlpBalances(owner),
-    deps.juniorExits(owner),
-  ]);
   if (borrowPositions.positions.length && !previewPayer)
     throw new Error('A read-only preview payer must be configured');
-  const [valuations, orders, oracleValuations, borrowValuations] = await Promise.all([
+  const [valuations, orders, oracleValuations, borrowValuations, lpPerformance] = await Promise.all([
     completeBatch(open, async (row) => {
       try {
         return await deps.valuation(
@@ -132,6 +134,11 @@ export async function captureWalletSnapshot(
         signal,
       ),
     ),
+    // Auxiliary history uses the original observation cutoff and does not
+    // depend on live close simulations or the final inventory verification.
+    deps.lpPerformance(owner,hlpBalances.lpBalances,{
+      ...deployment,observedAt:new Date(observedAt).toISOString(),
+    }).catch(() => []),
   ]);
   const hlpPositions = await deps.hlpPositions(
     dusk,
@@ -183,11 +190,6 @@ export async function captureWalletSnapshot(
   const cashFlows = await deps.cashFlows(owner,cashFlowPositions,deployment.sourceSlot).catch(() =>
     cashFlowPositions.map(p => ({address:p.address,market:p.market,openedSlot:p.openedSlot,
       sourceSlot:verified.sourceSlot,status:'unavailable' as const,reason:'history-unavailable' as const})));
-  // Streams retain the wallet capture's original observation time. Auxiliary
-  // history must stop at that time even if ingestion advances during the read.
-  const lpPerformance = await deps.lpPerformance(owner,hlpBalances.lpBalances,{
-    ...deployment,observedAt:new Date(observedAt).toISOString(),
-  }).catch(() => []);
   for (const value of valuations) {
     if ('status' in value) continue;
     const raw = accounts.accounts.find(

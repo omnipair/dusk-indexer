@@ -159,6 +159,49 @@ test('program-rejected quotes are explicit unavailable rows; transport errors re
   await assert.rejects(f.capture(), /RPC timeout/);
 });
 
+test('streamed holdings discovery does not wait for wallet RPC inventory', async () => {
+  const f = await fixture();
+  let release!: () => void;
+  const inventory = new Promise<void>(resolve => { release = resolve; });
+  const started: string[] = [];
+  let reads = 0;
+  f.deps.accounts = async () => {
+    if (++reads === 1) await inventory;
+    return f.capturedAccounts;
+  };
+  for (const key of ['borrowPositions', 'hlpBalances', 'juniorExits'] as const) {
+    const read = f.deps[key];
+    Object.assign(f.deps, { [key]: async (...args: never[]) => {
+      started.push(key);
+      return (read as (...values: never[]) => Promise<unknown>)(...args);
+    } });
+  }
+  const batch = f.capture();
+  await pause();
+  assert.deepEqual(started.sort(), ['borrowPositions', 'hlpBalances', 'juniorExits']);
+  release();
+  assert.equal((await batch).complete, true);
+});
+
+test('LP history overlaps live valuations but remains inside the atomic wallet batch', async () => {
+  const f = await fixture();
+  let releaseValuation!: () => void, releaseHistory!: () => void;
+  let historyStarted = false, published = false;
+  const valuation = new Promise<void>(resolve => { releaseValuation = resolve; });
+  const history = new Promise<void>(resolve => { releaseHistory = resolve; });
+  f.deps.valuation = async () => { await valuation; return f.valuation; };
+  f.deps.lpPerformance = async () => { historyStarted = true; await history; return []; };
+  const batch = f.capture().then(value => { published = true; return value; });
+  await pause();
+  assert.equal(historyStarted, true);
+  assert.equal(published, false);
+  releaseValuation();
+  await pause();
+  assert.equal(published, false);
+  releaseHistory();
+  assert.equal((await batch).complete, true);
+});
+
 test('wallet batches reject changed inventory and mismatched valuation amounts', async () => {
   const f = await fixture();
   let reads = 0;
