@@ -10,9 +10,8 @@ import {
   boundedDuskRpcRead,
 } from './virtualBook/native';
 import { readDuskVirtualBook } from './virtualBook/virtual-book-read';
-import { readDuskVirtualBookQuotes } from './virtualBook/virtual-book-quotes';
+import { captureFrozenVirtualBook } from './duskFrozenVirtualBook';
 import {
-  projectDuskVirtualBook,
   VirtualBookView,
 } from './virtualBook/virtual-book-view-model';
 import { captureMarketEntryOrders } from './duskEntryOrderBook';
@@ -95,23 +94,16 @@ export async function captureVirtualBook(
       boundary,
       signal: controller.signal,
     });
-    const quoted = await readDuskVirtualBookQuotes({
-      dusk,
-      snapshot,
-      boundary,
-      groupingBps: selection.groupingBps,
-      levels: selection.levels,
-      signal: controller.signal,
-    });
-    const book = projectDuskVirtualBook(quoted);
+    const quoted = await captureFrozenVirtualBook(snapshot,selection,controller.signal);
+    const book = quoted.book;
     if (!book) throw new Error('Virtual book unavailable');
     // Orders are a separate panel: their failure must not hide market depth.
     const entryOrders = await captureMarketEntryOrders(
       dusk,
       {
         address: selection.market,
-        baseMint: quoted.account.baseSide.assetMint.toBase58(),
-        quoteMint: quoted.account.quoteSide.assetMint.toBase58(),
+        baseMint: quoted.baseMint,
+        quoteMint: quoted.quoteMint,
       },
       quoted.slot,
       controller.signal,
@@ -130,8 +122,8 @@ export async function captureVirtualBook(
       sourceSlot: quoted.slot,
       observedAt: quoted.observedAt,
       expiresAt: quoted.observedAt + VIRTUAL_BOOK_MAX_AGE_MS,
-      baseDecimals: quoted.account.baseSide.assetDecimals,
-      quoteDecimals: quoted.account.quoteSide.assetDecimals,
+      baseDecimals: quoted.baseDecimals,
+      quoteDecimals: quoted.quoteDecimals,
       book,
       entryOrders,
     };
