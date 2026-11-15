@@ -105,7 +105,7 @@ export function foldLpCapital(input: {
 
 export async function readLpPerformance(owner: string,balances: StreamedLpBalance[],deployment: DuskDeploymentEnvelope,supplied?: PoolClient) {
   const held=balances.filter(b => b.kind==='srlp');
-  if (!held.length) return [];
+  if (!held.length || held.length>64) return [];
   const client: PoolClient=supplied??await pool.connect();
   // History is auxiliary to holdings and exits. Destroying this read-only
   // connection bounds the entire pass, including a long sequence of queries.

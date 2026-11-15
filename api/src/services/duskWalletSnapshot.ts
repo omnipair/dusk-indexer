@@ -242,7 +242,7 @@ export async function captureWalletSnapshot(
     revision: randomUUID(),
     observedAt,
     expiresAt: observedAt + 15_000,
-    sourceSlot: Math.max(sourceSlot,...cashFlows.map(row=>row.sourceSlot)),
+    sourceSlot: Math.max(sourceSlot,...cashFlows.map(row=>row.sourceSlot),...lpPerformance.map(row=>row.sourceSlot)),
     verificationSlot: verified.sourceSlot,
     accounts,
     valuations,
