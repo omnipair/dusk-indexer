@@ -7,6 +7,9 @@ import { timedClientQuery } from '../utils/dbQuery';
 import { perfMetrics } from '../utils/perfMetrics';
 import { QuoteCache } from './duskQuoteCache';
 import { validHistoryUntil } from './duskHistoryTime';
+import { eventHistoryPrices } from './duskEventHistoryPrices';
+import type { EventHistoricalPrices } from './duskEventHistoryPrices';
+import type { HistoryDeploymentQuery } from './duskHistoryDeployment';
 
 export const HISTORY_EVENTS = [
   'SwapExecuted', 'LiquidityAdded', 'LiquidityRemoved',
@@ -20,7 +23,7 @@ export const LEVERAGE_CLOSE_EVENTS = ['LeveragePositionClosed', 'LeveragePositio
 /** Opt-in preserves v1 event coverage and cursor identity during a rolling release. */
 export const HISTORY_EVENTS_V2 = [...HISTORY_EVENTS, 'HlpOpened', 'HlpClosed', 'YieldClaimed'] as const;
 
-export interface EventHistoryQuery {
+export interface EventHistoryQuery extends HistoryDeploymentQuery {
   version?: 1 | 2;
   owner?: string;
   category?: 'leverage-close' | 'activity';
@@ -165,6 +168,7 @@ export async function readEventHistory(client: PoolClient, query: EventHistoryQu
       throw new Error('FINALIZED_INVARIANT: event-history source or event time is inconsistent');
   }
   const page = rows.rows.slice(0, query.limit), last = page.at(-1);
+  const prices = query.version === 2 ? await eventHistoryPrices(client,page,query) : new Map<string,EventHistoricalPrices>();
   const hasMore = rows.rows.length > query.limit;
   const nextCursor = hasMore && last ? Buffer.from(JSON.stringify({ scope, watermark, slot: last.slot, key: last.event_key })).toString('base64url') : null;
   return {
@@ -172,7 +176,8 @@ export async function readEventHistory(client: PoolClient, query: EventHistoryQu
     events: page.map(row => ({ eventKey: row.event_key, observationId: row.observation_id,
       eventName: row.event_name, market: row.payload.market, signature: row.signature,
       slot: row.slot, blockhash: row.blockhash, instructionPath: row.instruction_path,
-      eventOrdinal: row.event_ordinal, time: row.block_time.toISOString(), payload: row.payload })),
+      eventOrdinal: row.event_ordinal, time: row.block_time.toISOString(), payload: row.payload,
+      ...(prices.has(row.event_key) ? { historicalPrices: prices.get(row.event_key) } : {}) })),
     pagination: { limit: query.limit, cursor: query.cursor ?? null, nextCursor, hasMore, watermark },
     coverage: { cluster: pin.cluster, programId: pin.dusk.programId, idlSha256: pin.dusk.idlCanonicalSha256,
       protocolRevision: pin.revision, deploymentIdentitySha256: query.deploymentIdentitySha256,

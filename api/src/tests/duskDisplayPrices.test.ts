@@ -46,3 +46,13 @@ test('provider data cannot supply display values when the protocol preview is un
   const input = market(); input.state.previewStatus = 'unavailable';
   assert.equal(withDisplayPriceObservations(input,[quote()]),input);
 });
+
+test('historical valuation retains a dated prior quote without weakening live expiry or accepting later observations', () => {
+  const old = quote({ sourceTime: '2026-11-14T23:50:00Z', observedAt: '2026-11-14T23:50:01Z' });
+  assert.deepEqual(withDisplayPriceObservations(market(),[old]).displayPrices.prices,[]);
+  const historical = withDisplayPriceObservations(market(),[old],['b'.repeat(64)],'historical');
+  assert.equal(historical.displayPrices.prices[0].priceUsd,'0.125');
+  assert.equal(historical.displayPrices.prices[0].reference.sourceTime,old.sourceTime);
+  assert.deepEqual(withDisplayPriceObservations(market(),[quote({ observedAt: '2026-11-15T00:00:01Z' })],['b'.repeat(64)],'historical').displayPrices.prices,[]);
+  assert.deepEqual(withDisplayPriceObservations(market(),[old],['c'.repeat(64)],'historical').displayPrices.prices,[]);
+});

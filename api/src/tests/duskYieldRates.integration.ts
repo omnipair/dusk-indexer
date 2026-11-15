@@ -137,11 +137,12 @@ test('floating-asset yield boundaries use their own dated provider observations 
   assert.equal((await readYieldRates(client,query)).markets[0].rates.claimableRatePct,null);
   await save(query.since,-20,'f'.repeat(64)); await save(query.until,-20,'f'.repeat(64));
   assert.equal((await readYieldRates(client,query)).markets[0].rates.claimableRatePct,null);
-  await save(query.since,-20); await save(query.until,-20);
+  await save(query.since,-600); await save(query.until,-600);
   const result = (await readYieldRates(client,query)).markets[0];
   assert.equal(result.rates.missingMints.length,0);
   assert.notEqual(result.rates.claimableRatePct,null);
   assert.equal(result.provenance.initialPrice?.externalObservations.length,2);
+  assert.equal(result.provenance.finalPrice?.externalObservations[0].sourceTime,new Date(Date.parse(query.until)-600_000).toISOString());
   const meta = { ...live,...mints };
   assert.notEqual((await trailing(client,DAY,query.until,meta)).swapRatePct,null);
 }));
