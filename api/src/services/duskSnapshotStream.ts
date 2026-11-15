@@ -31,6 +31,10 @@ export function snapshotFailureReason(error: unknown): string {
       return 'rpc-timeout';
     case 'VOB read cancelled':
       return 'capture-deadline';
+    case 'Native depth capture timed out':
+      return 'native-preview-timeout';
+    case 'Native depth worker startup timed out':
+      return 'native-preview-startup-timeout';
     case 'The Dusk stream is stale':
     case 'The Dusk stream has not attested this release':
       return 'stream-unavailable';

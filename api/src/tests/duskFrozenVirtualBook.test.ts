@@ -92,4 +92,24 @@ test('the shipped isolated book worker returns coherent depth and terminates on 
   controller.abort();
   await assert.rejects(pending, /cancelled/);
   await assert.rejects(runFrozenVirtualBookProcess(f.bank, f.selection, { ...f.deployment, programBinarySha256: '0'.repeat(64) }), /unavailable/);
+  // A rejected or cancelled request cannot poison the next worker.
+  assert.equal((await runFrozenVirtualBookProcess(f.bank,f.selection,f.deployment)).slot,f.bank.slot);
+});
+
+test('a reused process always quotes a new VM with the requested Clock and accounts',async () => {
+  const f = fixture(),first = await runFrozenVirtualBookProcess(f.bank,f.selection,f.deployment);
+  const next = fixture();
+  next.bank.slot += 5;
+  const clockRow = next.bank.accounts.find(row => row.address === 'SysvarC1ock11111111111111111111111111111111')!;
+  const clock = Buffer.from(clockRow.account!.data,'base64');
+  clock.writeBigUInt64LE(BigInt(next.bank.slot),0);
+  clockRow.account!.data = clock.toString('base64');
+  const second = await runFrozenVirtualBookProcess(next.bank,{ ...next.selection,levels: 24 },next.deployment);
+  assert.equal(second.slot,next.bank.slot);
+  assert.equal(second.firstQuoteSlot,next.bank.slot);
+  assert.equal(second.book.slot,next.bank.slot);
+  assert.equal(second.book.bids.length,24);
+  const third = await runFrozenVirtualBookProcess(f.bank,f.selection,f.deployment);
+  assert.deepEqual(third.book,first.book,'the intervening bank never mutates the original bank');
+  assert.equal(third.slot,first.slot);
 });
