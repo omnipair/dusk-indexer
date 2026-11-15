@@ -337,6 +337,8 @@ test('failure reasons are fixed codes and never carry the raw error', () => {
   );
   assert.equal(snapshotFailureReason(new Error('VOB read cancelled')), 'capture-deadline');
   assert.equal(snapshotFailureReason(new Error('anything else')), 'capture-failed');
+  assert.equal(snapshotFailureReason(new Error('Native depth capture timed out')), 'native-preview-timeout');
+  assert.equal(snapshotFailureReason(new Error('Native depth worker startup timed out')), 'native-preview-startup-timeout');
   assert.equal(snapshotFailureReason('not an error'), 'capture-failed');
 });
 class Sink extends EventEmitter {
