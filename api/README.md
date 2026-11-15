@@ -612,7 +612,7 @@ Railway health check endpoint: `GET /health`
 
 ### Native portfolio range breakdown
 
-`GET /v1/dusk/owners/:owner/portfolio-attribution?startCaptureId=…&endCaptureId=…`
+`GET /api/dusk/v1/owners/:owner/portfolio-attribution?startCaptureId=…&endCaptureId=…`
 accepts the exact two capture IDs selected by the owner's portfolio chart. It returns the
 normal deployment envelope and `dusk-portfolio-attribution.v1` data. Reads use one
 repeatable-read transaction, saved finalized account bytes and canonical streamed payments;
