@@ -1,5 +1,6 @@
 name: Dusk native integration
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches: [main]

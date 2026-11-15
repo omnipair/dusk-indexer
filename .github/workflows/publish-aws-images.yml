@@ -19,9 +19,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: >-
           gh run list --repo "$GITHUB_REPOSITORY" --workflow dusk.yml
-          --branch main --commit "$GITHUB_SHA" --event push
-          --json status,conclusion |
-          jq -e 'any(.[]; .status == "completed" and .conclusion == "success")'
+          --branch main --commit "$GITHUB_SHA"
+          --json status,conclusion,event |
+          jq -e 'any(.[]; (.event == "push" or .event == "workflow_dispatch") and .status == "completed" and .conclusion == "success")'
       - uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: ${{ vars.DUSK_AWS_IMAGE_PUBLISHER_ROLE }}
