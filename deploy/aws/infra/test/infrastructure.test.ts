@@ -41,6 +41,12 @@ test('service parity, immutable images, network boundaries and isolated signer p
   const grpcService = fleetServices.find(([name]) => name.startsWith('duskgrpcService'))!;
   assert.ok(grpcService[1].DependsOn.includes(apiService[0]), 'gRPC must discover the API endpoint after its service is created');
   const fleetTasks = Object.values(fleetTemplate.findResources('AWS::ECS::TaskDefinition')) as any[];
+  const apiTask = fleetTasks.find(task => task.Properties.ContainerDefinitions[0].Name === 'dusk-api')!;
+  assert.equal(apiTask.Properties.Cpu, '1280', 'API task keeps one core plus Service Connect headroom');
+  assert.equal(apiTask.Properties.ContainerDefinitions[0].Cpu, 1024);
+  const reservedCpu = fleetTasks.reduce((sum, task) => sum + (task.Properties.Cpu
+    ? Number(task.Properties.Cpu) : task.Properties.ContainerDefinitions.reduce((n: number, c: any) => n + (c.Cpu ?? 0), 0)), 0);
+  assert.ok(reservedCpu <= 2048, 'all twelve services must still fit on one two-core app host');
   const alarms = Object.entries(fleetTemplate.findResources('AWS::CloudWatch::Alarm')) as [string, any][];
   const snapshotMemory = alarms.find(([name]) => name.startsWith('duskportfoliosnapshotsMemoryUtilizationHigh'))![1].Properties;
   assert.equal(snapshotMemory.Threshold,85);

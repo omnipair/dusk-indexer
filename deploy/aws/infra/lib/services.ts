@@ -157,7 +157,9 @@ export class ServicesStack extends Stack {
       const task = props.primary
         ? new ecs.Ec2TaskDefinition(this, `${spec.name}Task`, {
           taskRole, networkMode: ecs.NetworkMode.BRIDGE,
-          ...(kind === 'grpc' ? { cpu: '320', memoryMiB: '384' } : spec.name === 'dusk-api' ? { cpu: '768', memoryMiB: '1792' } : {}),
+          // The API's unsigned simulations and depth subprocess share this
+          // task quota. Keep one core for them plus Service Connect headroom.
+          ...(kind === 'grpc' ? { cpu: '320', memoryMiB: '384' } : spec.name === 'dusk-api' ? { cpu: '1280', memoryMiB: '1792' } : {}),
         })
         : new ecs.FargateTaskDefinition(this, `${spec.name}Task`, {
           cpu: Math.round(limits.vcpu * 1024), memoryLimitMiB: Math.round(limits.memoryGiB * 1024),
@@ -204,7 +206,7 @@ export class ServicesStack extends Stack {
         logging: ecs.LogDrivers.awsLogs({ logGroup, streamPrefix: spec.name, mode: ecs.AwsLogDriverMode.NON_BLOCKING }),
         stopTimeout: Duration.seconds(90),
         ...(props.primary ? {
-          cpu: profile ? 32 : kind === 'grpc' ? 64 : spec.name === 'dusk-api' ? 512 : 64,
+          cpu: profile ? 32 : kind === 'grpc' ? 64 : spec.name === 'dusk-api' ? 1024 : 64,
           memoryLimitMiB: spec.name === 'dusk-api' ? 1536 : kind === 'grpc' ? 128 : 512,
           ...(!usesServiceConnect ? { memoryReservationMiB: profile ? 32 : 64 } : {}),
         } : {}),

@@ -437,10 +437,10 @@
       "rate": "internetEgressGiB"
     },
     {
-      "name": "CPU surplus reserve:100 vCPU hours",
+      "name": "CPU surplus reserve:730 vCPU hours",
       "group": "Operations and usage",
       "fixed": false,
-      "quantity": "100",
+      "quantity": "730",
       "rate": "cpuSurplusHour"
     },
     {
@@ -470,7 +470,8 @@
     "Application services remain separate with individual task roles on a shared ECS EC2 host. The sum of independent hourly memory maxima was 2.12 GB; mean CPU was 0.157 vCPU. These are devnet shadow sizing observations, not a mainnet load test.",
     "Separate KMS keys and task roles are preserved, but co-located containers do not provide Fargate VM isolation. Host IMDS blocking, unprivileged tasks, distinct execution roles, resource controls and image validation are required.",
     "One database and one application node: replacement/restart does not provide an automatic database standby or guarantee zero downtime.",
-    "Daily regional snapshots and logical dumps: 35-day current-backup retention, plus versioned-object lifecycle. Cross-region backup replication is not included. An S3 gateway endpoint keeps backup uploads off the NAT path."
+    "Daily regional snapshots and logical dumps: 35-day current-backup retention, plus versioned-object lifecycle. Cross-region backup replication is not included. An S3 gateway endpoint keeps backup uploads off the NAT path.",
+    "Mainnet API task reserves 1.25 vCPU including Service Connect after measured sustained CPU throttling at 0.75. The twelve-service CPU reservation is 2048 units, so no extra steady host is required. CPU surplus reserve increased to 730 vCPU hours; actual usage remains metered."
   ],
   "excluded": [
     "Tax",

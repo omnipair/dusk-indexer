@@ -825,7 +825,7 @@
       },
       "dusk-api": {
         "platform": "ECS EC2 shared t3a.medium host",
-        "vcpu": 0.5,
+        "vcpu": 1,
         "memoryGiB": 1.5
       },
       "dusk-yield-claims": {
@@ -849,7 +849,7 @@
         "memoryGiB": 0.5
       }
     },
-    "measurementCaveat": "Measurements are hourly samples from the existing devnet deployment. They are sizing evidence, not a mainnet load test or instantaneous peak guarantee.",
+    "measurementCaveat": "Measurements are hourly samples from the existing devnet deployment. They are sizing evidence, not a mainnet load test or instantaneous peak guarantee. Mainnet live profiling on 2026-11-15 found the API task throttled in 50 of 50 CPU periods at 0.75 task vCPU; the API now reserves 1 vCPU plus 0.25 for Service Connect, with the whole fleet still fitting a two-core host.",
     "provisioningStatus": "Approved; provisioning in progress; use deployment receipts for actual resources.",
     "sharedHost": {
       "instanceType": "t3a.medium",
