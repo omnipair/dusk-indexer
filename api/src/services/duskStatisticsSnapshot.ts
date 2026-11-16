@@ -2,7 +2,7 @@ import type { Pool, PoolClient } from 'pg';
 import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
 import type { DuskDeploymentEnvelope } from './duskDeploymentService';
-import { readStreamCursor } from './duskHistoryCoverage';
+import { readHistoryScan, readStreamCursor } from './duskHistoryCoverage';
 import { listMarketActivity } from './duskMarketActivity';
 
 /** Open interest from streamed leverage positions: collateral of every open
@@ -25,12 +25,21 @@ export async function readMarketExposures(client: Pool | PoolClient = pool) {
     markets: result.rows.map((row) => ({ market: row.market,baseCollateral: row.base_collateral,
       quoteCollateral: row.quote_collateral,positions: row.positions })) };
 }
+export const statisticsDependencies = {
+  now: () => Date.now(),
+  historyScan: () => readHistoryScan(pool),
+  activity: listMarketActivity,
+  exposures: readMarketExposures,
+};
+
 export async function captureStatisticsSnapshot(
   range: '24h' | 'all',
   deployment: DuskDeploymentEnvelope,
   signal?: AbortSignal,
+  dependencies = statisticsDependencies,
 ) {
-  const now = Date.now(),
+  signal?.throwIfAborted();
+  const now = dependencies.now(),
     until = new Date(now).toISOString();
   let request = {
     ...(range === '24h'
@@ -38,16 +47,10 @@ export async function captureStatisticsSnapshot(
       : {}),
     until,
   };
-  const [initial, exposures] = await Promise.all([
-    listMarketActivity({
-      ...request,
-      deployment,
-      deploymentIdentitySha256: deployment.deploymentIdentitySha256,
-    }),
-    readMarketExposures(),
-  ]);
-  let activity = initial;
-  const scan = initial.coverage.historyScan;
+  // Choose a covered window from the cheap cursor read before valuing events.
+  // Previously the entire window was valued once just to obtain this cursor,
+  // then valued again at the adjusted end time, exhausting the stream deadline.
+  const scan = range === '24h' ? await dependencies.historyScan() : null;
   if (range === '24h' && scan) {
     const through = Date.parse(scan.throughBlockTime),
       end = through - 1,
@@ -60,13 +63,17 @@ export async function captureStatisticsSnapshot(
         since: new Date(start).toISOString(),
         until: new Date(end).toISOString(),
       };
-      activity = await listMarketActivity({
-        ...request,
-        deployment,
-        deploymentIdentitySha256: deployment.deploymentIdentitySha256,
-      });
     }
   }
+  signal?.throwIfAborted();
+  const [activity, exposures] = await Promise.all([
+    dependencies.activity({
+      ...request,
+      deployment,
+      deploymentIdentitySha256: deployment.deploymentIdentitySha256,
+    }),
+    dependencies.exposures(),
+  ]);
   signal?.throwIfAborted();
   return {
     schemaVersion: 'dusk-statistics.v1',

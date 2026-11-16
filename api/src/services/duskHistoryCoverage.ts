@@ -64,7 +64,7 @@ export interface HistoryScan {
 /** Activity coverage is the stream's cursor, from the release's registration
  * to the cursor's time.
  */
-export async function readHistoryScan(client: PoolClient): Promise<HistoryScan | null> {
+export async function readHistoryScan(client: Pool | PoolClient): Promise<HistoryScan | null> {
   const cursor = await readStreamCursor(client);
   if (!cursor) return null;
   return { basis: 'confirmed-stream.v1',firstSlot: String(loadPinnedProtocol().historyFirstSlot),throughSlot: cursor.throughSlot,

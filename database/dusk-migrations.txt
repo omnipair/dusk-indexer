@@ -37,3 +37,4 @@
 054_dusk_mainnet_deployments.sql
 055_dusk_portfolio_price_repairs.sql
 056_dusk_portfolio_income.sql
+057_dusk_activity_price_lookup.sql
