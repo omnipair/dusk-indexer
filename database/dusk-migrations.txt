@@ -38,3 +38,4 @@
 055_dusk_portfolio_price_repairs.sql
 056_dusk_portfolio_income.sql
 057_dusk_activity_price_lookup.sql
+058_dusk_streamed_payload_fast_path.sql
