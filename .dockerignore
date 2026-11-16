@@ -90,6 +90,7 @@ database/
 !database/migrations/054_dusk_mainnet_deployments.sql
 !database/migrations/055_dusk_portfolio_price_repairs.sql
 !database/migrations/056_dusk_portfolio_income.sql
+!database/migrations/057_dusk_activity_price_lookup.sql
 !database/dusk-migrations.txt
 
 # Other language artifacts
