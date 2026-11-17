@@ -70,6 +70,17 @@ test('live payload uses one bank and preserves program debt, curve price and exp
   assert.equal(payload.tokenMetadata.base,null);
 });
 
+test('LP interest liability is the ledger credit less the current operator share, and no interest vault is served',() => {
+  const sample = liveFixture();
+  Object.assign(sample.market.base_side.fees.ledger,{ credited: new BN(900),operator_claimable: new BN(200) });
+  sample.snapshot.marketAccount.data = encodeFixtureAccount('Market',sample.market).toString('base64');
+  const payload = projectMarketSnapshot(sample.snapshot,sample.references) as any;
+  assert.equal(payload.state.baseLpInterestFeeLiability,'700');
+  assert.equal(payload.state.quoteLpInterestFeeLiability,'0');
+  assert.equal('baseInterestVault' in payload,false);
+  assert.equal('quoteInterestVault' in payload,false);
+});
+
 test('senior earnings survive funded and wiped permanent seeds, with or without a jrLP mint', async () => {
   for (const initialized of [false, true]) {
     for (const backing of ['9999999', '0']) {

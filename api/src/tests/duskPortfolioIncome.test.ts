@@ -17,7 +17,7 @@ function fixture(balance=3n){
   const group:MarketSimulationSnapshot={commitment:'finalized',market:saved.market,slot:saved.slot,blockhash:saved.blockhash,blockTime:saved.blockTime,
     observedAt:saved.blockTime,deploymentIdentitySha256:saved.deploymentIdentitySha256,marketAccount:saved.accounts.market!,
     accounts:[{address:item.address,account:saved.accounts.lpToken}],basis:'simulation-post-state',preview:'AQ==',previewUnavailable:false};
-  const evidence:PortfolioIncomeEvidence={items:[item],accounts:[{address:addresses[1],account:saved.accounts.yield},{address:addresses[2],account:null}],archives:[]};
+  const evidence:PortfolioIncomeEvidence={items:[item],accounts:[{address:addresses[1],account:saved.accounts.yield},{address:addresses[2],account:null}]};
   return {f,group,evidence};
 }
 
@@ -40,19 +40,25 @@ test('income source identity, account completeness and native precision fail clo
   const missing=structuredClone(evidence);missing.accounts.pop();
   assert.throws(()=>projectPortfolioIncome(group,missing),/incomplete/);
 });
-test('unavailable program previews and missing archives remain unavailable, never zero income',()=>{
+test('unavailable program previews remain unavailable, never zero income',()=>{
   const {group,evidence}=fixture();
-  assert.equal(projectPortfolioIncome({...group,preview:null,previewUnavailable:true},evidence).unavailable.length,1);
-  const unavailable=projectPortfolioIncome(group,{...evidence,archivesUnavailable:true});
+  const unavailable=projectPortfolioIncome({...group,preview:null,previewUnavailable:true},evidence);
   assert.equal(unavailable.streams.length,0);assert.equal(unavailable.unavailable.length,1);
 });
-test('legacy zero anchors require every growth and income ledger to establish zero',()=>{
+test('legacy zero anchors require every growth index and the credited ledger to establish zero',()=>{
   const {group}=fixture(),coder=new BorshCoder(duskRawIdl());
   const market=coder.accounts.decode('Market',Buffer.from(group.marketAccount.data,'base64')) as Record<string,any>;
+  const encoded=()=>({...group,marketAccount:{...group.marketAccount,data:encodeFixtureAccount('Market',market).toString('base64')}});
   assert.equal(zeroIncomeSource({groups:[group]}),false);
-  for(const side of ['base','quote'])for(const field of ['swap_fee_growth_index_q64','interest_growth_index_q64'])market[`${side}_side`].fees[field]=new BN(0);
-  const zero={...group,marketAccount:{...group.marketAccount,data:encodeFixtureAccount('Market',market).toString('base64')}};
-  assert.equal(zeroIncomeSource({groups:[zero]}),true);
-  market.income.books[0].unpaid=new BN(1);
-  assert.equal(zeroIncomeSource({groups:[{...zero,marketAccount:{...zero.marketAccount,data:encodeFixtureAccount('Market',market).toString('base64')}}]}),false);
+  for(const side of ['base','quote']){
+    for(const field of ['swap_fee_growth_index_q64','interest_growth_index_q64'])market[`${side}_side`].fees[field]=new BN(0);
+    for(const vault of ['base_hlp_vault','quote_hlp_vault'])for(const field of ['swap_fee_growth_index_q64','interest_growth_index_q64'])
+      market[vault][`${side}_${field}`]=new BN(0);
+  }
+  assert.equal(zeroIncomeSource({groups:[encoded()]}),true);
+  // Credited interest is income even when no index has moved yet.
+  market.base_side.fees.ledger.credited=new BN(1);
+  assert.equal(zeroIncomeSource({groups:[encoded()]}),false);
+  market.base_side.fees.ledger.credited=new BN(0);market.quote_hlp_vault.base_interest_growth_index_q64=new BN(1);
+  assert.equal(zeroIncomeSource({groups:[encoded()]}),false);
 });
