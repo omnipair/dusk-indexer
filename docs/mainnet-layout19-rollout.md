@@ -4,7 +4,7 @@ Status: preparation only, 17 November 2026. This document does not authorize sig
 
 ## Current deployment and proposed changes
 
-The finalized read-only inventory at slots 470546070–470546072 found one layout-17 market, seven leverage-position accounts, one borrow-position account, twelve yield accounts, twelve income archives, a junior exit, retired cohorts, and a delegated leverage order. Accounts existing is not equivalent to every account having an open balance; inspect each exact balance before execution. The market currently has nonzero debt, srLP/hLP supply and unpaid yield. It cannot be treated as an empty deployment.
+The finalized read-only inventory at slots 470551366–470551367 found one layout-17 market, seven leverage-position accounts, one borrow-position account, twelve yield accounts, twelve income archives, a junior exit, retired cohorts, and a delegated leverage order. Accounts existing is not equivalent to every account having an open balance; inspect each exact balance before execution. The market currently has nonzero debt, srLP/hLP supply and unpaid yield. It cannot be treated as an empty deployment.
 
 - Dusk: `DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj`.
 - Delegate: `DeLegABhDLREbDpwwcsbkHvDS5MwqKPAw1CJKoooUXFQ`.
@@ -33,7 +33,11 @@ Two options require an explicit owner decision before execution:
 1. **Wind down the existing market using the current binary.** Obtain owners' authorization for closing trades, orders and loans; settle repayment, collateral, hLP, junior exits and all owed yield first. Inventory retired receipts, income archives, referral/operator/protocol claims, auction inventory, reserve dust and permanent junior seed. Do not assume permanent seed or every account can be closed. Produce a balance reconciliation and identify any value that the new binary would strand. Users create any replacement market through the UI; this preparation creates none.
 2. **Implement and audit a real migration.** Preserve every principal, debt share/index, accrued entitlement, cohort, escrow, authority and custody balance. Rehearse against a finalized clone and prove conservation and replay compatibility. If safe migration is unavailable, retain the current program deployment; do not reinterpret layout-17 bytes as layout 19. A separate program deployment would require an explicit ID and funding decision.
 
-A wind-down is not complete merely because the UI displays no positions. Require chain-level evidence and a signed-off reconciliation for all remaining liabilities. Resolve unclassified program-owned accounts before passing this gate. No forced closure, haircut, abandoned claim or lost permanent seed is approved by this plan.
+A wind-down is not complete merely because the UI displays no positions. Require chain-level evidence and a signed-off reconciliation for all remaining liabilities. The additional five Dusk accounts are the canonical Anchor IDL and four LP transfer-hook validation PDAs; the delegate also has its canonical IDL. There are no unclassified accounts in this snapshot. Re-run classification before execution. No forced closure, haircut, abandoned claim or lost permanent seed is approved by this plan.
+
+## Optional compatible USDC release
+
+If USDC support is urgent, #112 can be released independently using its own exact post-merge main bundle and stable SDK version. Its freeze-authority policy change leaves layout 17 and the wire IDLs unchanged, so it does not require the layout-19 account transition. This would be a separate explicitly authorized upgrade with normal binary/IDL/authority verification and a compatible deployment interval. It does not add USDv's other extensions or authorize #114/#115. Do not deploy a later main-head bundle while calling it the #112-only release.
 
 ## Gate 2: freeze and test the combined source
 
