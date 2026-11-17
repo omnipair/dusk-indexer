@@ -7,8 +7,8 @@
     "repository": "https://github.com/omnipair/dusk",
     "branch": "refactor/accrued-interest-index",
     "baseCommit": "d8d3bff33768e371f681c922ee1a0bc94e81ba6f",
-    "gitCommit": "633287d47d022f2177d96be45fa937287042f5a6",
-    "note": "IDLs copied from the reviewed PR #115 head; re-pin to the exact final combined source before activation."
+    "gitCommit": "0004e04b93d68e7454fc2e00b0e28a2aa8335d29",
+    "note": "IDLs match the synchronized PR #115 head; pin the final combined main source and release bundle before activation."
   },
   "programs": [
     {
@@ -32,7 +32,7 @@
   ],
   "sdk": {
     "package": "@omnipair/dusk-sdk",
-    "version": "2.28.0-next.20261115",
+    "version": "3.0.0",
     "published": false
   },
   "activation": "Requires a reviewed source commit, a published SDK whose bundled IDLs match these canonical hashes, a verified program and delegate deployment, and active-pin promotion with a new revision and fresh cursors. Layout-17 observations keep their original identity; no observation is relabelled or migrated."
