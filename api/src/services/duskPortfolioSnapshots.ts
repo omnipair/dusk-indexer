@@ -13,7 +13,7 @@ import { parsePriceReferences, priceMarketBindings } from './duskPriceMath';
 import { readStreamCursor } from './duskHistoryCoverage';
 import { readProviderPriceObservations, DisplayPriceObservation } from './duskDisplayPrices';
 import { assertRetiredHlpCohort, hlpCohortAddress } from './duskHlpCohort';
-import { readPortfolioIncomeItems,incomeAddresses,capturePortfolioIncomeArchives,projectPortfolioIncome } from './duskPortfolioIncome';
+import { readPortfolioIncomeItems,incomeAddresses,projectPortfolioIncome } from './duskPortfolioIncome';
 import type { PortfolioIncomeItem,PortfolioIncomeEvidence,PortfolioIncomeProjection } from './duskPortfolioIncome';
 
 const identity = () => {
@@ -378,9 +378,7 @@ export async function captureDuskPortfolioSnapshots(dependencies?: {
       const displayPriceObservations = await readProviderPriceObservations({ ...bound,
         state: { previewStatus: group.preview === null ? 'unavailable' : 'available' },
         displayPrices: { observedAt: group.blockTime } },[group.deploymentIdentitySha256]);
-      const incomeEvidence:PortfolioIncomeEvidence={items:incomeItems,accounts:group.accounts.filter(entry=>extra.includes(entry.address)),archives:[]};
-      try{incomeEvidence.archives=await capturePortfolioIncomeArchives({...group,accounts:group.accounts.filter(entry=>addresses.includes(entry.address))},incomeEvidence);}
-      catch{incomeEvidence.archivesUnavailable=true;}
+      const incomeEvidence:PortfolioIncomeEvidence={items:incomeItems,accounts:group.accounts.filter(entry=>extra.includes(entry.address))};
       groups.push({ ...group,incomeEvidence,...(displayPriceObservations.length ? { displayPriceObservations } : {}),accounts: group.accounts.filter((entry) => addresses.includes(entry.address)),
         ...(cohorts.length ? { hlpCohorts: group.accounts.filter((entry) => cohorts.includes(entry.address)) } : {}),
         ...(juniorCohorts.length ? { juniorCohorts: group.accounts.filter((entry) => juniorCohorts.includes(entry.address)) } : {}) });

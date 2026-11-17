@@ -1028,3 +1028,254 @@ fn layout16_market_projects_continuous_auctions_without_moving_reserves() {
         assert!(lane.epoch_start_slot.is_none());
     }
 }
+
+const ACCRUED_INTEREST_CANDIDATE_IDL: &[u8] = include_bytes!(
+    "../../../../../protocol/candidates/next-2026-11-15-accrued-interest/idl/dusk.json"
+);
+const ACCRUED_INTEREST_CANDIDATE_MANIFEST: &str = include_str!(
+    "../../../../../protocol/candidates/next-2026-11-15-accrued-interest/candidate.json"
+);
+
+fn accrued_interest_registry() -> ProgramRegistry {
+    ProgramRegistry::from_bytes(ACCRUED_INTEREST_CANDIDATE_IDL, DUSK_PROGRAM_ID).unwrap()
+}
+
+fn candidate_decode(registry: &ProgramRegistry, name: &str, bytes: &[u8]) -> Value {
+    registry
+        .types
+        .decode_named_type(name, bytes, DecodeLimits::default())
+        .unwrap()
+}
+
+/// The layout-19 candidate shares the program ID, so its isolation is the IDL
+/// hash: it decodes in its own registry and never under the active pin.
+#[test]
+fn accrued_interest_candidate_interface_drops_books_epochs_and_interest_vaults() {
+    let manifest: Value = serde_json::from_str(ACCRUED_INTEREST_CANDIDATE_MANIFEST).unwrap();
+    assert_eq!(manifest["revision"], "next-2026-11-15-accrued-interest");
+    assert_eq!(manifest["marketLayoutVersion"], 19);
+    assert_eq!(
+        manifest["programs"][0]["idl"]["sha256"],
+        crate::sha256_hex(ACCRUED_INTEREST_CANDIDATE_IDL)
+    );
+    assert_ne!(
+        manifest["programs"][0]["idl"]["sha256"],
+        crate::DUSK_IDL_RAW_SHA256
+    );
+    assert_eq!(crate::PROTOCOL_REVISION, "mainnet-2026-11-14");
+
+    let registry = accrued_interest_registry();
+    let events: BTreeSet<&str> = registry
+        .events
+        .values()
+        .map(|event| event.name.as_str())
+        .collect();
+    let expected_events: BTreeSet<&str> = DUSK_EVENTS
+        .into_iter()
+        .filter(|name| !["PublicInterestFunded", "HlpInterestAllocated"].contains(name))
+        .collect();
+    assert_eq!(events, expected_events);
+    let accounts: BTreeSet<&str> = registry
+        .accounts
+        .values()
+        .map(|account| account.name.as_str())
+        .collect();
+    let expected_accounts: BTreeSet<&str> = DUSK_ACCOUNTS
+        .into_iter()
+        .filter(|name| *name != "IncomeEpoch")
+        .collect();
+    assert_eq!(accounts, expected_accounts);
+    let instructions: BTreeSet<&str> = registry
+        .instructions
+        .values()
+        .map(|instruction| instruction.name.as_str())
+        .collect();
+    assert_eq!(instructions.len(), 76);
+    for removed in ["checkpoint_income", "fund_interest", "roll_income_epoch"] {
+        assert!(!instructions.contains(removed), "{removed}");
+    }
+
+    for event in registry.events.values() {
+        let bytes = zero_named_type(&registry.types, &event.name);
+        candidate_decode(&registry, &event.name, &bytes);
+    }
+    for account in registry.accounts.values() {
+        let bytes = zero_named_type(&registry.types, &account.name);
+        let (fields, padding) = registry
+            .types
+            .decode_named_account_type(&account.name, &bytes, DecodeLimits::default())
+            .unwrap();
+        assert_eq!(padding, 0, "{}", account.name);
+        projections::build_product_projections(&account.name, DUSK_PROGRAM_ID, &fields)
+            .unwrap_or_else(|error| panic!("{}: {error}", account.name));
+    }
+}
+
+#[test]
+fn accrued_interest_candidate_market_and_yield_accounts_project_without_income_books() {
+    let registry = accrued_interest_registry();
+    let market_bytes = zero_named_type(&registry.types, "Market");
+    let (mut market, _) = registry
+        .types
+        .decode_named_account_type("Market", &market_bytes, DecodeLimits::default())
+        .unwrap();
+    assert!(market.get("income").is_none());
+    for side in ["base_side", "quote_side"] {
+        assert!(market[side].get("interest_vault").is_none());
+        let fees = &market[side]["fees"];
+        for removed in [
+            "public_interest_advance",
+            "interest_vault_balance",
+            "interest_liability",
+            "unallocated_interest_liability",
+            "revenue_interest_liability",
+        ] {
+            assert!(fees.get(removed).is_none(), "{side}.fees.{removed}");
+        }
+        let ledger = fees["ledger"].as_object().unwrap();
+        assert_eq!(
+            ledger.keys().map(String::as_str).collect::<BTreeSet<_>>(),
+            [
+                "credited",
+                "deficit",
+                "funding_recognized",
+                "operator_claimable",
+                "operator_fraction_q64",
+                "protocol_fraction_q64",
+                "protocol_pending",
+                "protocol_unpaid",
+                "public_recognized",
+            ]
+            .into_iter()
+            .collect()
+        );
+    }
+    // 8-byte discriminator plus the layout-19 body.
+    assert_eq!(market_bytes.len() + 8, 4_478);
+    for vault in ["base_hlp_vault", "quote_hlp_vault"] {
+        assert!(market[vault].get("base_interest_checkpoint_q64").is_none());
+        assert!(market[vault]["base_interest_growth_index_q64"].is_string());
+        // A frozen vault holds its public interest for its creditors.
+        assert_eq!(market[vault]["held_base_interest"], "0");
+        assert_eq!(market[vault]["held_quote_interest"], "0");
+    }
+    market["version"] = json!("19");
+    market["base_side"]["fees"]["ledger"]["credited"] = json!(u128::MAX.to_string());
+    let projection =
+        projections::build_product_projections("Market", DUSK_PROGRAM_ID, &market).unwrap();
+    let projected = serde_json::to_value(projection.market.unwrap()).unwrap();
+    assert_eq!(projected["version"], 19);
+    assert!(projected["base"].get("interest_vault").is_none());
+    assert_eq!(projected["auction_lanes"].as_array().unwrap().len(), 8);
+
+    // The active layout-17 decoder cannot read a layout-19 account.
+    let mut account = anchor_discriminator("account", "Market").to_vec();
+    account.extend_from_slice(&market_bytes);
+    let active = decoder()
+        .decode_account(&account_context(), DUSK_PROGRAM_ID, &account)
+        .unwrap();
+    assert_eq!(active.status, AccountDecodeStatus::MalformedKnownPayload);
+
+    let yield_bytes = zero_named_type(&registry.types, "YieldAccount");
+    let (mut holder, _) = registry
+        .types
+        .decode_named_account_type("YieldAccount", &yield_bytes, DecodeLimits::default())
+        .unwrap();
+    assert!(holder.get("income").is_none());
+    assert!(holder.get("income_initialized").is_none());
+    holder["accrued_interest_amount"] = json!(u64::MAX.to_string());
+    let projection =
+        projections::build_product_projections("YieldAccount", DUSK_PROGRAM_ID, &holder).unwrap();
+    let PortfolioProjection::YieldAccount(portfolio) = projection.portfolio.unwrap() else {
+        panic!("expected yield portfolio projection");
+    };
+    assert_eq!(
+        portfolio.accrued_interest_amount.as_str(),
+        u64::MAX.to_string()
+    );
+
+    let cohort = candidate_decode(
+        &registry,
+        "JuniorCohort",
+        &zero_named_type(&registry.types, "JuniorCohort"),
+    );
+    assert!(cohort.get("income_end").is_none());
+    assert_eq!(cohort["final_income"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn accrued_interest_candidate_events_and_operator_claims_decode_losslessly() {
+    let registry = accrued_interest_registry();
+    let market = Pubkey::new_from_array([1; 32]);
+    let mint = Pubkey::new_from_array([2; 32]);
+
+    let mut accrued = Vec::new();
+    accrued.extend_from_slice(market.as_ref());
+    accrued.extend_from_slice(mint.as_ref());
+    accrued.push(1);
+    accrued.extend_from_slice(&10_u64.to_le_bytes());
+    accrued.extend_from_slice(&20_u64.to_le_bytes());
+    for value in [1_u128, 2, u128::MAX, 3, 4] {
+        accrued.extend_from_slice(&value.to_le_bytes());
+    }
+    for value in [11_u64, 22, 33, u64::MAX] {
+        accrued.extend_from_slice(&value.to_le_bytes());
+    }
+    let decoded = candidate_decode(&registry, "BorrowInterestAccrued", &accrued);
+    assert_eq!(decoded["asset_side"], "1");
+    assert_eq!(decoded["credit_interest"], u128::MAX.to_string());
+    assert_eq!(decoded["protocol_credit"], "11");
+    assert_eq!(decoded["operator_credit"], "22");
+    assert_eq!(decoded["lp_credit"], "33");
+    assert_eq!(decoded["vault_netted"], u64::MAX.to_string());
+
+    let mut claimed = Vec::new();
+    for key in [
+        market,
+        Pubkey::new_from_array([3; 32]),
+        Pubkey::new_from_array([4; 32]),
+        mint,
+    ] {
+        claimed.extend_from_slice(key.as_ref());
+    }
+    claimed.push(2);
+    claimed.extend_from_slice(Pubkey::new_from_array([5; 32]).as_ref());
+    for value in [5_u64, 7, 9, 11] {
+        claimed.extend_from_slice(&value.to_le_bytes());
+    }
+    claimed.extend_from_slice(&zero_named_type(&registry.types, "MarketEventMetadata"));
+    let decoded = candidate_decode(&registry, "YieldClaimed", &claimed);
+    assert_eq!(decoded["token_kind"], "2");
+    assert_eq!(decoded["swap_fee_amount"], "5");
+    assert_eq!(decoded["interest_amount"], "7");
+    assert_eq!(decoded["interest_remaining"], "9");
+    assert_eq!(decoded["recipient_credit"], "11");
+
+    for name in ["BorrowInterestPaid", "ReferralInterestAccrued"] {
+        let decoded = candidate_decode(&registry, name, &zero_named_type(&registry.types, name));
+        assert!(decoded.get("interest_vault_credit").is_none(), "{name}");
+        assert_eq!(decoded["interest_paid"], "0", "{name}");
+    }
+
+    let mut operator = Vec::new();
+    operator.extend_from_slice(market.as_ref());
+    operator.extend_from_slice(Pubkey::new_from_array([6; 32]).as_ref());
+    operator.extend_from_slice(&3_u64.to_le_bytes());
+    operator.extend_from_slice(&(u128::from(u64::MAX) + 1).to_le_bytes());
+    operator.extend_from_slice(&u128::MAX.to_le_bytes());
+    operator.extend_from_slice(&[1, 254]);
+    let (decoded, padding) = registry
+        .types
+        .decode_named_account_type("OperatorRevenueAccount", &operator, DecodeLimits::default())
+        .unwrap();
+    assert_eq!(padding, 0);
+    assert_eq!(
+        decoded["claimable"],
+        json!([
+            (u128::from(u64::MAX) + 1).to_string(),
+            u128::MAX.to_string()
+        ])
+    );
+    assert_eq!(decoded["sealed"], true);
+    assert_eq!(decoded["bump"], "254");
+}

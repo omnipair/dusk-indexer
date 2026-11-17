@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "dusk-protocol-candidate.v1",
+  "status": "undeployed",
+  "revision": "next-2026-11-15-accrued-interest",
+  "marketLayoutVersion": 19,
+  "source": {
+    "repository": "https://github.com/omnipair/dusk",
+    "branch": "refactor/accrued-interest-index",
+    "baseCommit": "d8d3bff33768e371f681c922ee1a0bc94e81ba6f",
+    "gitCommit": null,
+    "note": "Generated from an uncommitted working tree on the base commit. Pin the reviewed commit before activation."
+  },
+  "programs": [
+    {
+      "name": "dusk",
+      "programId": "DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj",
+      "idl": {
+        "path": "idl/dusk.json",
+        "sha256": "4feaf25ff9f36bdf4e10f2eb0b1080a43311ed7d6d0e1d31dcfb6eb84d47e179",
+        "canonicalSha256": "9b5846bc5b66389f87018b801f9f4b566550db23c48d2d4b36136fe607a79874"
+      }
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "DeLegABhDLREbDpwwcsbkHvDS5MwqKPAw1CJKoooUXFQ",
+      "idl": {
+        "path": "idl/leverage_delegate.json",
+        "sha256": "71646c872d8b66759bed9f45c728263a9d864d0d271fcf47ea49e3b1edcc2e2a",
+        "canonicalSha256": "ba266f08038ed0b62aa2a64ef01f0d1fdd8e4b0fab099a2dd7581dfb411dda7c"
+      }
+    }
+  ],
+  "sdk": {
+    "package": "@omnipair/dusk-sdk",
+    "version": "2.28.0-next.20261115",
+    "published": false
+  },
+  "activation": "Requires a reviewed source commit, a published SDK whose bundled IDLs match these canonical hashes, a verified program and delegate deployment, and active-pin promotion with a new revision and fresh cursors. Layout-17 observations keep their original identity; no observation is relabelled or migrated."
+}

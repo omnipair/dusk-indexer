@@ -1,4 +1,3 @@
-import { projectHolderIncome, type IncomeArchiveMap, type IncomeBookInput, type IncomeClaimInput, type IncomeEndInput } from "@omnipair/dusk-sdk";
 const Q64 = 1n << 64n;
 const U64_MAX = (1n << 64n) - 1n;
 const U128_MAX = (1n << 128n) - 1n;
@@ -27,18 +26,19 @@ export function settleRecordedGrowth(input: { balance: unknown; index: unknown; 
 
 interface GrowthFees {
   swapFeeGrowthIndexQ64: unknown; interestGrowthIndexQ64: unknown;
-  unallocatedSwapFeeLiability: unknown; unallocatedInterestLiability: unknown;
-  swapFeeGrowthRemainderScaled: unknown; interestGrowthRemainderScaled: unknown;
+  unallocatedSwapFeeLiability: unknown; swapFeeGrowthRemainderScaled: unknown;
   junior?: { swapGrowthQ64: unknown; interestGrowthQ64: unknown };
 }
-interface GrowthSide { assetMint: { equals(other: unknown): boolean }; hlpMint: { equals(other: unknown): boolean }; fees: GrowthFees; shares: { srlpSupply: unknown } }
-/** The camelCase market and yield account the pinned SDK decodes. */
+interface GrowthSide {
+  assetMint: { equals(other: unknown): boolean }; hlpMint: { equals(other: unknown): boolean };
+  fees: GrowthFees; shares: { srlpSupply: unknown }; reserves?: { cashReserve: unknown };
+}
+/** The camelCase layout-19 market and yield account the pinned SDK decodes. */
 export interface LiveYieldMarket {
   srlpMint: { equals(other: unknown): boolean };
   juniorMint?: { equals(other: unknown): boolean };
   baseSide: GrowthSide; quoteSide: GrowthSide;
   baseHlpVault: Record<string, unknown>; quoteHlpVault: Record<string, unknown>;
-  income: { books: readonly IncomeBookInput[]; juniorEnd: readonly IncomeEndInput[] };
 }
 export interface LiveYieldAccount {
   assetMint: unknown; lpMint: unknown; tokenKind: number;
@@ -46,7 +46,6 @@ export interface LiveYieldAccount {
   swapFeeRemainderQ64: unknown; interestRemainderQ64: unknown;
   accruedSwapFeeAmount: unknown; accruedInterestAmount: unknown;
   escrowBalance?: unknown;
-  incomeInitialized: boolean; income: readonly IncomeClaimInput[];
 }
 
 /** An index after crediting growth that is recorded but not yet distributed. */
@@ -56,16 +55,22 @@ function publishedIndex(index: unknown, amount: unknown, supply: unknown, carry:
   return unsigned(current + (unsigned(amount, U64_MAX) * Q64 + unsigned(carry, U64_MAX)) / shares);
 }
 
-/** The amount Harvest would pay now: the market's undistributed growth is
- * carried forward and, for hLP, the vault's srLP entitlement is checkpointed
- * into hLP growth first, exactly as the program's lazy update does. The
- * market must already be the preview's updated post-state. */
-export function projectLiveYield(market: LiveYieldMarket, account: LiveYieldAccount, balance: bigint, retiredVault?: Record<string, unknown>, income?: {ends?: readonly IncomeEndInput[]; archives?: IncomeArchiveMap; pendingHistory?: boolean}) {
+/** What a holder is owed now. The market must already be the preview's
+ * updated post-state, whose accrual has credited interest to every lane:
+ * ordinary srLP through `fees.interestGrowthIndexQ64`, junior through its
+ * tranche index, an hLP vault through its own per-asset interest index (held
+ * as unallocated only while the vault has no supply). Interest a frozen vault
+ * holds for its creditors (`held*Interest`) is the vault's and never enters
+ * that index unless the vault unfreezes. Claimable interest is
+ * the holder's checkpointed amount plus its balance times the index change.
+ * Swap fees are carried forward and, for hLP, the vault's srLP swap-fee
+ * entitlement is checkpointed into hLP growth first, as the program's lazy
+ * update does. A retired hLP or junior cohort reads its frozen indexes. */
+export function projectLiveYield(market: LiveYieldMarket, account: LiveYieldAccount, balance: bigint, retiredVault?: Record<string, unknown>) {
   const side = market.baseSide.assetMint.equals(account.assetMint) ? 'base'
     : market.quoteSide.assetMint.equals(account.assetMint) ? 'quote' : null;
   if (!side) throw new Error('Yield asset is outside its market');
   const state = side === 'base' ? market.baseSide : market.quoteSide;
-  const receivableIncome = income?.pendingHistory ? 0n : projectHolderIncome({holder:{tokenKind:account.tokenKind,incomeInitialized:account.incomeInitialized===true,escrowBalance:unsigned(account.escrowBalance??0,U64_MAX),income:account.income},books:market.income.books,asset:side==='base'?0:1,walletBalance:balance,ends:income?.ends??market.income.juniorEnd,archives:income?.archives});
   let swap: bigint;
   let interest: bigint;
   if (account.tokenKind === 2) {
@@ -78,8 +83,7 @@ export function projectLiveYield(market: LiveYieldMarket, account: LiveYieldAcco
   } else {
     swap = retiredVault ? unsigned(retiredVault[`${side}SwapFeeGrowthIndexQ64`]) : publishedIndex(state.fees.swapFeeGrowthIndexQ64, state.fees.unallocatedSwapFeeLiability,
       state.shares.srlpSupply, state.fees.swapFeeGrowthRemainderScaled);
-    interest = retiredVault ? unsigned(retiredVault[`${side}InterestGrowthIndexQ64`]) : publishedIndex(state.fees.interestGrowthIndexQ64, state.fees.unallocatedInterestLiability,
-      state.shares.srlpSupply, state.fees.interestGrowthRemainderScaled);
+    interest = retiredVault ? unsigned(retiredVault[`${side}InterestGrowthIndexQ64`]) : unsigned(state.fees.interestGrowthIndexQ64);
   }
   if (account.tokenKind === 0) {
     if (retiredVault) throw new Error('Retired yield requires an hLP receipt');
@@ -89,17 +93,26 @@ export function projectLiveYield(market: LiveYieldMarket, account: LiveYieldAcco
       : market.quoteSide.hlpMint.equals(account.lpMint) ? market.quoteHlpVault : null;
     if (!vault) throw new Error('Invalid hLP mint');
     const prefix = side === 'base' ? 'Base' : 'Quote';
-    const credit = (index: bigint, name: 'SwapFee' | 'Interest') => BigInt(settleRecordedGrowth({ balance: vault.srlpShares,
-      index, checkpoint: vault[`${side}${name}CheckpointQ64`], remainder: vault[`${side}${name}RemainderQ64`], accrued: 0 }).amount);
-    const swapCredit = credit(swap, 'SwapFee'), interestCredit = credit(interest, 'Interest');
+    const swapCredit = BigInt(settleRecordedGrowth({ balance: vault.srlpShares, index: swap,
+      checkpoint: vault[`${side}SwapFeeCheckpointQ64`], remainder: vault[`${side}SwapFeeRemainderQ64`], accrued: 0 }).amount);
     swap = publishedIndex(vault[`${side}SwapFeeGrowthIndexQ64`], unsigned(vault[`unallocated${prefix}SwapFeeAmount`], U64_MAX) + swapCredit,
       vault.hlpSupply, vault[`${side}SwapFeeGrowthRemainderScaled`]);
-    interest = publishedIndex(vault[`${side}InterestGrowthIndexQ64`], unsigned(vault[`unallocated${prefix}InterestAmount`], U64_MAX) + interestCredit,
+    interest = publishedIndex(vault[`${side}InterestGrowthIndexQ64`], vault[`unallocated${prefix}InterestAmount`],
       vault.hlpSupply, vault[`${side}InterestGrowthRemainderScaled`]);
   } else if (account.tokenKind !== 1 && account.tokenKind !== 2) throw new Error('Invalid LP token kind');
   const swapFeeAmount = BigInt(settleRecordedGrowth({ balance, index: swap, checkpoint: account.swapFeeCheckpointQ64,
     remainder: account.swapFeeRemainderQ64, accrued: account.accruedSwapFeeAmount }).amount);
-  const interestAmount = unsigned(BigInt(settleRecordedGrowth({ balance, index: interest, checkpoint: account.interestCheckpointQ64,
-    remainder: account.interestRemainderQ64, accrued: account.accruedInterestAmount }).amount)+receivableIncome,U64_MAX);
+  const interestAmount = BigInt(settleRecordedGrowth({ balance, index: interest, checkpoint: account.interestCheckpointQ64,
+    remainder: account.interestRemainderQ64, accrued: account.accruedInterestAmount }).amount);
   return { side: side as 'base' | 'quote', swapFeeAmount, interestAmount, totalAmount: unsigned(swapFeeAmount + interestAmount, U64_MAX) };
+}
+
+/** The interest a harvest pays now: credited interest is paid from the asset's
+ * reserve cash as cash allows, and the rest stays claimable. Read the cash
+ * from the same updated bank as the claim. */
+export function payableInterest(market: Pick<LiveYieldMarket, 'baseSide' | 'quoteSide'>, side: 'base' | 'quote', interestAmount: bigint): bigint {
+  const reserves = (side === 'base' ? market.baseSide : market.quoteSide).reserves;
+  if (!reserves) throw new Error('Missing reserve cash for interest payment');
+  const cash = unsigned(reserves.cashReserve, U64_MAX);
+  return interestAmount < cash ? interestAmount : cash;
 }

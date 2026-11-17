@@ -72,16 +72,26 @@ test('position ownership seeds, mint bindings and same-bank preview ledgers are 
   nativeFields(nativeFields(other.market.quote_side).shares).srlp_supply = 2_000_000n;
   assert.throws(() => other.component('srlp'),/ledgers/);
 });
-test('hLP principal subtracts indexed funding debt and excludes unrealized lending interest from inventory',() => {
-  const sample = fixture(),debt = nativeFields(sample.market.debt);
+test('hLP principal subtracts indexed funding debt and excludes credited and protocol interest from inventory',() => {
+  const sample = fixture(),ledger = nativeFields(nativeFields(nativeFields(sample.market.base_side).fees).ledger);
   Object.assign(nativeFields(sample.market.base_hlp_vault),{ hlp_supply: 1_000_000n,srlp_shares: 200_000n,debt_shares: 10_000_000n });
-  // Five base units of unrealized interest: 20 shares * 1.25 minus 20 principal.
-  Object.assign(debt,{ fixed_base_shares: 20n*NAD,fixed_base_principal: 20n*NAD });
+  // Six base units are owed to holders (5) and the protocol (1); one unit of
+  // recognized funding interest is backing: the curve reserve is 100 - 5.
+  Object.assign(ledger,{ credited: 5n*NAD,protocol_unpaid: NAD,funding_recognized: NAD });
   const value = hlpPortfolioPrincipal(sample.market,sample.preview,'base',100_000n);
   // 19 base + 50 quote / 2.5 - 11 quote / 2.5 = 34.6 base in vault; holder owns 10%.
   assert.equal(value.signedVaultNav,'34600000000000');
   assert.equal(value.amount,3_460_000_000n);
   assert.equal(sample.component('base_hlp').valuation.netUsd,'8.65');
+});
+test('interest a frozen hLP vault holds for its creditors is vault inventory, not principal outside it',() => {
+  const sample = fixture(),vault = nativeFields(sample.market.base_hlp_vault);
+  Object.assign(vault,{ hlp_supply: 1_000_000n,srlp_shares: 200_000n,debt_shares: 10_000_000n });
+  const before = BigInt(hlpPortfolioPrincipal(sample.market,sample.preview,'base',100_000n).signedVaultNav);
+  // One base unit held in the target asset and 2.5 quote units in the borrowed asset.
+  Object.assign(vault,{ held_base_interest: NAD,held_quote_interest: 2_500_000n });
+  const after = BigInt(hlpPortfolioPrincipal(sample.market,sample.preview,'base',100_000n).signedVaultNav);
+  assert.equal(after-before,2n*10n**12n);
 });
 test('quote hLP uses the program base price and reciprocal with different mint decimals',() => {
   const sample = fixture();

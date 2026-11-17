@@ -36,9 +36,10 @@ async function observedPricesAt(client: PoolClient,pin: ReturnType<typeof loadPi
     deploymentIdentitySha256,contentHash: row.payload_hash,referenceHash: projected.referenceHash,externalObservations: external } };
 }
 
-/** Recorded claimable srLP earnings only. Compounding, unpaid debt interest and
- * protocol revenue remain separate; these rates are never a full APY. Growth
- * points and their prices come from post-swap market snapshots. */
+/** Recorded claimable srLP earnings only. Interest credited at accrual counts
+ * whether or not borrowers have repaid it; compounding and protocol revenue
+ * remain separate, and these rates are never a full APY. Growth points and
+ * their prices come from post-swap market snapshots. */
 export async function readYieldRates(client: PoolClient,options: YieldRatesQuery) {
   const pin = loadPinnedProtocol(),active = activeProtocol(pin);
   const since = Date.parse(options.since),until = Date.parse(options.until);

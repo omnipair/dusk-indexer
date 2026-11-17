@@ -155,3 +155,14 @@ interfaces and the shared SDK archive hash. It is undeployed and does not
 replace the active lock or historical observation identities. See
 [senior LP naming](../docs/senior-lp-naming.md) for projection and activation
 contracts.
+
+## Accrued-interest candidate
+
+`candidates/next-2026-11-15-accrued-interest/` contains the generated Dusk and
+leverage-delegate interfaces for market layout 19, where borrower interest is
+credited to holders at accrual through growth indexes and a per-asset interest
+ledger, and the income receivable books, income epochs and interest vaults are
+removed. It is undeployed, its SDK is unpublished, and it does not replace the
+active lock or historical observation identities. See
+[its notes](candidates/next-2026-11-15-accrued-interest/README.md) for the
+interface changes and activation steps.
