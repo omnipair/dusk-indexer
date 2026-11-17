@@ -1,7 +1,7 @@
 import type { PoolClient } from 'pg';
 import { loadPinnedProtocol } from '../config/duskProtocol';
 import { activePriceReferences, projectReferencePrices } from './duskPriceMath';
-import { readProviderPriceObservations, withDisplayPriceObservations } from './duskDisplayPrices';
+import { readProviderPriceObservationBatch, withDisplayPriceObservations } from './duskDisplayPrices';
 import { historyDeploymentIdentities, HistoryDeploymentQuery } from './duskHistoryDeployment';
 
 export interface EventHistoricalPrices {
@@ -30,27 +30,34 @@ export async function eventHistoryPrices(client: PoolClient,
     WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND market=ANY($5::text[])`,
     [pin.cluster,pin.dusk.programId,pin.dusk.idlCanonicalSha256,pin.revision,[...new Set(rows.map(row => String(row.payload.market)))]]);
   const created = new Map(markets.rows.map(row => [row.market,row.payload]));
-  const dates = new Map<string,EventHistoricalPrices>();
+  const views = new Map<string,{ asOf: string; view: Record<string,any> }>();
   for (const row of rows) {
     const market = created.get(String(row.payload.market)),asOf = row.block_time.toISOString();
     if (!market) continue;
     const key = `${row.payload.market}:${asOf}`;
-    let priced = dates.get(key);
-    if (!priced) {
+    if (!views.has(key)) {
       const projected = projectReferencePrices({ pin,market,blockTime: asOf,references });
       const view = { ...projected.bound,state: { previewStatus: 'available' },displayPrices: { observedAt: asOf,prices: projected.prices } };
-      const external = await readProviderPriceObservations(view,deployments,client,'historical');
-      const values = withDisplayPriceObservations(view,external,deployments,'historical').displayPrices.prices;
-      priced = { basis: 'last-observed-before-event.v1',asOf,prices: values.map((value: any) => {
-        const reference = value.reference;
-        return { mint: value.mint,decimals: value.decimals,priceUsd: value.priceUsd,quality: value.quality,
-          sourceTime: reference.sourceTime ?? references.effectiveFrom,
-          observedAt: reference.observedAt ?? references.effectiveFrom,
-          ...(reference.observationId ? { observationId: reference.observationId,deploymentIdentitySha256: reference.deploymentIdentitySha256 } : {}) };
-      }) };
-      dates.set(key,priced);
+      views.set(key,{ asOf,view });
     }
-    result.set(row.event_key,priced);
+  }
+  const entries = [...views.entries()];
+  const external = await readProviderPriceObservationBatch(entries.map(([,entry]) => entry.view),deployments,client,'historical');
+  const dates = new Map<string,EventHistoricalPrices>();
+  for (const [index,[key,{ asOf,view }]] of entries.entries()) {
+    const values = withDisplayPriceObservations(view,external[index],deployments,'historical').displayPrices.prices;
+    const priced: EventHistoricalPrices = { basis: 'last-observed-before-event.v1',asOf,prices: values.map((value: any) => {
+      const reference = value.reference;
+      return { mint: value.mint,decimals: value.decimals,priceUsd: value.priceUsd,quality: value.quality,
+        sourceTime: reference.sourceTime ?? references.effectiveFrom,
+        observedAt: reference.observedAt ?? references.effectiveFrom,
+        ...(reference.observationId ? { observationId: reference.observationId,deploymentIdentitySha256: reference.deploymentIdentitySha256 } : {}) };
+    }) };
+    dates.set(key,priced);
+  }
+  for (const row of rows) {
+    const priced = dates.get(`${row.payload.market}:${row.block_time.toISOString()}`);
+    if (priced) result.set(row.event_key,priced);
   }
   return result;
 }

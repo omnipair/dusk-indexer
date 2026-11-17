@@ -1,7 +1,7 @@
 # Accrued-interest candidate (market layout 19)
 
 The two generated IDLs come from the Dusk accrued-interest rewrite on base
-commit `d8d3bff3`. Borrower interest is credited to holders at accrual through
+commit `633287d47d022f2177d96be45fa937287042f5a6`. Borrower interest is credited to holders at accrual through
 growth indexes and a per-asset `InterestLedger` in `Fees`; claims are paid from
 reserve cash, limited by the cash present. The income receivable books,
 `IncomeEpoch`, `roll_income_epoch`, `checkpoint_income`, `fund_interest`, the
@@ -34,3 +34,8 @@ compatible deployment, quote runtime or price references. Activation is a new
 revision with fresh cursors: promote the lock, compatible deployment, IDLs,
 quote-runtime artifact and manifest, and price-reference identity together,
 and bump the API to an SDK release whose bundled IDLs match these hashes.
+
+Only decoder fixtures and pure candidate arithmetic are staged here. Active
+API accounting, owner income archives, portfolio replay and rate semantics remain
+on the current pin. Their layout-19 wiring is a separate coordinated cutover;
+merging this preparation does not activate the candidate or change live reads.

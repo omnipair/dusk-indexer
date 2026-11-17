@@ -3,8 +3,9 @@ import type { IdlType, IdlTypeDef } from '@coral-xyz/anchor/dist/cjs/idl';
 import { IdlCoder } from '@coral-xyz/anchor/dist/cjs/coder/borsh/idl';
 import { PublicKey } from '@solana/web3.js';
 import { AccountLayout, AccountState, TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddressSync } from '@solana/spl-token';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { loadPinnedProtocol } from '../config/duskProtocol';
-import { pinnedDuskIdl } from '../services/duskProtocolSchema';
 type RawInfo = { owner: string; executable: boolean; data: string };
 interface YieldCheckpointSource {
   yieldAddress: string; market: string; lpTokenAccount: string; slot: number; blockhash: string; blockTime: string;
@@ -12,7 +13,7 @@ interface YieldCheckpointSource {
   accounts: { yield: RawInfo | null; market: RawInfo | null; lpToken: RawInfo | null };
 }
 
-const idl: Idl = pinnedDuskIdl();
+const idl = JSON.parse(readFileSync(resolve(__dirname,'../../../protocol/idl/dusk.json'),'utf8')) as Idl;
 export const Q64 = 1n<<64n;
 export const fixtureKey = (byte: number) => new PublicKey(Buffer.alloc(32,byte));
 

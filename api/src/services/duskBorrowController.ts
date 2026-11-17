@@ -1,26 +1,8 @@
 import { riskCoverageSignalNad, type Market } from '@omnipair/dusk-sdk';
 
-interface InterestLedger {
-  credited: { toString(): string }; protocolUnpaid: { toString(): string };
-  fundingRecognized: { toString(): string }; deficit: { toString(): string };
-}
-
-/** The program's `curve_reserve`: live reserve plus recognized hLP funding
- * interest and the recorded deficit, less credited interest and the
- * protocol's unpaid share, floored at zero. */
-export function curveReserve(side: { reserves: { liveReserve: { toString(): string } }; fees: { ledger?: InterestLedger } }): bigint {
-  const ledger = side.fees.ledger;
-  if (!ledger) throw new Error('Missing interest ledger');
-  const n = (value: { toString(): string }) => BigInt(value.toString());
-  const backing = n(side.reserves.liveReserve)+n(ledger.fundingRecognized)+n(ledger.deficit);
-  const owed = n(ledger.credited)+n(ledger.protocolUnpaid);
-  return backing>owed ? backing-owed : 0n;
-}
-
 /** Same-bank inputs for an illustrative new borrow, in quote-denominated NAD.
- * Mirrors covered_debt/funded_reserve_value/tranche_coverage_signals: junior
- * is backed by LP principal, each asset's `curve_reserve`. Interest credited
- * to holders and the protocol's unpaid share belong to them, not to junior. */
+ * Mirrors covered_debt/funded_reserve_value/tranche_coverage_signals; neither
+ * uncollected public interest nor separate hLP funding interest backs junior. */
 export function projectBorrowController(input: unknown, sourceSlot: number) {
   // The API's raw IDL coder retains snake_case; SDK callers use camelCase.
   // Preserve BN/PublicKey instances while normalizing only decoded records.
@@ -30,7 +12,7 @@ export function projectBorrowController(input: unknown, sourceSlot: number) {
       Object.entries(value).map(([key,item]) => [key.replace(/_([a-z])/g,(_,letter: string) => letter.toUpperCase()),camel(item)]));
     return value;
   };
-  const market = camel(input) as Market & Record<'baseSide' | 'quoteSide', { fees: { ledger: InterestLedger } }>;
+  const market = camel(input) as Market;
   const nad = 1_000_000_000n;
   const n = (value: { toString(): string }) => BigInt(value.toString());
   const mark = n(market.amm.priceEmaNad) || n(market.risk.basePriceEmaNad) || n(market.amm.launchReferencePriceNad);
@@ -43,8 +25,14 @@ export function projectBorrowController(input: unknown, sourceSlot: number) {
     const borrowIndex = n(index === 0 ? debt.baseBorrowIndexNad : debt.quoteBorrowIndexNad);
     const fixed = n(index === 0 ? debt.fixedBaseShares : debt.fixedQuoteShares)*borrowIndex/nad;
     const isolated = n(index === 0 ? debt.isolatedBaseShares : debt.isolatedQuoteShares)*borrowIndex/nad;
+    const fixedPrincipal = n(index === 0 ? debt.fixedBasePrincipal : debt.fixedQuotePrincipal);
+    const isolatedPrincipal = n(index === 0 ? debt.isolatedBasePrincipal : debt.isolatedQuotePrincipal);
+    const unpaid = (fixed>fixedPrincipal ? fixed-fixedPrincipal : 0n)+(isolated>isolatedPrincipal ? isolated-isolatedPrincipal : 0n);
+    const advanced = n(side.fees.publicInterestAdvance.outstandingGross);
+    const live = n(side.reserves.liveReserve);
+    if (advanced>unpaid || unpaid-advanced>live) throw new Error('Invalid funded controller backing');
     const hlp = n(index === 0 ? market.quoteHlpVault.debtShares : market.baseHlpVault.debtShares)*borrowIndex/nad;
-    return { debt: fixed+isolated+hlp,cash: n(side.reserves.cashReserve),funded: curveReserve(side) };
+    return { debt: fixed+isolated+hlp,cash: n(side.reserves.cashReserve),funded: live-(unpaid-advanced) };
   });
   const totalDebt = inputs.reduce((sum,side,index) => sum+value(side.debt,index),0n);
   const funded = inputs.reduce((sum,side,index) => sum+value(side.funded,index),0n);

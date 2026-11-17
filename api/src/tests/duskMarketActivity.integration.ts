@@ -167,6 +167,23 @@ test('event-time provider prices precede native references without leaking futur
   assert.equal(historical.coverage.selectionHash,pricedView.coverage.selectionHash);
 }));
 
+test('latest eligible provider quotes are selected independently per mint with deterministic ties',() => transaction(async client => {
+  await priced(client);
+  await source(client);
+  await source(client,{ fields: { ...activityPayload('SwapExecuted'),asset_in_side: '1',amount_in: '2000000',amount_in_after_fee: '2000000' } });
+  await projectMarketActivityBatch(client);
+  const quote = { mint: key(112),externalMint: key(112),decimals: 9,priceUsd: '3',provider: 'jupiter' as const,
+    sourceTime: '2026-09-02T00:00:06Z',observedAt: '2026-09-02T00:00:06Z' };
+  await storeExternalPrices(client,[quote,{ ...quote,provider: 'birdeye',priceUsd: '4' },
+    { ...quote,mint: key(113),externalMint: key(113),decimals: 6,priceUsd: '5' },
+    { ...quote,sourceTime: '2026-09-02T00:00:08Z',observedAt: '2026-09-02T00:00:11Z',priceUsd: '999' },
+  ],query.deploymentIdentitySha256);
+  const view = await readMarketActivity(client,query);
+  assert.equal(view.swaps,2);
+  assert.equal(view.volumes.spot.observedUsd,'18'); // 2 base at $4 plus 2 quote at $5.
+  assert.equal(view.volumes.spot.unpricedObservations,0);
+}));
+
 test('missing event-time evidence reports a backlog and a bad source rolls back the entire batch',() => transaction(async (client) => {
   await source(client);
   await source(client,{ slot: activitySlot+1,omitStream: true });

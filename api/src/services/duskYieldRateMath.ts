@@ -64,10 +64,8 @@ export function observedGrowthPoint(input: {
 }
 
 /** Simple annualization of recorded, claimable LP earnings, valued at the end
- * prices against starting native share value. Interest is credited to holders
- * when it accrues, so the interest index includes interest borrowers have not
- * repaid yet (`unpaidInterestIncluded`). Compounded principal is a separate
- * lane and is never inferred from these indexes. */
+ * prices against starting native share value. Unpaid interest and compounded
+ * principal are separate lanes and are never inferred from these indexes. */
 export function recordedSrlpRates(input: {
   start: MarketGrowthPoint; end: MarketGrowthPoint;
   startPrices: YieldRatePrice[]; endPrices: YieldRatePrice[];
@@ -117,6 +115,6 @@ export function recordedSrlpRates(input: {
     swapRatePct: annualize(swap),interestRatePct: annualize(interest),claimableRatePct: annualize(swap+interest),
     startingCapitalUsd: missing.size ? null : formatUsd(capital),startingSupply: supply.toString(),
     elapsedMilliseconds,missingMints: [...missing].sort(),deltas,
-    unpaidInterestIncluded: true as const,compoundedPrincipalIncluded: false as const,
+    unpaidInterestIncluded: false as const,compoundedPrincipalIncluded: false as const,
   };
 }

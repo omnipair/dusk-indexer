@@ -41,6 +41,8 @@ export const referralPartnerAddress = (authority: string) =>
   programAddress([Buffer.from('referral_partner'), new PublicKey(authority).toBuffer()]);
 const referralAccrualAddress = (partner: PublicKey, market: string, assetMint: string) =>
   programAddress([Buffer.from('referral_accrual'), partner.toBuffer(), new PublicKey(market).toBuffer(), new PublicKey(assetMint).toBuffer()]);
+const interestVaultAddress = (market: string, assetMint: string) =>
+  programAddress([Buffer.from('market_interest'), new PublicKey(market).toBuffer(), new PublicKey(assetMint).toBuffer()]);
 
 export interface ReferralPartnerTerms {
   authority: string;
@@ -55,6 +57,7 @@ export interface ReferralStream {
   assetMint: string;
   assetDecimals: number;
   tokenProgram: string;
+  interestVault: string;
   initialized: boolean;
   amount: string;
   /** The amount net of the asset's current transfer fee. */
@@ -206,6 +209,7 @@ export async function captureReferralPartner(
         assetMint: row.assetMint,
         assetDecimals: mint.decoded.decimals,
         tokenProgram: mint.program,
+        interestVault: interestVaultAddress(row.market, row.assetMint).toBase58(),
         initialized: exists.get(address) === true,
         amount: amount.toString(),
         recipientCredit: (amount - (fee ? calculateEpochFee(fee, epoch, amount) : 0n)).toString(),

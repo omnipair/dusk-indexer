@@ -62,17 +62,6 @@ function field<T = unknown>(
   return value as T;
 }
 
-/** Interest credited to LP holders and not yet claimed: the asset ledger's
- * `credited` less the current operator recipient's share. Interest is
- * credited at accrual, so this includes interest borrowers have not repaid. */
-function creditedLpInterest(fees: unknown): string {
-  const ledger = field(fees, 'ledger');
-  const credited = BigInt(stringValue(field(ledger, 'credited')));
-  const operator = BigInt(stringValue(field(ledger, 'operatorClaimable', 'operator_claimable')));
-  if (operator > credited) throw new Error('Operator interest exceeds credited interest');
-  return (credited - operator).toString();
-}
-
 /** Anchor hands back BN, bigint, number or string depending on the width. */
 function stringValue(value: unknown): string {
   if (value === null || value === undefined) return '0';
@@ -304,6 +293,8 @@ export interface DuskMarketAssociatedAddresses {
   quoteReserveVault: string;
   baseCollateralVault: string;
   quoteCollateralVault: string;
+  baseInterestVault: string;
+  quoteInterestVault: string;
   baseHlpSrlpVault: string;
   quoteHlpSrlpVault: string;
 }
@@ -384,6 +375,8 @@ function associatedAddresses(
     quoteReserveVault: stringValue(field(quoteSide, 'reserveVault', 'reserve_vault')),
     baseCollateralVault: stringValue(field(baseSide, 'collateralVault', 'collateral_vault')),
     quoteCollateralVault: stringValue(field(quoteSide, 'collateralVault', 'collateral_vault')),
+    baseInterestVault: stringValue(field(baseSide, 'interestVault', 'interest_vault')),
+    quoteInterestVault: stringValue(field(quoteSide, 'interestVault', 'interest_vault')),
     baseHlpSrlpVault: hlpSrlpVault(baseHlpMint),
     quoteHlpSrlpVault: hlpSrlpVault(quoteHlpMint),
   };
@@ -676,8 +669,12 @@ export function projectMarketSnapshot(snapshot: LiveMarketSimulationSnapshot, re
       quoteLpSwapFeeLiability: stringValue(
         field(quoteFees, 'swapFeeLiability', 'swap_fee_liability'),
       ),
-      baseLpInterestFeeLiability: creditedLpInterest(baseFees),
-      quoteLpInterestFeeLiability: creditedLpInterest(quoteFees),
+      baseLpInterestFeeLiability: stringValue(
+        field(baseFees, 'interestLiability', 'interest_liability'),
+      ),
+      quoteLpInterestFeeLiability: stringValue(
+        field(quoteFees, 'interestLiability', 'interest_liability'),
+      ),
       baseUnallocatedSwapFeeLiability: stringValue(
         field(baseFees, 'unallocatedSwapFeeLiability', 'unallocated_swap_fee_liability'),
       ),

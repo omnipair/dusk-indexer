@@ -36,8 +36,7 @@ test('native share-growth earnings use raw share supply, unequal asset precision
   assert.equal(rates.interestRatePct,'91.25');
   assert.equal(rates.claimableRatePct,'91.4325');
   assert.equal(rates.compoundedPrincipalIncluded,false);
-  // Interest is credited at accrual: the index counts interest not yet repaid.
-  assert.equal(rates.unpaidInterestIncluded,true);
+  assert.equal(rates.unpaidInterestIncluded,false);
 });
 
 test('ending prices value earned tokens while starting prices value the initial capital',() => {

@@ -8,6 +8,7 @@ import { historicalIdentity } from '../services/duskHistoricalPriceMath';
 import { projectPortfolioCapture, projectPortfolioSource, readPortfolioHistory, storePortfolioCapture } from '../services/duskPortfolioSnapshots';
 import { portfolioFixture } from './duskPortfolioFixtures';
 import { fixtureKey } from './duskYieldCheckpointFixtures';
+import { referencePortfolioHistory } from './duskPortfolioHistoryReference';
 
 if (process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS !== 'true' || !process.env.DATABASE_URL) throw new Error('A disposable DATABASE_URL is required');
 after(() => pool.end());
@@ -44,6 +45,7 @@ test('dated repair rebuilds the API view and revision, preserving every original
   const repaired = await repairPortfolioPriceBatch(client,{ now,fetchPrices: fixture.fetchPrices });
   assert.equal(repaired.repairedCheckpoints,1); assert.equal(repaired.unresolvedCheckpoints,0); assert.equal(repaired.providerRequests,2);
   const after = await readPortfolioHistory(client,query(fixture.owner));
+  assert.deepEqual(after,await referencePortfolioHistory(client,query(fixture.owner)));
   assert.equal(after.coverage.unvaluedSnapshots,0); assert.equal(after.coverage.repairedSnapshots,1);
   assert.equal(after.snapshots[0].valuations.netPositionValueUsd,'51.95');
   assert.equal(after.snapshots[0].capturedAt,at); assert.equal(after.snapshots[0].captureId,fixture.captureId);

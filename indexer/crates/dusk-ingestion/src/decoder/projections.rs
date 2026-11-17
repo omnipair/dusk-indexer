@@ -66,6 +66,8 @@ pub struct MarketAssetProjection {
     pub hlp_mint: String,
     pub reserve_vault: String,
     pub collateral_vault: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interest_vault: Option<String>,
     pub live_reserve: UnsignedInteger,
     pub cash_reserve: UnsignedInteger,
     pub srlp_supply: UnsignedInteger,
@@ -421,6 +423,11 @@ fn market_asset(fields: &Value, side: &str) -> Result<MarketAssetProjection, Str
         hlp_mint: pubkey(fields, &[side, "hlp_mint"])?,
         reserve_vault: pubkey(fields, &[side, "reserve_vault"])?,
         collateral_vault: pubkey(fields, &[side, "collateral_vault"])?,
+        interest_vault: if fields.get("version").and_then(Value::as_str) == Some("19") {
+            None
+        } else {
+            Some(pubkey(fields, &[side, "interest_vault"])?)
+        },
         live_reserve: unsigned(fields, &[side, "reserves", "live_reserve"])?,
         cash_reserve: unsigned(fields, &[side, "reserves", "cash_reserve"])?,
         srlp_supply: unsigned(fields, &[side, "shares", "srlp_supply"])?,

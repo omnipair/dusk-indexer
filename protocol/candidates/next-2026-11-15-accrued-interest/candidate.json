@@ -7,8 +7,8 @@
     "repository": "https://github.com/omnipair/dusk",
     "branch": "refactor/accrued-interest-index",
     "baseCommit": "d8d3bff33768e371f681c922ee1a0bc94e81ba6f",
-    "gitCommit": null,
-    "note": "Generated from an uncommitted working tree on the base commit. Pin the reviewed commit before activation."
+    "gitCommit": "633287d47d022f2177d96be45fa937287042f5a6",
+    "note": "IDLs copied from the reviewed PR #115 head; re-pin to the exact final combined source before activation."
   },
   "programs": [
     {

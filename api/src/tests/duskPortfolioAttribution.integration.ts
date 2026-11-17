@@ -51,7 +51,7 @@ test('saved capture income, canonical claims and accrued interest reconcile with
         const yieldAccount=encodeFixtureAccount('YieldAccount',{owner:new PublicKey(item.owner),market:new PublicKey(item.market),
           lp_mint:new PublicKey(item.lpMint),asset_mint:new PublicKey(item.baseMint),token_kind:0,recipient:new PublicKey(item.owner),bump,
           swap_fee_checkpoint_q64:new BN((400000n*Q64).toString()),interest_checkpoint_q64:new BN((100000n*Q64).toString())});
-        group.incomeEvidence={items:[item],accounts:[
+        group.incomeEvidence={items:[item],archives:[],accounts:[
           {address:addresses[1],account:{owner:loadPinnedProtocol().dusk.programId,executable:false,data:yieldAccount.toString('base64')}},
           {address:addresses[2],account:null}]};
       }

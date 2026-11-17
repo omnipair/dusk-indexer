@@ -630,12 +630,10 @@ they do not fetch current RPC balances or live prices.
   offset for income outside positions, net transfers, price changes, compounding and other fees.
 - Missing income evidence or prices returns `null` independently from borrowing cost;
   a lifetime total is never substituted for a range. Legacy captures can establish a zero
-  income boundary only when every lane index, including each hLP vault's, and every
-  asset's credited interest prove zero.
+  income boundary only when all recorded income growth and books prove zero.
 
 Apply `056_dusk_portfolio_income.sql` before starting this API and its snapshot worker.
-Capture v3 saves same-bank holding and yield accounts, then stores a hash-bound income
-projection in a separate append-only table. Interest is credited at accrual (market layout
-19), so a holder's income is its yield account plus its balance times the lane index change
-in that bank; no other account is read. Original portfolio observations and value
-checkpoints are unchanged.
+Capture v3 saves same-bank holding/yield accounts and immutable ended income epochs, then
+stores a hash-bound income projection in a separate append-only table. Original portfolio
+observations and value checkpoints are unchanged. Failed epoch reads leave income unavailable;
+the next capture retries, while existing net-value history remains usable.

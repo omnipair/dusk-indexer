@@ -8,8 +8,8 @@ import { IdlCoder } from '@coral-xyz/anchor/dist/cjs/coder/borsh/idl';
 import { PublicKey } from '@solana/web3.js';
 import { canonicalJson, loadPinnedProtocol, sha256 } from '../config/duskProtocol';
 import { marketLayoutVersion } from '../services/duskProtocolSchema';
-import { curveReserve, projectBorrowController } from '../services/duskBorrowController';
-import { payableInterest, projectLiveYield } from '../services/duskYieldAccounting';
+import { curveReserve, projectBorrowController } from '../services/duskAccruedInterestAccounting';
+import { payableInterest, projectLiveYield } from '../services/duskAccruedInterestAccounting';
 
 const root = resolve(__dirname, '../../../protocol/candidates/next-2026-11-15-accrued-interest');
 const candidate = JSON.parse(readFileSync(resolve(root, 'candidate.json'), 'utf8'));

@@ -137,18 +137,20 @@ export async function readMarketActivity(client: PoolClient,options: MarketActiv
           AND p.slot<a.slot AND p.time<=a.block_time
         ORDER BY p.slot DESC,p.observation_id DESC LIMIT 1) p ON true
       LEFT JOIN LATERAL (SELECT jsonb_agg(prices) AS quotes FROM (
-        SELECT DISTINCT ON (x.mint) x.observation_id::text AS "observationId",x.mint,x.decimals,x.price_usd::text AS "priceUsd",
+        SELECT latest.* FROM (SELECT DISTINCT unnest(ARRAY[m.base_mint,m.quote_mint]) AS mint) assets
+        CROSS JOIN LATERAL (
+        SELECT x.observation_id::text AS "observationId",x.mint,x.decimals,x.price_usd::text AS "priceUsd",
           (x.cluster<>'mainnet-beta') AS estimated,
           to_char(x.source_time AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "sourceTime",
           to_char(x.observed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "observedAt"
         FROM dusk_ingestion.price_observations x
         WHERE (x.cluster,x.program_id,x.idl_hash,x.protocol_revision)=(a.cluster,a.program_id,a.idl_hash,a.protocol_revision)
-          AND x.mint IN (m.base_mint,m.quote_mint) AND x.quality='external-observation'
+          AND x.mint=assets.mint AND x.quality='external-observation'
           AND (x.source LIKE 'dusk-provider.v1:jupiter:%' OR x.source LIKE 'dusk-provider.v1:birdeye:%')
           AND x.source_evidence->>'basis'='dusk-provider.v1' AND x.source_evidence->>'sourceCluster'='mainnet-beta'
           AND x.source_evidence->>'deploymentIdentitySha256'=ANY($11::text[])
           AND x.source_time<=a.block_time AND x.observed_at<=a.block_time
-        ORDER BY x.mint,x.source_time DESC,x.observation_id DESC) prices) external ON true
+        ORDER BY x.source_time DESC,x.observation_id DESC LIMIT 1) latest) prices) external ON true
       WHERE a.cluster=$1 AND a.program_id=$2 AND a.idl_hash=$3 AND a.protocol_revision=$4
         AND a.slot >= $5 AND ($6::timestamptz IS NULL OR a.block_time>=$6) AND a.block_time<=$7
         AND ($8::text IS NULL OR a.market=$8) AND (a.slot,a.event_key)>($9::bigint,$10::text)

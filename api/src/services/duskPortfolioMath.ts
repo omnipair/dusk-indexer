@@ -80,15 +80,14 @@ export function assertPortfolioPreviewState(market: Record<string,unknown>,previ
       throw new Error('Simulated portfolio shares/index differ from the preview');
   }
 }
-/** The program's `curve_reserve`, the LP principal backing junior and hLP
- * shares: live reserve plus recognized hLP funding interest and the recorded
- * deficit, less interest credited to holders and the protocol's unpaid share,
- * floored at zero. Credited interest is the holders' claim, not principal. */
 function curveReserve(market: Record<string,unknown>,side: 'base'|'quote'): bigint {
-  const raw = sideOf(market,side),ledger = nativeFields(nativeFields(raw.fees).ledger);
-  const backing = unsigned(nativeFields(raw.reserves).live_reserve,U128)+unsigned(ledger.funding_recognized,U128)+unsigned(ledger.deficit,U128);
-  const owed = unsigned(ledger.credited,U128)+unsigned(ledger.protocol_unpaid,U128);
-  return backing>owed ? backing-owed : 0n;
+  const debt = nativeFields(market.debt),index = indexOf(market,side);
+  const fixed = indexedPortfolioDebt(debt[`fixed_${side}_shares`],index),isolated = indexedPortfolioDebt(debt[`isolated_${side}_shares`],index);
+  const fixedPrincipal = unsigned(debt[`fixed_${side}_principal`],U64),isolatedPrincipal = unsigned(debt[`isolated_${side}_principal`],U64);
+  const interest = (fixed>fixedPrincipal ? fixed-fixedPrincipal : 0n)+(isolated>isolatedPrincipal ? isolated-isolatedPrincipal : 0n);
+  const live = unsigned(nativeFields(sideOf(market,side).reserves).live_reserve,U128);
+  if (interest>live) throw new Error('Unrealized interest exceeds live reserves');
+  return live-interest;
 }
 
 /** Dusk's current hLP principal NAV in the target-asset quantity scale, not an exit quote. */
@@ -108,12 +107,8 @@ export function hlpPortfolioPrincipal(market: Record<string,unknown>,preview: Re
   if (quotePrice === 0n) throw new Error('hLP reciprocal price underflow');
   const normalize = (amount: bigint,decimals: number) => checked(amount*10n**BigInt(scale-decimals));
   const oppositePrice = opposite === 'base' ? basePrice : quotePrice;
-  // Interest a frozen vault holds for its creditors is the vault's, not its
-  // holders': a terminal close counts it as recovery toward the debt, and only
-  // an unfreeze publishes it to holders.
-  const held = (side: 'base'|'quote') => unsigned(vault[`held_${side}_interest`],U64);
-  const targetValue = normalize(underlying(target)+held(target),targetDecimals);
-  const oppositeValue = multiplyDivide(normalize(underlying(opposite)+held(opposite),oppositeDecimals),oppositePrice,NAD);
+  const targetValue = normalize(underlying(target),targetDecimals);
+  const oppositeValue = multiplyDivide(normalize(underlying(opposite),oppositeDecimals),oppositePrice,NAD);
   const debtValue = multiplyDivide(normalize(borrowed,oppositeDecimals),oppositePrice,NAD);
   const signedNav = checked(targetValue+oppositeValue)-debtValue;
   const principal = signedNav>0n && holding>0n ? multiplyDivide(signedNav,holding,supply)/10n**BigInt(scale-targetDecimals) : 0n;

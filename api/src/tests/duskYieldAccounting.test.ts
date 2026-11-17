@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { payableInterest, projectLiveYield, settleRecordedGrowth, unsigned } from '../services/duskYieldAccounting';
+import { projectLiveYield, settleRecordedGrowth, unsigned } from '../services/duskYieldAccounting';
 
 test('yield checkpoints preserve sub-atom carry across transfers and claims', () => {
   const half = 1n << 63n;
@@ -15,17 +15,22 @@ test('jrLP uses its own growth ledger and includes burned exit escrow', () => {
   const q64 = 1n << 64n;
   const mint = { equals: (other: unknown) => other === 'junior' };
   const asset = { equals: (other: unknown) => other === 'asset' };
+  const growth = () => ({ unitsQ64: 0n, weightedPaidQ128: [0n,0n,0n,0n] });
+  const claims = Array.from({length:2},()=>({epoch:0n,unitsQ64:0n,paidCheckpointQ64:0n,growthCheckpoint:growth(),paidFractionQ128:0n,claimable:0n}));
   const result = projectLiveYield({
+    income:{books:Array.from({length:4},()=>({epoch:0n,unpaid:0n,units:0n,paidPerUnitQ64:0n,growth:Array.from({length:4},growth)})),
+      juniorEnd:Array.from({length:4},()=>({ended:false,epoch:0n,growth:growth()}))},
     srlpMint: { equals: () => false },
     juniorMint: mint,
     baseSide: { assetMint: asset,hlpMint: { equals: () => false },shares: { srlpSupply: '100' },
       fees: { swapFeeGrowthIndexQ64: '0',interestGrowthIndexQ64: '0',unallocatedSwapFeeLiability: '0',
-        swapFeeGrowthRemainderScaled: '0',junior: { swapGrowthQ64: q64,interestGrowthQ64: q64*2n } } },
+        unallocatedInterestLiability: '0',swapFeeGrowthRemainderScaled: '0',interestGrowthRemainderScaled: '0',
+        junior: { swapGrowthQ64: q64,interestGrowthQ64: q64*2n } } },
     quoteSide: { assetMint: { equals: () => false },hlpMint: { equals: () => false },shares: { srlpSupply: '100' },
       fees: {} as any },
     baseHlpVault: {},quoteHlpVault: {},
   }, {
-    assetMint: 'asset',lpMint: 'junior',tokenKind: 2,escrowBalance: '3',
+    assetMint: 'asset',lpMint: 'junior',tokenKind: 2,escrowBalance: '3',incomeInitialized:false,income:claims,
     swapFeeCheckpointQ64: '0',interestCheckpointQ64: '0',swapFeeRemainderQ64: '0',interestRemainderQ64: '0',
     accruedSwapFeeAmount: '0',accruedInterestAmount: '0',
   }, 2n);
@@ -43,49 +48,24 @@ test('native yield amounts remain exact beyond Number precision and fail closed'
 });
 
 
-const q = 1n << 64n;
-function market(cash = 100n) {
-  const fees = { swapFeeGrowthIndexQ64: 0n,interestGrowthIndexQ64: 2n*q,unallocatedSwapFeeLiability: 0n,swapFeeGrowthRemainderScaled: 0n };
-  const side = { assetMint: { equals: (other: unknown) => other === 'asset' },hlpMint: { equals: (other: unknown) => other === 'hlp' },
-    fees,shares: { srlpSupply: 100n },reserves: { cashReserve: cash } };
-  const vault = { srlpShares: 0n,hlpSupply: 10n,baseSwapFeeGrowthIndexQ64: 0n,baseSwapFeeCheckpointQ64: 0n,baseSwapFeeRemainderQ64: 0n,
-    baseSwapFeeGrowthRemainderScaled: 0n,unallocatedBaseSwapFeeAmount: 0n,
-    baseInterestGrowthIndexQ64: 3n*q,baseInterestGrowthRemainderScaled: 0n,unallocatedBaseInterestAmount: 0n };
-  return { srlpMint: { equals: (other: unknown) => other === 'senior' },baseSide: side,
-    quoteSide: { ...side,assetMint: { equals: () => false },hlpMint: { equals: () => false } },baseHlpVault: vault,quoteHlpVault: {} };
-}
-const holder = (lpMint: string, tokenKind: number) => ({ assetMint: 'asset',lpMint,tokenKind,swapFeeCheckpointQ64: 0n,
-  interestCheckpointQ64: q,swapFeeRemainderQ64: 0n,interestRemainderQ64: 0n,accruedSwapFeeAmount: 0n,accruedInterestAmount: 1n });
-
-test('credited srLP interest is the checkpointed amount plus the balance times the index change', () => {
-  // Interest is credited at accrual: no receivable book, epoch or archive is read.
-  assert.equal(projectLiveYield(market(),holder('senior',0),3n).interestAmount,4n);
-  // A zero wallet keeps what was checkpointed before it emptied.
-  assert.equal(projectLiveYield(market(),holder('senior',0),0n).interestAmount,1n);
-});
-
-test('hLP interest reads the vault index published at accrual, never the srLP interest index', () => {
-  const state = market();
-  assert.equal(projectLiveYield(state,holder('hlp',1),3n).interestAmount,7n);
-  state.baseSide.fees.interestGrowthIndexQ64 = 50n*q;
-  assert.equal(projectLiveYield(state,holder('hlp',1),3n).interestAmount,7n);
-  // Interest credited while the vault had no supply waits as unallocated and
-  // reaches the first holders through the index.
-  Object.assign(state.baseHlpVault,{ unallocatedBaseInterestAmount: 20n });
-  assert.equal(projectLiveYield(state,holder('hlp',1),3n).interestAmount,13n);
-  Object.assign(state.baseHlpVault,{ hlpSupply: 0n });
-  assert.equal(projectLiveYield(state,holder('hlp',1),3n).interestAmount,7n);
-});
-
-test('interest a frozen vault holds for its creditors is not hLP holder yield', () => {
-  const state = market();
-  Object.assign(state.baseHlpVault,{ heldBaseInterest: 1_000n,heldQuoteInterest: 1_000n });
-  assert.equal(projectLiveYield(state,holder('hlp',1),3n).interestAmount,7n);
-});
-
-test('harvest pays credited interest from reserve cash and leaves the rest claimable', () => {
-  assert.equal(payableInterest(market(100n),'base',4n),4n);
-  assert.equal(payableInterest(market(3n),'base',4n),3n);
-  assert.equal(payableInterest(market(0n),'base',4n),0n);
-  assert.throws(() => payableInterest(market((1n << 64n)),'base',4n),/overflow/);
+test('paid historical income survives a zero wallet balance and archived denominations', () => {
+  const q = 1n << 64n;
+  const growth = () => ({ unitsQ64: 0n, weightedPaidQ128: [0n,0n,0n,0n] });
+  const claim = () => ({ epoch: 0n, unitsQ64: 0n, paidCheckpointQ64: 0n, growthCheckpoint: growth(), paidFractionQ128: 0n, claimable: 0n });
+  const book = () => ({ epoch: 0n, unpaid: 0n, units: 0n, paidPerUnitQ64: 0n, growth: [growth(),growth(),growth(),growth()] });
+  const books = [book(),book(),book(),book()];
+  books[0] = { ...book(), units: 10n, unpaid: 5n, paidPerUnitQ64: q/2n };
+  const fees = { swapFeeGrowthIndexQ64: 0n,interestGrowthIndexQ64: 0n,unallocatedSwapFeeLiability: 0n,
+    unallocatedInterestLiability: 0n,swapFeeGrowthRemainderScaled: 0n,interestGrowthRemainderScaled: 0n };
+  const side = { assetMint: { equals: (other: unknown) => other === 'asset' }, hlpMint: {equals:()=>false},fees,shares:{srlpSupply:100n} };
+  const market = {srlpMint:{equals:()=>true},baseSide:side,quoteSide:{...side,assetMint:{equals:()=>false}},
+    baseHlpVault:{},quoteHlpVault:{},income:{books,juniorEnd:Array.from({length:4},()=>({ended:false,epoch:0n,growth:growth()}))}};
+  const account = {assetMint:'asset',lpMint:'senior',tokenKind:0,swapFeeCheckpointQ64:0n,interestCheckpointQ64:0n,
+    swapFeeRemainderQ64:0n,interestRemainderQ64:0n,accruedSwapFeeAmount:0n,accruedInterestAmount:1n,
+    incomeInitialized:true,income:[{...claim(),unitsQ64:10n*q},claim()]};
+  assert.equal(projectLiveYield(market,account,0n).interestAmount,6n);
+  const archive = books[0];
+  books[0] = {...book(),epoch:1n,units:5n,paidPerUnitQ64:q};
+  assert.throws(()=>projectLiveYield(market,account,0n),/IncomeHistoryRequired/);
+  assert.equal(projectLiveYield(market,account,0n,undefined,{archives:new Map([['0:0',archive]])}).interestAmount,11n);
 });

@@ -858,6 +858,17 @@ fn market_and_keeper_projections_cover_curve_and_all_protocol_auction_lanes() {
     assert_eq!(market.auction_lanes.len(), 8);
     assert_eq!(decoded.projections.keeper_discovery.len(), 8);
     assert_eq!(market.base.live_reserve.as_str(), "0");
+    // An undeployed candidate must not remove fields from active layout-17
+    // responses.
+    let active = serde_json::to_value(market).unwrap();
+    assert_eq!(
+        active["base"]["interest_vault"],
+        decoded.decoded_fields.as_ref().unwrap()["base_side"]["interest_vault"]
+    );
+    assert_eq!(
+        active["quote"]["interest_vault"],
+        decoded.decoded_fields.as_ref().unwrap()["quote_side"]["interest_vault"]
+    );
     assert_eq!(market.params_hash_hex, format!("0x{}", "00".repeat(32)));
 
     let mut fields = decoded.decoded_fields.unwrap();
@@ -1101,11 +1112,14 @@ fn accrued_interest_candidate_interface_drops_books_epochs_and_interest_vaults()
     }
     for account in registry.accounts.values() {
         let bytes = zero_named_type(&registry.types, &account.name);
-        let (fields, padding) = registry
+        let (mut fields, padding) = registry
             .types
             .decode_named_account_type(&account.name, &bytes, DecodeLimits::default())
             .unwrap();
         assert_eq!(padding, 0, "{}", account.name);
+        if account.name == "Market" {
+            fields["version"] = serde_json::json!("19");
+        }
         projections::build_product_projections(&account.name, DUSK_PROGRAM_ID, &fields)
             .unwrap_or_else(|error| panic!("{}: {error}", account.name));
     }
@@ -1119,6 +1133,7 @@ fn accrued_interest_candidate_market_and_yield_accounts_project_without_income_b
         .types
         .decode_named_account_type("Market", &market_bytes, DecodeLimits::default())
         .unwrap();
+    market["version"] = serde_json::json!("19");
     assert!(market.get("income").is_none());
     for side in ["base_side", "quote_side"] {
         assert!(market[side].get("interest_vault").is_none());
