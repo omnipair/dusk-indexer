@@ -11,6 +11,7 @@ import { readPortfolioCatalog } from '../services/duskPortfolioSnapshots';
 import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { PublicKey } from '@solana/web3.js';
 import { fixtureMarket, key, streamedEvent, streamedMarket, streamedRelease } from './duskStreamedFixtures';
+import { referencePortfolioHistory } from './duskPortfolioHistoryReference';
 
 if (process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS !== 'true' || !process.env.DATABASE_URL) throw new Error('A disposable DATABASE_URL is required');
 after(() => pool.end());
@@ -22,6 +23,30 @@ async function transaction(work: (client: PoolClient) => Promise<void>) {
   finally { await client.query('ROLLBACK'); client.release(); }
 }
 const query = (owner: string) => ({ owner,limit: 100,offset: 0 });
+
+test('single-pass history matches the previous complete response across gaps, ties, owners, filters and empty pages',()=>transaction(async client=>{
+  const otherOwner = fixtureKey(178).toBase58(),fixture = portfolioFixture();
+  for (const [index,minute] of [0,0,1,2,3,10,60,70].entries()) {
+    const value = portfolioFixture({ slot: 910_100_000+index,references: index!==2 && index!==3,
+      ...(index===5 ? { lpOwner: otherOwner } : {}),closed: index===7 });
+    const time = new Date(Date.parse('2026-09-02T00:00:00Z')+minute*60000).toISOString();
+    value.source.groups[0].blockTime = time;
+    value.source.groups[0].observedAt = value.source.observedAt = value.source.catalog.streamTime = time;
+    await projectPortfolioCapture(client,await storePortfolioCapture(client,value.source));
+  }
+  await storePortfolioCapture(client,portfolioFixture({ slot: 910_100_100 }).source);
+  for (const owner of [fixture.owner,otherOwner,fixtureKey(179).toBase58()])
+    for (const sampleSeconds of [0,60,3600])
+      for (const offset of [0,2,999]) {
+        const options = { owner,sampleSeconds,offset,limit: 3 };
+        assert.deepEqual(await readPortfolioHistory(client,options),await referencePortfolioHistory(client,options));
+      }
+  for (const range of [{ since: '2026-09-02T00:00:01Z' },{ until: '2026-09-02T00:02:00Z' },
+    { since: '2026-09-03T00:00:00Z',until: '2026-09-04T00:00:00Z' }]) {
+    const options = { ...query(fixture.owner),...range,sampleSeconds: 3600 };
+    assert.deepEqual(await readPortfolioHistory(client,options),await referencePortfolioHistory(client,options));
+  }
+}));
 
 test('portfolio discovery comes from streamed positions and LP holders and keeps past owners',() => transaction(async (client) => {
   // A stream time in the past: the API clamps a cursor ahead of its clock.
