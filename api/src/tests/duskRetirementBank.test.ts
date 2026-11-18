@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PublicKey, SYSVAR_CLOCK_PUBKEY } from '@solana/web3.js';
 import { loadPinnedProtocol, sha256 } from '../config/duskProtocol';
-import { assertRetirementFrozenBank } from '../services/duskRetirementBank';
+import { assertRetirementFrozenBank, assertRetirementWalletObservation } from '../services/duskRetirementBank';
 import type { FrozenLeverageBank } from '../services/duskLeverageMaximumInput';
 
 function fixture() {
@@ -43,4 +43,19 @@ test('mixed-bank clock, duplicate addresses or wrong loader cannot be treated as
   const second=fixture();second.bank.accounts.push(second.bank.accounts[0]);assert.throws(()=>assertRetirementFrozenBank(second.bank,second.pin),/Invalid retirement bank/);
   const third=fixture();third.bank.accounts[0].account!.owner=PublicKey.default.toBase58();
   assert.throws(()=>assertRetirementFrozenBank(third.bank,third.pin),/ownership/);
+});
+
+test('separate wallet SOL observations preserve the economic-bank bound and reject token/program state',()=>{
+  const {bank}=fixture(),wallet=PublicKey.default.toBase58();
+  const observation:FrozenLeverageBank={slot:bank.slot+1,accounts:[{address:wallet,account:{owner:wallet,data:'',executable:false,lamports:100,rentEpoch:'0'}}]};
+  assert.doesNotThrow(()=>assertRetirementWalletObservation(observation,bank,[wallet]));
+  for(const changed of [{owner:'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'},{data:Buffer.alloc(165).toString('base64')},
+    {executable:true},{lamports:Number.MAX_SAFE_INTEGER+1}]){
+    const copy=structuredClone(observation);Object.assign(copy.accounts[0].account!,changed);
+    assert.throws(()=>assertRetirementWalletObservation(copy,bank,[wallet]),/plain SOL wallet/);
+  }
+  assert.throws(()=>assertRetirementWalletObservation({...observation,slot:bank.slot-1},bank,[wallet]),/Invalid/);
+  assert.throws(()=>assertRetirementWalletObservation(observation,bank,[bank.accounts[0].address]),/crossed/);
+  const overlap=structuredClone(bank);overlap.accounts.push(observation.accounts[0]);
+  assert.throws(()=>assertRetirementWalletObservation(observation,overlap,[wallet]),/crossed/);
 });
