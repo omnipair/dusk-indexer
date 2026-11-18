@@ -142,25 +142,39 @@ export function projectPortfolioIncome(group: MarketSimulationSnapshot,evidence:
   return {streams,unavailable};
 }
 
-/** A legacy capture with no growth and no credited interest anywhere proves
- * an actual zero anchor: no lane index has moved, including either hLP
- * vault's own interest index, and no asset ledger holds credited interest. */
+/** Prove a zero anchor using the verified schema's own income accounting.
+ * Layout 17 carries receivable books; layout 19 carries credited ledgers.
+ * Absence of the new ledger in an older capture never establishes zero. */
 export function zeroIncomeSource(source:{groups:MarketSimulationSnapshot[]}) {
-  const coder=new BorshCoder(duskRawIdl());
+  const idl=duskRawIdl(),version=marketLayoutVersion(idl),coder=new BorshCoder(idl);
+  if(version!==17&&version!==19)return false;
   return source.groups.length>0&&source.groups.every(group=>{
     if(group.preview===null)return false;
     const market=nativeFields(coder.accounts.decode('Market',Buffer.from(group.marketAccount.data,'base64')));
+    if(Number(market.version)!==version)throw new Error('Recorded zero-income market layout differs');
     for(const side of ['base','quote']){
       const fees=nativeFields(nativeFields(market[`${side}_side`]).fees);
       for(const field of ['swap_fee_growth_index_q64','interest_growth_index_q64','unallocated_swap_fee_liability'])
         if(unsigned(fees[field])!==0n)return false;
-      if(unsigned(nativeFields(fees.ledger).credited)!==0n)return false;
+      if(version===19){
+        if(unsigned(nativeFields(fees.ledger).credited)!==0n)return false;
+      }else if(unsigned(fees.unallocated_interest_liability)!==0n)return false;
       const junior=nativeFields(fees.junior);
       if(unsigned(junior.swap_growth_q64)!==0n||unsigned(junior.interest_growth_q64)!==0n)return false;
       for(const vault of ['base_hlp_vault','quote_hlp_vault'])
         for(const index of ['swap_fee_growth_index_q64','interest_growth_index_q64'])
           if(unsigned(nativeFields(market[vault])[`${side}_${index}`])!==0n)return false;
     }
-    return true;
+    if(version===19)return true;
+    const books=nativeFields(market.income).books;
+    return Array.isArray(books)&&books.length===4&&books.every(book=>{
+      const value=nativeFields(book);
+      return ['epoch','unpaid','units','paid_per_unit_q64'].every(key=>unsigned(value[key])===0n)
+        &&Array.isArray(value.growth)&&value.growth.every(growth=>{
+          const entry=nativeFields(growth);
+          return unsigned(entry.units_q64)===0n&&Array.isArray(entry.weighted_paid_q128)&&entry.weighted_paid_q128.length===4
+            &&entry.weighted_paid_q128.every(limb=>unsigned(limb)===0n);
+        });
+    });
   });
 }

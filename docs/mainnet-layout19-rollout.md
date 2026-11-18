@@ -80,7 +80,7 @@ The old initial-deployment runner intentionally rejects an existing program with
 
 ## Gate 3: prepare the data and client cutover
 
-The API cutover is not ready while its tests use layout-17 captures with layout-19 formulas. Replace those candidate tests with authenticated, schema-bound layout-19 fixtures and keep independent layout-17 regressions. The active #99 preparation deliberately retains current production accounting.
+The eight candidate unit failures are resolved: the affected test workers now use isolated synthetic banks bound to the reviewed layout-19 IDL hashes. They contain no deployed binary or published-SDK assertion and do not alter the active protocol lock. Independent layout-17 regressions retain receivable-book, carried-interest and hLP-growth checks for old zero-income anchors. All 434 API unit tests and 127 rollback-only PostgreSQL integration tests pass locally. Finalized-clone/release-bank rehearsal and an archived-revision history reader remain separate release gates. The active #99 preparation deliberately retains current production accounting.
 
 - Archive the old lock, both IDLs, deployment interval, quote runtime/manifest, price references, decoder and release artifacts. Finalized observations remain immutable with their original identity. Do not relabel them with the new hash or reset away portfolio history.
 - Preserve dated prices, Birdeye repair evidence, cash flows, history provenance and the performance changes in #97/#98. Provide and test an explicit archived-revision history reader before claiming that a new pin preserves old wallet history. A fresh cursor alone does not do this.
@@ -113,5 +113,5 @@ Database rollback does not undo on-chain changes. Never delete or rewrite finali
 - Existing-market wind-down versus audited state migration, including permanent seed and every remaining claim.
 - Final combined source and exact production-binary evidence after all program changes.
 - #113's issuer-control review and extension-specific regressions for every affected temporary vault.
-- Candidate API fixtures, archived-revision portfolio/history compatibility, and coherent deployment promotion.
+- Finalized-clone/release-bank replay, archived-revision portfolio/history compatibility, and coherent deployment promotion.
 - Published stable SDK/manifest, frontend production validation, and a new keeper lock/release matrix.

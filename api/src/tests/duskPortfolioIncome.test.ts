@@ -1,10 +1,11 @@
+import './duskAccruedInterestTestProtocol';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BN,BorshCoder } from '@coral-xyz/anchor';
 import { PublicKey } from '@solana/web3.js';
 import { duskRawIdl } from '../services/duskMarketSimulation';
 import type { MarketSimulationSnapshot } from '../services/duskMarketSimulation';
-import { marketLayoutVersion } from '../services/duskProtocolSchema';
+import { marketAccountLayout,marketLayoutVersion } from '../services/duskProtocolSchema';
 import { projectPortfolioIncome,incomeAddresses,zeroIncomeSource } from '../services/duskPortfolioIncome';
 import type { PortfolioIncomeEvidence,PortfolioIncomeItem } from '../services/duskPortfolioIncome';
 import { checkpointFixture,encodeFixtureAccount } from './duskYieldCheckpointFixtures';
@@ -44,6 +45,13 @@ test('unavailable program previews remain unavailable, never zero income',()=>{
   const {group,evidence}=fixture();
   const unavailable=projectPortfolioIncome({...group,preview:null,previewUnavailable:true},evidence);
   assert.equal(unavailable.streams.length,0);assert.equal(unavailable.unavailable.length,1);
+});
+test('layout-19 income refuses an older market version instead of reinterpreting it',()=>{
+  const {group,evidence}=fixture(),bytes=Buffer.from(group.marketAccount.data,'base64');
+  bytes[marketAccountLayout().versionOffset]=17;
+  const older={...group,marketAccount:{...group.marketAccount,data:bytes.toString('base64')}};
+  assert.throws(()=>projectPortfolioIncome(older,evidence),/market binding differs/);
+  assert.throws(()=>zeroIncomeSource({groups:[older]}),/market layout differs/);
 });
 test('legacy zero anchors require every growth index and the credited ledger to establish zero',()=>{
   const {group}=fixture(),coder=new BorshCoder(duskRawIdl());

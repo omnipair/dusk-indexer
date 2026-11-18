@@ -4,7 +4,7 @@ import { IdlCoder } from '@coral-xyz/anchor/dist/cjs/coder/borsh/idl';
 import { PublicKey } from '@solana/web3.js';
 import { AccountLayout, AccountState, TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { loadPinnedProtocol } from '../config/duskProtocol';
-import { pinnedDuskIdl } from '../services/duskProtocolSchema';
+import { marketLayoutVersion, pinnedDuskIdl } from '../services/duskProtocolSchema';
 type RawInfo = { owner: string; executable: boolean; data: string };
 interface YieldCheckpointSource {
   yieldAddress: string; market: string; lpTokenAccount: string; slot: number; blockhash: string; blockTime: string;
@@ -66,7 +66,7 @@ export function checkpointFixture(options: { kind?: number; revenue?: 'base'|'qu
   const assetMint = options.revenue === 'quote' ? quote : base;
   const [yieldAddress,yieldBump] = PublicKey.findProgramAddressSync([Buffer.from('yield'),marketAddress.toBuffer(),owner.toBuffer(),lpMint.toBuffer(),assetMint.toBuffer(),Buffer.from([kind])],program);
   const market = zeroDefinition(idl.types!.find((type) => type.name === 'Market')!);
-  Object.assign(market,{ version: 2,srlp_mint: srlp,params_hash: paramsHash,bump: marketBump });
+  Object.assign(market,{ version: marketLayoutVersion(idl),srlp_mint: srlp,params_hash: paramsHash,bump: marketBump });
   for (const [side,mint,hlp,decimals] of [['base',base,baseHlp,9],['quote',quote,quoteHlp,6]] as const) {
     const state = market[`${side}_side`] as Record<string,unknown>;
     Object.assign(state,{ asset_mint: mint,hlp_mint: hlp,asset_decimals: decimals });

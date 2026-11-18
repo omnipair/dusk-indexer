@@ -1,3 +1,4 @@
+import './duskAccruedInterestTestProtocol';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BorshCoder, BN } from '@coral-xyz/anchor';
