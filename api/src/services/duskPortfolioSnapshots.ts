@@ -6,6 +6,8 @@ import { resolve } from 'node:path';
 import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { canonicalJson, loadPinnedProtocol, sha256 } from '../config/duskProtocol';
+import type { DuskPinnedProtocol } from '../config/duskProtocol';
+import { checkedPortfolioHistoryRevisions,portfolioHistoryRevisions,portfolioRevisionIdentity } from './duskPortfolioHistoryRevisions';
 import { deploymentEnvelope } from './duskDeploymentService';
 import { captureMarketSimulation, duskRawIdl, MarketSimulationSnapshot, SnapshotAccount } from './duskMarketSimulation';
 import { nativeFields, nativeKey, PortfolioKind, projectPortfolioComponent, totalPortfolioComponents } from './duskPortfolioMath';
@@ -266,10 +268,16 @@ export async function storePortfolioCapture(client: PoolClient,source: Portfolio
   }
   return id;
 }
-export async function assertNoPortfolioConflict(client: PoolClient) {
+function portfolioRevisionFilter(pin:DuskPinnedProtocol,values:unknown[]) {
+  const offset=values.length;
+  values.push(...portfolioRevisionIdentity(pin));
+  return `(cluster=$${offset+1} AND program_id=$${offset+2} AND idl_hash=$${offset+3} AND protocol_revision=$${offset+4})`;
+}
+export async function assertNoPortfolioConflict(client: PoolClient,revisions:readonly DuskPinnedProtocol[]=[loadPinnedProtocol()]) {
+  const values:unknown[]=[],scope=revisions.map(pin=>portfolioRevisionFilter(pin,values)).join(' OR ');
   const conflicts = await client.query(`SELECT 1 FROM dusk_ingestion.portfolio_account_evidence e JOIN dusk_ingestion.portfolio_capture_observations o USING(capture_id)
-    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
-    GROUP BY account,slot,basis HAVING count(DISTINCT (blockhash,state_hash))>1 LIMIT 1`,identity());
+    WHERE (${scope})
+    GROUP BY cluster,program_id,idl_hash,protocol_revision,account,slot,basis HAVING count(DISTINCT (blockhash,state_hash))>1 LIMIT 1`,values);
   if (conflicts.rowCount) throw Object.assign(new Error('FINALIZED_INVARIANT: contradictory finalized portfolio account evidence'),{ status: 503 });
 }
 /** Verify immutable evidence before either original projection or a price repair. */
@@ -406,13 +414,20 @@ export function portfolioSampleSeconds(value: unknown): number {
   return seconds;
 }
 export interface PortfolioHistoryQuery { owner: string; since?: string; until?: string; sampleSeconds?: number; limit: number; offset: number }
-export async function readPortfolioHistory(client: PoolClient,options: PortfolioHistoryQuery) {
+/** Reads persisted checkpoints across verified revisions without re-decoding
+ * old accounts, running a quote or relabelling a historical observation. */
+export async function readPortfolioHistory(client: PoolClient,options: PortfolioHistoryQuery,
+  historyPins:readonly DuskPinnedProtocol[]=portfolioHistoryRevisions()) {
+  const revisions=checkedPortfolioHistoryRevisions(loadPinnedProtocol(),historyPins);
   const active = identity(),values: unknown[] = [...active,nativeKey(options.owner)];
-  const filters = ['cluster=$1','program_id=$2','idl_hash=$3','protocol_revision=$4','owner=$5'];
+  const archived=revisions.filter(pin=>canonicalJson(portfolioRevisionIdentity(pin))!==canonicalJson(active));
+  const filters = archived.length
+    ? [`((cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4) OR ${archived.map(pin=>portfolioRevisionFilter(pin,values)).join(' OR ')})`,'owner=$5']
+    : ['cluster=$1','program_id=$2','idl_hash=$3','protocol_revision=$4','owner=$5'];
   for (const [name,operator] of [['since','>='],['until','<=']] as const) if (options[name]) {
     const time = new Date(options[name]!).toISOString(); values.push(time); filters.push(`bucket${operator}$${values.length}`);
   }
-  await assertNoPortfolioConflict(client);
+  await assertNoPortfolioConflict(client,revisions);
   const seconds = portfolioSampleSeconds(options.sampleSeconds);
   // Materialize metadata only: copying every component, coverage and valuation
   // document into the sampling CTE spills large histories to temporary storage.
@@ -444,17 +459,19 @@ export async function readPortfolioHistory(client: PoolClient,options: Portfolio
     (SELECT count(*)::text FROM filtered WHERE unvalued) AS unvalued_snapshots FROM selected),
     page AS (SELECT capture_id FROM selected ORDER BY bucket DESC,source_max_slot DESC,capture_id DESC
       LIMIT $${values.length+1} OFFSET $${values.length+2})
-    SELECT summary.*,c.capture_id::text,c.owner,c.bucket,c.observed_at,c.source_min_slot::text,c.source_max_slot::text,c.components,c.coverage,c.valuations
+    SELECT summary.*,c.capture_id::text,c.owner,c.bucket,c.observed_at,c.source_min_slot::text,c.source_max_slot::text,c.components,c.coverage,c.valuations,
+      c.cluster,c.program_id,c.idl_hash,c.protocol_revision
     FROM summary LEFT JOIN (page JOIN dusk_ingestion.portfolio_effective_checkpoints c ON c.capture_id=page.capture_id AND c.owner=$5) ON true
     ORDER BY c.bucket DESC,c.source_max_slot DESC,c.capture_id DESC`,[...values,options.limit,options.offset]);
   const summary = result.rows[0];
   const rows = result.rows.filter(row => row.capture_id !== null);
+  const pendingValues:unknown[]=[],pendingScope=revisions.map(pin=>portfolioRevisionFilter(pin,pendingValues)).join(' OR ');
   const pending = await client.query(`SELECT count(*)::text AS count FROM dusk_ingestion.portfolio_capture_observations o
-    WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
-      AND NOT EXISTS(SELECT 1 FROM dusk_ingestion.portfolio_capture_projections p WHERE p.capture_id=o.capture_id)`,active);
-  const provenance = { cluster: active[0],programId: active[1],idlSha256: active[2],protocolRevision: active[3],commitment: 'finalized' as const };
+    WHERE (${pendingScope})
+      AND NOT EXISTS(SELECT 1 FROM dusk_ingestion.portfolio_capture_projections p WHERE p.capture_id=o.capture_id)`,pendingValues);
   return { snapshots: rows.map((row) => ({ captureId: row.capture_id,owner: row.owner,capturedAt: row.bucket.toISOString(),
-    components: row.components,valuations: row.valuations,coverage: row.coverage,provenance: { ...provenance,
+    components: row.components,valuations: row.valuations,coverage: row.coverage,provenance: {
+      cluster:row.cluster,programId:row.program_id,idlSha256:row.idl_hash,protocolRevision:row.protocol_revision,commitment:'finalized' as const,
       sourceMinSlot: row.source_min_slot,sourceMaxSlot: row.source_max_slot,observedAt: row.observed_at.toISOString(),
       deploymentIdentitySha256: row.coverage.deploymentIdentitySha256 } })),
     pagination: { limit: options.limit,offset: options.offset,total: Number(summary.total) },
