@@ -68,7 +68,7 @@ function coordinates(source: PortfolioCaptureSource) {
 
 /** Current-release discovery only; retired devnet events are not candidates for
  * the current account decoder. LP holders use canonical Token-2022 accounts. */
-export async function readPortfolioCatalog(client: PoolClient,allowEmpty=false): Promise<PortfolioCatalog> {
+export async function readPortfolioCatalog(client: PoolClient,allowEmpty=false,revisions:readonly DuskPinnedProtocol[]=portfolioHistoryRevisions()): Promise<PortfolioCatalog> {
   const active = identity(),stream = await readStreamCursor(client);
   if (!stream) throw new Error('Portfolio capture needs a started Dusk stream');
   const programFilter = 'cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4';
@@ -124,7 +124,12 @@ export async function readPortfolioCatalog(client: PoolClient,allowEmpty=false):
     UNION SELECT owner FROM dusk_ingestion.streamed_leverage_positions WHERE ${programFilter} AND owner IS NOT NULL
     UNION SELECT owner FROM dusk_ingestion.streamed_lp_balances WHERE ${programFilter} AND owner IS NOT NULL`,active);
   const incomeItems=await readPortfolioIncomeItems(client);
-  const knownOwners = [...new Set([...found.rows.map((row) => nativeKey(row.owner)),...pastOwners.rows.map((row) => nativeKey(row.owner)),...incomeItems.map(item=>item.owner)])].sort();
+  // A permissionless replacement market may exist before the first empty
+  // capture. Preserve approved archived wallet addresses in that case too;
+  // all position discovery/decoding still belongs to the current identity.
+  const history=checkedPortfolioHistoryRevisions(loadPinnedProtocol(),revisions);
+  const archivedOwners=history.length>1?await readEmptyPortfolioOwners(client,history):[];
+  const knownOwners = [...new Set([...found.rows.map((row) => nativeKey(row.owner)),...pastOwners.rows.map((row) => nativeKey(row.owner)),...incomeItems.map(item=>item.owner),...archivedOwners])].sort();
   if (items.length>100000 || knownOwners.length>100000) throw new Error('Portfolio catalog exceeds the bounded capture capacity');
   const throughSlot = checkedSlot(Number(stream.throughSlot));
   const hasArchivedCandidates = candidates.some((candidate) => candidate.idlHash !== active[2] || candidate.protocolRevision !== active[3]);
@@ -134,8 +139,8 @@ export async function readPortfolioCatalog(client: PoolClient,allowEmpty=false):
     markets: marketAddresses,items: items.sort((a,b) => a.address.localeCompare(b.address)),knownOwners,incomeItems };
 }
 
-/** Historical identities supply wallet addresses only after RPC proves the
- * active release has no markets. No archived balances are decoded or relabeled. */
+/** Verified historical identities supply wallet addresses only. Current-bank
+ * captures or a full absence proof determine value; old balances are never decoded or relabeled. */
 export async function readEmptyPortfolioOwners(client:PoolClient,revisions:readonly DuskPinnedProtocol[]=portfolioHistoryRevisions()):Promise<string[]>{
   const pins=checkedPortfolioHistoryRevisions(loadPinnedProtocol(),revisions),values:unknown[]=[];
   const filter=pins.map(pin=>portfolioRevisionFilter(pin,values)).join(' OR ');

@@ -187,12 +187,23 @@ under a successor identity. Its active-pin deduplication leaves current reads
 unchanged. The webapp must explicitly register the matching historical tuple
 before promotion; active trading/quote/signing checks stay strict. Record the
 actual temporary interval/IDL/lock before adding its observations to an archive.
+After settlement and before helper removal, use indexer #107's read-only
+`duskRetirementReceiptArchive` tool with the exact clean merged core checkout,
+release bundle and six actual reviewed evidence files. It preserves finalized
+signed transactions, block membership, complete CPI arrays and both deployment
+records, checks every payout and retains losing/partial raw observations.
+Local-only rehearsal witnesses are rejected. Canonical decode and terminal
+cash-flow projection still run through the common identity-scoped ingestion path;
+the archive alone cannot authorize normal promotion.
 
 Apply additive migration `060` before deploying the verified-empty portfolio
 worker. It uses a finalized full market scan with before/after code and IDL
 checks to establish a zero-position current portfolio between retirement and
 the first replacement market. A missing streamed market alone is never a zero.
-Verified history revisions supply owner addresses only.
+Verified history revisions supply owner addresses only, including when a
+permissionless replacement market exists before the first empty capture. Every
+retired owner must receive an observed current checkpoint before public traffic;
+old financial state never enters the successor decoder.
 
 Retain migrations through `060`, dated prices, Birdeye repair evidence, cash-flow
 provenance and the historical-price/portfolio batching fixes from #97/#98.
