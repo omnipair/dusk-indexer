@@ -1,4 +1,5 @@
 import { canonicalJson, sha256 } from '../config/duskProtocol';
+import { RETIREMENT_CLOSURE_POLICY } from './duskRetirementPolicy';
 
 /** One-off legacy market scope. This module never constructs transactions. */
 export const LEGACY_RETIREMENT = Object.freeze({
@@ -95,9 +96,9 @@ export function retirementInventorySummary(accounts: RetirementAccount[], receip
     settlementReady: false as const,
     payoutPolicy: 'final-net-OMFG-META' as const,
     forcedClosuresRequested: true as const,
+    closurePolicy: RETIREMENT_CLOSURE_POLICY,
     blockers: ['legacy-retirement-instructions-not-implemented',
-      'forced-unwind-pricing-and-slippage-not-approved',
-      'permanent-seed-and-residual-disposition-not-approved',
+      'all-user-operator-and-protocol-claims-not-yet-reconciled',
       'terminal-snapshot-and-clone-settlement-not-rehearsed'],
   };
 }

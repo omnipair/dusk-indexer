@@ -1,8 +1,16 @@
 # Legacy OMFG/META market retirement proposal
 
-Status: preparation, 18 November 2026. The read-only inventory script is implemented; retirement instructions and payout execution are not. It does not authorize deployment, reduce-only changes, forced closures, market creation, payouts, treasury transfers or SDK publication.
+Status: preparation, 18 November 2026. The read-only inventory and local LiteSVM rehearsal are implemented; retirement instructions and payout execution are not. This work does not authorize deployment, reduce-only changes, forced closures, market creation, payouts, treasury transfers or SDK publication.
 
 The owner selected payout of each wallet's final net entitlement in **OMFG/META**, accounting for debt, gains/losses and fees. This is not a refund of original deposits, and treasury compensation is not part of the design.
+
+The approved preparation rules are:
+
+- Existing market curve and normal protocol fees, including the **0.5% junior exit fee**.
+- Each final token payout must be at least **99% of its reviewed dry-run quote**, rounded upward to a whole token atom. This is a limit against the reviewed settlement quote, not a guarantee against entry price or mark value.
+- Immediate junior terminal settlement is permitted **only for this frozen retired market after all fixed debt, isolated debt and hLP funding are cleared**. The ordinary deployed instructions still enforce their notice periods.
+- Permanent seed and rounding residue go to futarchy treasury `8s6Jdoh7tgUqmU3D2EmpNJHSvuN5U4NybpLAdsiMitwB` **after every user, operator and fee claim is reconciled**.
+- No treasury top-up or debt forgiveness. Live execution remains unauthorized in this preparation round.
 
 ## Deployment and state boundary
 
@@ -25,7 +33,7 @@ Use this retirement sequence when execution is separately authorized:
 4. Re-run the complete inventory and prove where every remaining token and entitlement will live. With the same program IDs, simply leaving the old account marked reduce-only does not preserve its exit path: the layout-19 binary replaces the code used by that account too, changes its decoding schema and rejects unsupported versions. Implement and rehearse a narrowly scoped retirement/migration or compatibility path for any remaining value before upgrading. Retaining the old binary under a separate legacy deployment would instead require different new program IDs and an explicit release decision.
 5. Retain the old revision's history in the backend and show the old market as retired, with any required claim/exit surface supported by the chosen on-chain path. A replacement market is a distinct market; its creation does not migrate the old balances or history.
 
-For this small controlled market, an orderly wind-down is the preferred candidate to evaluate before attempting a live-position conversion. It is not yet a proven zero-liability decommission, and USDv remains subject to its separate final compatibility and issuer-policy review. The tester announcement must not promise an already completed upgrade, immediate junior exit, or finalized USDv release.
+For this small controlled market, an orderly wind-down is the preferred candidate to evaluate before attempting a live-position conversion. It is not yet a proven zero-liability decommission, and USDv remains subject to its separate final compatibility and issuer-policy review. The tester announcement must not promise an already completed upgrade, an already available immediate junior exit, or a finalized USDv release.
 
 ## Temporary retirement release
 
@@ -44,13 +52,13 @@ The proposed design has these requirements:
 Before implementation is considered ready, clone finalized legacy state and test complete and interrupted batches; omitted/duplicate holders; multiple token accounts; receipt transfers around the freeze boundary; orders and both lending modes; retired and queued junior claims; rounding; token freeze/pause/transfer-fee failures; unauthorized/misdirected payouts; repeated begin/settle/finalize; and conservation before and after the final layout-19 upgrade. The live inventory must be refreshed after users finish withdrawing. The temporary design is not yet a deployed or audited refund mechanism.
 
 
-## Open design decisions before a program PR
+## Approved policy and remaining implementation
 
-The selected operational shape is a **one-off, market-bound, resumable script, including forced closures**, followed by removal of temporary execution code only after complete reconciliation. Reuse ordinary accounting and repayment/close logic where possible; the reviewed temporary program authorizes only the specified retirement actions. The remaining decision is the unwind pricing/slippage rule, not whether to include forced closures. The proposed default for review is the existing market curve and ordinary fees, with per-operation minimum net payouts derived from the ordered clone rehearsal. No slippage percentage is approved yet.
+The selected operational shape is a **one-off, market-bound, resumable script, including forced closures**, followed by removal of temporary execution code only after complete reconciliation. Reuse ordinary accounting and repayment/close logic where possible; the reviewed temporary program must authorize only the specified retirement actions. The approved pricing, net-payout limits, junior exception and treasury destination above must be enforced by the actual settlement path; a successful local model does not supply that authority or enforcement.
 
 For a residual distributor, a Merkle proof establishes membership in a committed list, not that the list includes every entitled holder. Provide enforceable aggregate conservation and completeness evidence. If existing accounting cannot prove there is no omitted/unpaid holder, preserve a durable legacy claim path and do not remove it. Never use an operator-supplied count as proof that a retirement is complete.
 
-Permanent junior seed is intentionally not an ordinary user withdrawal. Its destination, claim treatment and any irreducible rounding or donation residual require an explicit approved disposition. Existing junior notice windows and non-liquid claims cannot be bypassed by the reduce-only toggle. Any change to those rights belongs in the reviewed program design.
+Permanent junior seed is intentionally not an ordinary user withdrawal. Its approved destination is the fixed futarchy treasury after all other claims reconcile. Unexpected assets, rent and unresolved claims require separate classification. The approved immediate terminal junior exception requires program support; the reduce-only toggle does not implement it.
 
 ## Read-only inventory script
 
@@ -65,7 +73,38 @@ npm --prefix api run inventory:legacy-retirement -- /absolute/path/new-inventory
 
 The JSON retains raw program accounts, decoded claims, all current/retired receipt mint accounts, full receipt holder accounts and market/order custody. Each source observation has its own finalized slot and digest. The API quote/price observation is separately marked confirmed; this is deliberately a **non-atomic inventory**, not a terminal settlement snapshot. `settlementReady` is always false. Missing receipt supply fails the capture; unclassified ancillary accounts remain an explicit blocker. Unknown or frozen destinations are not silently dropped.
 
-The script's next stage is a finalized-clone settlement rehearsal with an exact ordered transaction manifest and owner OMFG/META payout receipts. This PR does not implement that stage. Today's balances, USD prices or supply proportions alone must never be treated as final net entitlements: debt repayment, hLP funding, yield receivables, queued/retired rights and permanent capital remain part of settlement.
+Today's balances, USD prices or supply proportions alone must never be treated as final net entitlements: debt repayment, hLP funding, yield receivables, queued/retired rights and permanent capital remain part of settlement.
+
+## Local ordered rehearsal and proposed token manifest
+
+```sh
+npm --prefix api run rehearse:legacy-retirement -- /absolute/path/inventory.json /absolute/path/new-rehearsal.json
+```
+
+For a deterministic offline rerun using a previously captured bank:
+
+```sh
+npm --prefix api run rehearse:legacy-retirement -- /absolute/path/inventory.json /absolute/path/new-rehearsal.json --bank /absolute/path/previous-rehearsal.json
+```
+
+The rehearsal refreshes the program account catalogs, captures a single finalized bank of at most 100 accounts, verifies its Clock and both exact program deployments, and uses the deployed Dusk ELF with the captured CPI programs in LiteSVM. It refuses a mismatched protocol pin, modified evidence hash, changed catalog or incomplete receipt supply. Offline mode makes no RPC requests. Artifacts are created with private file permissions and are never overwritten; they contain public account bytes, including wallet balances, so retain them locally rather than committing the raw bank.
+
+Signature verification is disabled **only inside the disposable VM** to evaluate ordinary owner-authorized instructions. The provider cannot sign and the RPC helper accepts read-only methods only. No private key is loaded and no transaction is submitted to a network. Those unsigned local instructions are not an execution script.
+
+The successful local ordering is: four longs; the META-debt loan; the OMFG-debt loan using only that same owner's realized long proceeds plus a partial collateral sale; the remaining short; hLP exits; senior exits; all historical holder income; junior exits; another complete holder-income pass; operator income. Directly closing the short first fails because the curve output does not cover its debt. Selling every loan's remaining collateral also fails. The selected order clears both loans and all five leverage positions without spending pre-existing wallet tokens or inventing treasury credits.
+
+For junior pricing, the VM first confirms that ordinary immediate conversion is rejected. It then checks all lending and hLP funding is zero and advances **only its local clock** to each stored maturity to evaluate ordinary conversion with the 0.5% exit fee. No source ledger amount, receipt balance or token credit is patched. This models the economics of the approved terminal exception; it does **not** test a new immediate-settlement instruction, an actual freeze, or a live bypass of notice periods.
+
+At finalized source bank slot **470833073**, the local token allocation was:
+
+| Asset | Actual market custody | Proposed user payouts | Remaining treasury allocation |
+| --- | ---: | ---: | ---: |
+| OMFG | 380.550527 | 376.352904 | 4.197623 |
+| META | 71.884707 | 71.730285 | 0.154422 |
+
+The artifact contains the full per-owner quote and 99% minimum, exact action order, pre/post token conservation, remaining debt and receipt supplies, all economic account states, and the protocol-fee/permanent-income/permanent-capital breakdown. Before a proposal is emitted, guards require every original yield account and receipt mint to be present, all circulating receipts burned in the VM, zero debt/funding/queued exits, complete final income checks, no unpaid holder/operator/referral claims, and exact custody allocation. AmountZero harvest results alone are not treated as claim waivers.
+
+These are **proposed token amounts for review**, not frozen or execution-approved entitlements. A fresh frozen recapture, real retirement program, aggregate net guards for the staged loan legs, recipient safety checks, interrupted-batch tests, SOL-rent reconciliation and dangling delegate-order cleanup remain required. Every report retains `settlementReady: false` and `executionReady: false`.
 
 ## Backend and frontend handoff
 
