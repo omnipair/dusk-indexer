@@ -16,7 +16,7 @@ The release keeps the agreed program IDs and local encrypted-volume signer workf
 
 | Component | Preparation | Activation requirement |
 | --- | --- | --- |
-| Programs | #112, #114, #115, and separately reviewed #113 | One final combined main commit; exact verified production bundle for both programs |
+| Programs | #112, #114, #115 integrated by #116, and separately reviewed #113 | One final combined main commit; exact verified production bundle for both programs |
 | SDK | Stable versions for the mainnet build; proposed `3.0.0` for #115's removed public APIs | GitHub publisher only, after exact binaries, IDLs and authorities match |
 | Indexer | #99 stages the decoder and pure candidate accounting; current API behavior stays intact | Separate API cutover, new revision/interval, matching quote artifacts and replay |
 | Webapp | #239 asset admission; #240 accrued-interest port | Published SDK, registry integrity, protocol manifest and API identity updated together |
@@ -37,7 +37,7 @@ A wind-down is not complete merely because the UI displays no positions. Require
 
 ### Reduce-only and retiring the controlled test market
 
-The owner has announced the intended OMFG/META wind-down to testers. This is an intention to retire that market, not authorization in this preparation round to change live settings or transact for users. The current binary can put a market into reduce-only; it has no general-purpose `close_market` instruction. Reduce-only blocks new borrowing, leverage increases and liquidity seeding while spot swaps and risk-reducing exits remain available. Borrow collateral withdrawal in reduce-only requires that position's debt to be zero. Normal health, available-cash, issuer-transfer and junior-exit timing checks still apply; reduce-only bypasses none of them.
+The owner has announced the intended OMFG/META wind-down to testers and selected final net entitlements in OMFG/META as the payout policy. The separate design is in [indexer #101](https://github.com/omnipair/dusk-indexer/pull/101); it implements no payout instructions yet. This is an intention to retire that market, not authorization in this preparation round to change live settings or transact for users. The current binary can put a market into reduce-only; it has no general-purpose `close_market` instruction. Reduce-only blocks new borrowing, leverage increases and liquidity seeding while spot swaps and risk-reducing exits remain available. Borrow collateral withdrawal in reduce-only requires that position's debt to be zero. Normal health, available-cash, issuer-transfer and junior-exit timing checks still apply; reduce-only bypasses none of them.
 
 Use this retirement sequence when execution is separately authorized:
 
@@ -71,7 +71,7 @@ If USDC support is urgent, #112 can be released independently using its own exac
 
 ## Gate 2: freeze and test the combined source
 
-1. Merge #112, then #114, then #115. Integrate #113 against that final code and rerun its extension-specific lending, LP, liquidation and custody tests. Preserve the hLP and ordinary flash fixes together. Do not bypass an unresolved issuer-control finding by silently narrowing the product.
+1. #112 and #114 are merged, and #115's unchanged source reached main through #116 at `9896ce116fe266588e437b048d22ef3f6024b34c`. #113 is integrated against that source at `3a2e8ef438089090867c99792a6f042c9d92c572`; its local and GitHub native, LiteSVM and exact-production-binary checks pass. It remains draft under the owner's hold and unresolved issuer-policy review. Preserve the hLP and ordinary flash fixes together. Do not bypass an unresolved issuer-control finding by silently narrowing the product.
 2. Generate both IDLs and TypeScript interfaces from the actual combined source. Run every local CI gate and all GitHub jobs. Re-measure compute baselines only from a fully successful run; retain the ordinary swap hard ceiling and exact 5% regression margins. Never replace missing measurements with a pass.
 3. Build and test the exact post-merge production commit in `release-build.yaml`. Record both ELF hashes, IDLs, SDK version, compiler image/arguments, account layouts and authority expectations. Download and retain that immutable bundle.
 4. Rehearse the actual transition on a finalized clone: pending transactions, current account handling, USDC/Token-2022 admission, both flash routes, hLP, orders, fees, claims, liquidation, deficit/loss allocation and failures/rollback. Old-client transactions must fail safely after the transition. No live market is created during preparation.
