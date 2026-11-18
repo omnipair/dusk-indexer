@@ -7,6 +7,7 @@ import { Connection,PublicKey } from '@solana/web3.js';
 import { inflateSync } from 'node:zlib';
 import type { Idl } from '@coral-xyz/anchor';
 import { canonicalJson,sha256 } from '../config/duskProtocol';
+import { LEGACY_RETIREMENT } from '../services/duskRetirementInventory';
 import { validateRetirementReceipts } from '../services/duskRetirementReceipts';
 import type { RetirementTransactionObservation } from '../services/duskRetirementReceipts';
 
@@ -20,7 +21,10 @@ export async function archiveRetirementReceipts(args:string[]){
   assert.equal(manifest.schemaVersion,'dusk-retirement-payout-manifest.v1');assert.equal(manifest.localOnly,false,'Local manifests cannot archive actual payments');
   assert.equal(capture.localOnly,false,'Local captures cannot archive actual payments');
   const bundle=json(resolve(bundlePath,'manifest.json')),scope=json(resolve(bundlePath,'scope.json'));
-  assert.equal(bundle.schema,'dusk-retirement-bundle.v1');assert.match(bundle.sourceCommit,/^[a-f0-9]{40}$/);
+  assert.equal(bundle.schema,'dusk-retirement-bundle.v1');
+  assert.equal(bundle.cluster,'mainnet-beta');assert.equal(bundle.genesisHash,'5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d');
+  assert.equal(bundle.program,LEGACY_RETIREMENT.program);assert.equal(scope.program,LEGACY_RETIREMENT.program);assert.equal(scope.market,LEGACY_RETIREMENT.market);
+  assert.equal(scope.legacyIdentity.delegate.programId,LEGACY_RETIREMENT.delegate);assert.equal(manifest.program,scope.program);assert.equal(manifest.market,scope.market);assert.match(bundle.sourceCommit,/^[a-f0-9]{40}$/);
   assert.equal(manifest.bundleSha256,sha256(canonicalJson(bundle)));
   for(const [name,value] of Object.entries(bundle.files) as [string,{sha256:string;size:number}][]){
     assert.ok(['dusk.so','dusk.json','dusk.ts','scope.json'].includes(name),'Unexpected bundle path');
