@@ -52,7 +52,7 @@ async function verifyExecutables(rpc:Connection,current:DuskPinnedProtocol,minSl
       ||sha256(data.data.subarray(45))!==pin.binarySha256||!idl||idl.executable||idl.owner.toBase58()!==pin.programId
       ||idl.data.length<44||!idl.data.subarray(0,8).equals(idlTag))throw invalid();
     const length=idl.data.readUInt32LE(40);if(length<=0||length>idl.data.length-44)throw invalid();
-    if(sha256(canonicalJson(JSON.parse(inflateSync(idl.data.subarray(44,44+length)).toString())))!==pin.idlCanonicalSha256)throw invalid();
+    if(sha256(canonicalJson(JSON.parse(inflateSync(idl.data.subarray(44,44+length),{maxOutputLength:16*1024*1024}).toString())))!==pin.idlCanonicalSha256)throw invalid();
   }
   return read.context.slot;
 }

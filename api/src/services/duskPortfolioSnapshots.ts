@@ -52,7 +52,7 @@ function coordinates(source: PortfolioCaptureSource) {
     const proof=source.emptyCatalog;
     if(!proof||!/^[1-9]\d*$/.test(proof.observationId))throw new Error('Missing empty-catalog observation');
     validateMarketCatalogEvidence(proof.evidence);
-    if(proof.evidence.markets.length||source.groups.length||source.catalog.markets.length||source.catalog.items.length
+    if(source.catalog.knownOwners.length>100000||proof.evidence.markets.length||source.groups.length||source.catalog.markets.length||source.catalog.items.length
       ||(source.catalog.incomeItems??[]).length||source.deploymentIdentitySha256!==proof.evidence.deploymentIdentitySha256
       ||source.catalog.sourceFloor!==proof.evidence.slot||source.catalog.streamTime!==proof.evidence.observedAt
       ||Date.parse(source.observedAt)<Date.parse(proof.evidence.observedAt))throw new Error('Portfolio source is not a verified empty market catalog');
@@ -398,6 +398,7 @@ export async function captureDuskPortfolioSnapshots(dependencies?: {
       await ownerClient.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
       const owners=await readEmptyPortfolioOwners(ownerClient);
       await ownerClient.query('COMMIT');
+      if(new Set([...catalog.knownOwners,...owners]).size>100000)throw new Error('Portfolio owner catalog exceeds bounded capture capacity');
       catalog={basis:'rpc-empty-markets.v1',throughSlot:evidence.slot,sourceFloor:evidence.slot,streamTime:evidence.observedAt,
         markets:[],items:[],incomeItems:[],knownOwners:[...new Set([...catalog.knownOwners,...owners])].sort()};
       emptyCatalog={observationId,evidence};
