@@ -31,11 +31,15 @@ Read back actual code, IDLs and authorities before signing. SDK `3.0.1` is the
 combined extension/accrued-interest candidate, unpublished until the protected
 publisher verifies the final normal deployment. Never invent registry integrity.
 
-The 18 November finalized 95-account bank at slot 470926403 contains five
-leverage positions, two loans, five beneficiaries, 16 yield accounts and two
-junior-exit accounts. These are dated discovery/rehearsal counts, not final
-payouts. New economic accounts, receipt ownership, code or issuer state require
-fresh review; do not force a changing market into the fixed scope.
+The refreshed 19 November economic bank at slot 471003239 contains 97 coupled
+protocol/token accounts, five leverage positions, two loans, six beneficiaries,
+18 yield accounts and two junior-exit accounts. Seven plain System-wallet SOL
+balances are observed separately and explicitly labeled; no financial state is
+split across banks. Discovery found an additional funded LP holder after the
+original five-wallet capture, so the temporary scope and ordered payout-evidence
+root now cover six wallets and 28 personal accounts. These are dated preparation
+counts, not final payouts. Recapture after the actual freeze and reject any new
+unreviewed financial account or beneficiary.
 
 ## Preparation and release artifacts
 
@@ -44,8 +48,8 @@ fresh review; do not force a changing market into the fixed scope.
 | Normal programs | #112 and #114/#116 integrated; #113 extensions | Final combined signed main commit; exact production binaries and both IDLs |
 | Temporary retirement | Program #117, isolated `production,legacy-retirement` | Separate exact-source reproducible bundle and frozen native replay; no SDK publication |
 | SDK | Stable `3.0.1` candidate | Protected GitHub publisher; both final binaries, IDLs and authorities match |
-| Indexer/API | #99 decoder, #100 API cutover, merged #102/#103 inventory/rehearsal and #104 historical reader | Published SDK, frozen complete identity, exact quote runtime, replay and retired-market projections |
-| Webapp | #239 extension admission; #240 accrued-interest port; paired portfolio archive validator | Coherent published SDK/API identity and all application gates |
+| Indexer/API | #99 decoder, #100 API cutover, merged #102/#103 inventory/rehearsal, #104 historical reader and #105 atomic growing catalog; #106 verified empty portfolios | Published SDK, frozen complete identity, exact quote runtime, replay and retired-market projections |
+| Webapp | merged #239 extension admission and #250 portfolio archive validator; draft #240 accrued-interest port | Coherent published SDK/API identity and all application gates |
 | Keepers | Existing separate AWS KMS keys and SHADOW workers | New captured mainnet lock, release matrix, simulation, lease and reconciliation gates |
 
 Merges prepare source; they are not evidence that an on-chain deployment passed.
@@ -107,7 +111,7 @@ make it pass. The old isolated SDK/runtime is retained solely for this model.
 1. Run the existing legacy quote tool on the model. Require exhausted debt,
    hLP funding and unpaid income; full holder/claim catalogs; no wallet token
    spending; exact asset conservation; and classified permanent residual.
-2. Compile the immutable five-owner manifest from the actual capture, model,
+2. Compile the immutable six-owner manifest from the actual capture, model,
    quote and exact-binary native proof. Record exact token amounts, integer
    minima, custody budgets, personal-account hashes, recipients and all roots.
 3. Run the second native replay from the actual frozen temporary bank using
@@ -132,7 +136,7 @@ waits for finalization, and resumes from on-chain masks.
 
 1. Begin once. Consolidate only frozen custody, fund all immutable claims and
    replace the old market header with a permanent retirement tombstone.
-2. Clear all 26 scoped personal accounts in five complete owner groups, returning
+2. Clear all 28 scoped personal accounts in six complete owner groups, returning
    their actual SOL rent. All groups clear before any principal/income payout.
 3. Pay each owner its fixed net OMFG/META. Both legs and the paid flag are atomic.
    Unsafe/issuer-blocked recipients remain unpaid with no deadline; do not
@@ -157,8 +161,10 @@ interval and terminal reconciliations are separate from normal layout-19 state.
    tombstone and closed personal accounts. The separate successor upgrade
    preflight also rejects an extra legacy claim and verifies exact prior code,
    IDs, authorities and funding. Old market bytes must never be read as layout19.
-2. Upgrade both normal programs from the exact reviewed normal bundle and upload
-   each matching bundled IDL immediately. Verify finalized bytes and both IDL /
+2. Upgrade delegate first while the temporary Dusk binary rejects normal
+   instructions, then activate normal Dusk last. Use the exact reviewed normal
+   bundle and upload each matching bundled IDL immediately. This ordering keeps
+   the first possible normal Dusk write after the common replay boundary. Verify finalized bytes and both IDL /
    upgrade authorities, then complete independent source verification against
    the exact normal commit/profile. Keep external signing closed throughout.
 3. Re-run the protected GitHub SDK publisher only after deployment matching.
@@ -182,7 +188,13 @@ unchanged. The webapp must explicitly register the matching historical tuple
 before promotion; active trading/quote/signing checks stay strict. Record the
 actual temporary interval/IDL/lock before adding its observations to an archive.
 
-Retain migrations through `059`, dated prices, Birdeye repair evidence, cash-flow
+Apply additive migration `060` before deploying the verified-empty portfolio
+worker. It uses a finalized full market scan with before/after code and IDL
+checks to establish a zero-position current portfolio between retirement and
+the first replacement market. A missing streamed market alone is never a zero.
+Verified history revisions supply owner addresses only.
+
+Retain migrations through `060`, dated prices, Birdeye repair evidence, cash-flow
 provenance and the historical-price/portfolio batching fixes from #97/#98.
 Database rollback never undoes on-chain settlement or authorizes rewriting a
 finalized observation.

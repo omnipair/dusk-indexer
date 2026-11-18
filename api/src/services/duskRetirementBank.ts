@@ -12,6 +12,25 @@ import { PublicKey, SYSVAR_CLOCK_PUBKEY } from '@solana/web3.js';
 import { sha256, type DuskPinnedProtocol } from '../config/duskProtocol';
 import type { FrozenLeverageBank } from './duskLeverageMaximumInput';
 
+/** Separate finalized plain-wallet SOL observations pay VM fees/rent only.
+ * Every protocol account, token balance and executable remains in the single
+ * economic bank. This is never an atomic cross-observation claim. */
+export function assertRetirementWalletObservation(observation:FrozenLeverageBank,bank:FrozenLeverageBank,wallets:readonly string[]):void {
+  if(!Number.isSafeInteger(observation.slot)||observation.slot<bank.slot||wallets.length>17
+    ||new Set(wallets).size!==wallets.length||observation.accounts.length!==wallets.length
+    ||new Set(observation.accounts.map(row=>row.address)).size!==wallets.length)
+    throw new Error('Invalid retirement wallet observation');
+  const economic=new Set(bank.accounts.map(row=>row.address));
+  for(const row of observation.accounts){
+    if(!wallets.includes(row.address)||economic.has(row.address))throw new Error('Wallet observation crossed economic bank');
+    const account=row.account;
+    if(account&&(account.owner!=='11111111111111111111111111111111'||account.executable
+      ||Buffer.from(account.data,'base64').length!==0||!Number.isSafeInteger(account.lamports)||account.lamports<0
+      ||!/^(0|[1-9][0-9]*)$/.test(account.rentEpoch)||BigInt(account.rentEpoch)>=(1n<<64n)))
+      throw new Error('Supplemental observation is not a plain SOL wallet');
+  }
+}
+
 
 /** Refuse an authority change or either changed executable even if the IDLs
  * remain compatible. All deployment metadata comes from this same bank. */
