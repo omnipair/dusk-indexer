@@ -93,6 +93,7 @@ database/
 !database/migrations/057_dusk_activity_price_lookup.sql
 !database/migrations/058_dusk_streamed_payload_fast_path.sql
 !database/migrations/059_dusk_portfolio_history_lookup.sql
+!database/migrations/060_dusk_empty_portfolio_catalogs.sql
 !database/dusk-migrations.txt
 
 # Other language artifacts

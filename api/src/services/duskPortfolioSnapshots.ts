@@ -8,6 +8,8 @@ import pool from '../config/database';
 import { canonicalJson, loadPinnedProtocol, sha256 } from '../config/duskProtocol';
 import type { DuskPinnedProtocol } from '../config/duskProtocol';
 import { checkedPortfolioHistoryRevisions,portfolioHistoryRevisions,portfolioRevisionIdentity } from './duskPortfolioHistoryRevisions';
+import { captureMarketCatalogEvidence,storeMarketCatalogEvidence,validateMarketCatalogEvidence,verifyEmptyCatalogStored,assertMarketCatalogConsistency } from './duskEmptyPortfolio';
+import type { EmptyMarketEvidence } from './duskEmptyPortfolio';
 import { deploymentEnvelope } from './duskDeploymentService';
 import { captureMarketSimulation, duskRawIdl, MarketSimulationSnapshot, SnapshotAccount } from './duskMarketSimulation';
 import { nativeFields, nativeKey, PortfolioKind, projectPortfolioComponent, totalPortfolioComponents } from './duskPortfolioMath';
@@ -27,14 +29,15 @@ interface PortfolioMarketSnapshot extends MarketSimulationSnapshot { hlpCohorts?
 interface PortfolioCandidateIdentity { cluster: string; programId: string; idlHash: string; protocolRevision: string }
 /** Archived events supply addresses only. Current-bank accounts decide their state and value. */
 export interface PortfolioCatalog {
-  basis: 'streamed-events.v1' | 'streamed-event-candidates.v2'; throughSlot: number; streamTime: string; sourceFloor: number;
+  basis: 'streamed-events.v1' | 'streamed-event-candidates.v2' | 'rpc-empty-markets.v1'; throughSlot: number; streamTime: string; sourceFloor: number;
   markets: string[]; items: PortfolioCatalogItem[]; knownOwners: string[];
   incomeItems?:PortfolioIncomeItem[];
   candidateIdentities?: PortfolioCandidateIdentity[];
 }
 export interface PortfolioCaptureSource {
-  schemaVersion: 'dusk-portfolio-capture.v2'|'dusk-portfolio-capture.v3'; catalog: PortfolioCatalog; groups: PortfolioMarketSnapshot[];
+  schemaVersion: 'dusk-portfolio-capture.v2'|'dusk-portfolio-capture.v3'|'dusk-portfolio-capture.v4'; catalog: PortfolioCatalog; groups: PortfolioMarketSnapshot[];
   references: unknown; observedAt: string; deploymentIdentitySha256: string; maxCatalogAgeSeconds: number;
+  emptyCatalog?:{observationId:string;evidence:EmptyMarketEvidence};
 }
 const checkedSlot = (value: number) => {
   if (!Number.isSafeInteger(value) || value<0) throw new Error('Invalid portfolio source slot');
@@ -45,6 +48,17 @@ const sourceHash = (source: PortfolioCaptureSource) => {
   return sha256(canonicalJson([identity(),{ ...durable,groups: groups.map(({ observedAt: _time,...group }) => group) }]));
 };
 function coordinates(source: PortfolioCaptureSource) {
+  if(source.schemaVersion==='dusk-portfolio-capture.v4'){
+    const proof=source.emptyCatalog;
+    if(!proof||!/^[1-9]\d*$/.test(proof.observationId))throw new Error('Missing empty-catalog observation');
+    validateMarketCatalogEvidence(proof.evidence);
+    if(source.catalog.knownOwners.length>100000||proof.evidence.markets.length||source.groups.length||source.catalog.markets.length||source.catalog.items.length
+      ||(source.catalog.incomeItems??[]).length||source.deploymentIdentitySha256!==proof.evidence.deploymentIdentitySha256
+      ||source.catalog.sourceFloor!==proof.evidence.slot||source.catalog.streamTime!==proof.evidence.observedAt
+      ||Date.parse(source.observedAt)<Date.parse(proof.evidence.observedAt))throw new Error('Portfolio source is not a verified empty market catalog');
+    return {minSlot:proof.evidence.slot,maxSlot:proof.evidence.slot,captureTime:proof.evidence.blockTime};
+  }
+  if(source.emptyCatalog||source.catalog.basis==='rpc-empty-markets.v1')throw new Error('Empty catalog evidence requires capture v4');
   if (!source.groups.length || source.groups.length>5000) throw new Error('Invalid bounded portfolio market groups');
   const slots = source.groups.map((group) => checkedSlot(group.slot));
   const times = source.groups.map((group) => Date.parse(group.blockTime));
@@ -54,7 +68,7 @@ function coordinates(source: PortfolioCaptureSource) {
 
 /** Current-release discovery only; retired devnet events are not candidates for
  * the current account decoder. LP holders use canonical Token-2022 accounts. */
-export async function readPortfolioCatalog(client: PoolClient): Promise<PortfolioCatalog> {
+export async function readPortfolioCatalog(client: PoolClient,allowEmpty=false): Promise<PortfolioCatalog> {
   const active = identity(),stream = await readStreamCursor(client);
   if (!stream) throw new Error('Portfolio capture needs a started Dusk stream');
   const programFilter = 'cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4';
@@ -76,7 +90,7 @@ export async function readPortfolioCatalog(client: PoolClient): Promise<Portfoli
     ...markets.rows.filter((row) => row.idl_hash === active[2] && row.protocol_revision === active[3]).map((row) => row.market),
     ...found.rows.map((row) => row.market),
   ]);
-  if (!selectedMarkets.size) throw new Error('Portfolio capture has no discovered markets');
+  if (!selectedMarkets.size&&!allowEmpty) throw new Error('Portfolio capture has no discovered markets');
   const marketAddresses = [...selectedMarkets].map(nativeKey).sort();
   const marketCandidates = markets.rows.filter((row) => selectedMarkets.has(row.market));
   if (new Set(marketCandidates.map((row) => row.market)).size !== selectedMarkets.size)
@@ -120,6 +134,21 @@ export async function readPortfolioCatalog(client: PoolClient): Promise<Portfoli
     markets: marketAddresses,items: items.sort((a,b) => a.address.localeCompare(b.address)),knownOwners,incomeItems };
 }
 
+/** Historical identities supply wallet addresses only after RPC proves the
+ * active release has no markets. No archived balances are decoded or relabeled. */
+export async function readEmptyPortfolioOwners(client:PoolClient,revisions:readonly DuskPinnedProtocol[]=portfolioHistoryRevisions()):Promise<string[]>{
+  const pins=checkedPortfolioHistoryRevisions(loadPinnedProtocol(),revisions),values:unknown[]=[];
+  const filter=pins.map(pin=>portfolioRevisionFilter(pin,values)).join(' OR ');
+  const owners=await client.query<{owner:string}>(`SELECT DISTINCT owner FROM (
+    SELECT cluster,program_id,idl_hash,protocol_revision,owner FROM dusk_ingestion.portfolio_checkpoints
+    UNION ALL SELECT cluster,program_id,idl_hash,protocol_revision,owner FROM dusk_ingestion.streamed_borrow_positions
+    UNION ALL SELECT cluster,program_id,idl_hash,protocol_revision,owner FROM dusk_ingestion.streamed_leverage_positions
+    UNION ALL SELECT cluster,program_id,idl_hash,protocol_revision,owner FROM dusk_ingestion.streamed_lp_balances
+    ) candidates WHERE (${filter}) AND owner IS NOT NULL ORDER BY owner LIMIT 100001`,values);
+  if(owners.rows.length>100000)throw new Error('Portfolio owner catalog exceeds bounded capture capacity');
+  return owners.rows.map(row=>nativeKey(row.owner));
+}
+
 function rawAccount(value: SnapshotAccount,program: string): AccountInfo<Buffer> {
   const data = Buffer.from(value.data,'base64');
   if (value.owner !== program || value.executable || !data.length || data.toString('base64') !== value.data) throw new Error('Invalid portfolio raw account owner/bytes');
@@ -130,8 +159,10 @@ function rawAccount(value: SnapshotAccount,program: string): AccountInfo<Buffer>
 export function projectPortfolioSource(source: PortfolioCaptureSource) {
   const pin = loadPinnedProtocol(),decoder = new BorshCoder(duskRawIdl()),catalog = source.catalog,coords = coordinates(source);
   const catalogAge = Date.parse(source.observedAt)-Date.parse(catalog.streamTime);
-  if (!['dusk-portfolio-capture.v2','dusk-portfolio-capture.v3'].includes(source.schemaVersion)
-    || !['streamed-events.v1','streamed-event-candidates.v2'].includes(catalog.basis)
+  if (!['dusk-portfolio-capture.v2','dusk-portfolio-capture.v3','dusk-portfolio-capture.v4'].includes(source.schemaVersion)
+    || !['streamed-events.v1','streamed-event-candidates.v2','rpc-empty-markets.v1'].includes(catalog.basis)
+    || (source.schemaVersion==='dusk-portfolio-capture.v4')!==(catalog.basis==='rpc-empty-markets.v1')
+    || catalogAge<0
     || !Number.isSafeInteger(source.maxCatalogAgeSeconds) || source.maxCatalogAgeSeconds<1 || source.maxCatalogAgeSeconds>600
     || !Number.isFinite(catalogAge) || catalogAge>source.maxCatalogAgeSeconds*1000
     || catalog.sourceFloor !== checkedSlot(catalog.throughSlot) || coords.minSlot<catalog.sourceFloor)
@@ -274,6 +305,7 @@ function portfolioRevisionFilter(pin:DuskPinnedProtocol,values:unknown[]) {
   return `(cluster=$${offset+1} AND program_id=$${offset+2} AND idl_hash=$${offset+3} AND protocol_revision=$${offset+4})`;
 }
 export async function assertNoPortfolioConflict(client: PoolClient,revisions:readonly DuskPinnedProtocol[]=[loadPinnedProtocol()]) {
+  await assertMarketCatalogConsistency(client,revisions);
   const values:unknown[]=[],scope=revisions.map(pin=>portfolioRevisionFilter(pin,values)).join(' OR ');
   const conflicts = await client.query(`SELECT 1 FROM dusk_ingestion.portfolio_account_evidence e JOIN dusk_ingestion.portfolio_capture_observations o USING(capture_id)
     WHERE (${scope})
@@ -299,6 +331,8 @@ export async function projectPortfolioCapture(client: PoolClient,captureId: stri
   const row = result.rows[0];
   if (!row) throw new Error('FINALIZED_INVARIANT: saved portfolio identity/hash mismatch');
   const projected = verifyStoredPortfolioCapture(row);
+  const empty=(row.source as PortfolioCaptureSource).emptyCatalog;
+  if(empty)await verifyEmptyCatalogStored(client,empty.observationId,empty.evidence);
   const previous = await client.query('SELECT owner_count FROM dusk_ingestion.portfolio_capture_projections WHERE capture_id=$1',[captureId]);
   if (previous.rows[0]) return previous.rows[0].owner_count;
   const coverage = { ...projected.coverage,sourceHash: row.content_hash,deploymentIdentitySha256: row.deployment_identity_sha256 };
@@ -306,7 +340,7 @@ export async function projectPortfolioCapture(client: PoolClient,captureId: stri
     (cluster,program_id,idl_hash,protocol_revision,owner,bucket,observed_at,source_min_slot,source_max_slot,components,coverage,valuations,capture_id)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,[...active,owner.owner,projected.captureTime,row.observed_at,projected.minSlot,projected.maxSlot,
       JSON.stringify(owner.components),JSON.stringify(coverage),JSON.stringify(owner.valuations),captureId]);
-  if((row.source as PortfolioCaptureSource).schemaVersion==='dusk-portfolio-capture.v3')for(const owner of projected.owners){
+  if(['dusk-portfolio-capture.v3','dusk-portfolio-capture.v4'].includes((row.source as PortfolioCaptureSource).schemaVersion))for(const owner of projected.owners){
     const value={streams:projected.income.streams.filter(stream=>stream.owner===owner.owner),unavailable:projected.income.unavailable.filter(entry=>entry.owner===owner.owner)};
     await client.query(`INSERT INTO dusk_ingestion.portfolio_income_checkpoints(capture_id,owner,source_hash,income,content_hash)
       VALUES($1,$2,$3,$4,$5)`,[captureId,owner.owner,row.content_hash,JSON.stringify(value),sha256(canonicalJson([captureId,owner.owner,row.content_hash,value]))]);
@@ -333,10 +367,11 @@ export async function replayPortfolioCaptures(): Promise<number> {
 
 export async function captureDuskPortfolioSnapshots(dependencies?: {
   envelope?: typeof deploymentEnvelope; capture?: typeof captureMarketSimulation;
+  captureCatalog?:typeof captureMarketCatalogEvidence;
 }) {
   const before = await (dependencies?.envelope ?? deploymentEnvelope)(0),client = await pool.connect();
   let catalog: PortfolioCatalog;
-  try { await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY'); catalog = await readPortfolioCatalog(client); await client.query('COMMIT'); }
+  try { await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY'); catalog = await readPortfolioCatalog(client,true); await client.query('COMMIT'); }
   catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
   // The stream heartbeats while live, so a recent stream time means discovery
   // is current however long ago the last transaction landed.
@@ -350,6 +385,25 @@ export async function captureDuskPortfolioSnapshots(dependencies?: {
   // Valuations read finalized banks at or after the stream's slot, so every
   // discovered position exists at its valuation bank.
   const readFloor = Math.max(catalog.sourceFloor,checkedSlot(Number(before.programDataSlot)),checkedSlot(Number(before.leverageDelegateProgramDataSlot)));
+  let emptyCatalog:PortfolioCaptureSource['emptyCatalog'];
+  if(!catalog.markets.length){
+    const evidence=await (dependencies?.captureCatalog??captureMarketCatalogEvidence)(readFloor);
+    const observationId=await storeMarketCatalogEvidence(evidence);
+    // Store contradictory/nonempty observations too; a lagging stream never
+    // turns an existing on-chain market into a zero-valued portfolio.
+    if(evidence.markets.length)throw new Error('On-chain markets await stream discovery; refusing empty portfolios');
+    if(evidence.slot<readFloor||evidence.deploymentIdentitySha256!==before.deploymentIdentitySha256)throw new Error('Deployment changed during portfolio capture');
+    const ownerClient=await pool.connect();
+    try{
+      await ownerClient.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+      const owners=await readEmptyPortfolioOwners(ownerClient);
+      await ownerClient.query('COMMIT');
+      if(new Set([...catalog.knownOwners,...owners]).size>100000)throw new Error('Portfolio owner catalog exceeds bounded capture capacity');
+      catalog={basis:'rpc-empty-markets.v1',throughSlot:evidence.slot,sourceFloor:evidence.slot,streamTime:evidence.observedAt,
+        markets:[],items:[],incomeItems:[],knownOwners:[...new Set([...catalog.knownOwners,...owners])].sort()};
+      emptyCatalog={observationId,evidence};
+    }catch(error){await ownerClient.query('ROLLBACK');throw error;}finally{ownerClient.release();}
+  }
   const jobs: { market: string; addresses: string[]; cohorts: string[]; juniorCohorts: string[]; incomeItems:PortfolioIncomeItem[]; incomeAddresses:string[] }[] = [];
   for (const market of catalog.markets) {
     const units=new Map<string,{item?:PortfolioCatalogItem;income?:PortfolioIncomeItem}>();
@@ -392,7 +446,8 @@ export async function captureDuskPortfolioSnapshots(dependencies?: {
         ...(juniorCohorts.length ? { juniorCohorts: group.accounts.filter((entry) => juniorCohorts.includes(entry.address)) } : {}) });
     }
   }
-  const source: PortfolioCaptureSource = { schemaVersion: 'dusk-portfolio-capture.v3',catalog,groups,references,
+  const source: PortfolioCaptureSource = { schemaVersion: emptyCatalog?'dusk-portfolio-capture.v4':'dusk-portfolio-capture.v3',catalog,groups,references,
+    ...(emptyCatalog?{emptyCatalog}:{}),
     observedAt: new Date().toISOString(),deploymentIdentitySha256: before.deploymentIdentitySha256,maxCatalogAgeSeconds };
   if (Date.parse(source.observedAt)-Date.parse(catalog.streamTime)>maxCatalogAgeSeconds*1000)
     throw new Error('Portfolio catalog aged out during capture; retry');
