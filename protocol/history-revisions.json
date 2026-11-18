@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "dusk-history-revisions.v1",
+  "releases": [
+    {
+      "revision": "mainnet-2026-11-14",
+      "lockSha256": "c3d4d3ba9ea21ad19371c6bb9da21b46e9f5c20cd2ac50167caded36d10f0875"
+    }
+  ]
+}

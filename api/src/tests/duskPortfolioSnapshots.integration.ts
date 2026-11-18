@@ -24,6 +24,70 @@ async function transaction(work: (client: PoolClient) => Promise<void>) {
 }
 const query = (owner: string) => ({ owner,limit: 100,offset: 0 });
 
+// Synthetic persisted-revision fixtures exercise history selection and
+// provenance, not decoding an old binary with the active IDL. Production
+// history pins come only from byte-verified, committed release archives.
+async function archiveCheckpoint(client:PoolClient,sourceId:string,archive:typeof pin,distinctEvidence=false) {
+  const tuple=[archive.cluster,archive.dusk.programId,archive.dusk.idlCanonicalSha256,archive.revision];
+  await client.query(`INSERT INTO dusk_ingestion.protocol_identities(cluster,program_id,idl_hash,protocol_revision)
+    VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,tuple);
+  const inserted=await client.query(`INSERT INTO dusk_ingestion.portfolio_capture_observations
+    (cluster,program_id,idl_hash,protocol_revision,source_min_slot,source_max_slot,capture_time,observed_at,deployment_identity_sha256,source,content_hash)
+    SELECT $1,$2,$3,$4,source_min_slot,source_max_slot,capture_time,observed_at,deployment_identity_sha256,source,content_hash
+    FROM dusk_ingestion.portfolio_capture_observations WHERE capture_id=$5 RETURNING capture_id::text`,[...tuple,sourceId]);
+  const id=inserted.rows[0].capture_id as string;
+  await client.query(`INSERT INTO dusk_ingestion.portfolio_account_evidence(capture_id,account,slot,basis,blockhash,state_hash)
+    SELECT $1::bigint,account,slot,basis,blockhash,CASE WHEN $3 THEN encode(sha256(convert_to(state_hash||($1::bigint)::text,'UTF8')),'hex') ELSE state_hash END
+    FROM dusk_ingestion.portfolio_account_evidence WHERE capture_id=$2`,[id,sourceId,distinctEvidence]);
+  await client.query(`INSERT INTO dusk_ingestion.portfolio_checkpoints
+    (cluster,program_id,idl_hash,protocol_revision,owner,bucket,observed_at,source_min_slot,source_max_slot,components,coverage,valuations,capture_id)
+    SELECT $1,$2,$3,$4,owner,bucket,observed_at,source_min_slot,source_max_slot,components,coverage,valuations,$5
+    FROM dusk_ingestion.portfolio_checkpoints WHERE capture_id=$6`,[...tuple,id,sourceId]);
+  await client.query(`INSERT INTO dusk_ingestion.portfolio_capture_projections(capture_id,owner_count)
+    SELECT $1,owner_count FROM dusk_ingestion.portfolio_capture_projections WHERE capture_id=$2`,[id,sourceId]);
+  return id;
+}
+
+test('verified archived history retains per-point identity and pagination without admitting other revisions or replaying them',()=>transaction(async client=>{
+  const fixture=portfolioFixture(),id=await storePortfolioCapture(client,fixture.source);
+  await projectPortfolioCapture(client,id);
+  const archived={...pin,revision:`${pin.revision}-history-test`,dusk:{...pin.dusk,idlCanonicalSha256:'1'.repeat(64)}};
+  const old=await archiveCheckpoint(client,id,archived,true);
+  const unknown={...pin,revision:`${pin.revision}-unknown-test`,dusk:{...pin.dusk,idlCanonicalSha256:'2'.repeat(64)}};
+  await archiveCheckpoint(client,id,unknown);
+  const before=await client.query('SELECT * FROM dusk_ingestion.portfolio_capture_observations ORDER BY capture_id');
+  const options={...query(fixture.owner),since:'2026-09-02T00:00:00Z',until:'2026-09-02T00:01:00Z'};
+  const current=await readPortfolioHistory(client,options);
+  assert.deepEqual(current.snapshots.map(row=>row.captureId),[id]);
+  const result=await readPortfolioHistory(client,options,[pin,archived]);
+  assert.deepEqual(result.snapshots.map(row=>row.captureId),[old,id]);
+  assert.equal(result.pagination.total,2);assert.equal(result.coverage.rawTotal,2);
+  assert.deepEqual(result.snapshots.map(row=>row.provenance.protocolRevision),[archived.revision,pin.revision]);
+  assert.deepEqual(result.snapshots.map(row=>row.provenance.idlSha256),[archived.dusk.idlCanonicalSha256,pin.dusk.idlCanonicalSha256]);
+  assert.ok(result.snapshots.every(row=>row.valuations.netPositionValueUsd==='51.95'));
+  const page=await readPortfolioHistory(client,{...options,limit:1,offset:1},[pin,archived]);
+  assert.deepEqual(page.snapshots.map(row=>row.captureId),[id]);assert.equal(page.coverage.selectionHash,result.coverage.selectionHash);
+  assert.equal((await readPortfolioHistory(client,{...options,offset:999},[pin,archived])).pagination.total,2);
+  const sampled=await readPortfolioHistory(client,{...options,sampleSeconds:60},[pin,archived]);
+  assert.equal(sampled.coverage.rawTotal,2);
+  assert.ok(sampled.snapshots.every(row=>[old,id].includes(row.captureId)));
+  await assert.rejects(projectPortfolioCapture(client,old),/identity\/hash mismatch/);
+  const after=await client.query('SELECT * FROM dusk_ingestion.portfolio_capture_observations ORDER BY capture_id');
+  assert.deepEqual(after.rows,before.rows);
+}));
+
+test('finalized contradictions in an included archive halt reads while unselected revisions remain isolated',()=>transaction(async client=>{
+  const fixture=portfolioFixture(),id=await storePortfolioCapture(client,fixture.source);
+  await projectPortfolioCapture(client,id);
+  const archived={...pin,revision:`${pin.revision}-conflict-test`,dusk:{...pin.dusk,idlCanonicalSha256:'3'.repeat(64)}};
+  const old=await archiveCheckpoint(client,id,archived);
+  await client.query(`INSERT INTO dusk_ingestion.portfolio_account_evidence(capture_id,account,slot,basis,blockhash,state_hash)
+    SELECT capture_id,account,slot,basis,blockhash,repeat('f',64)
+    FROM dusk_ingestion.portfolio_account_evidence WHERE capture_id=$1 LIMIT 1`,[old]);
+  assert.equal((await readPortfolioHistory(client,query(fixture.owner))).snapshots.length,1);
+  await assert.rejects(readPortfolioHistory(client,query(fixture.owner),[pin,archived]),/FINALIZED_INVARIANT/);
+}));
+
 test('single-pass history matches the previous complete response across gaps, ties, owners, filters and empty pages',()=>transaction(async client=>{
   const otherOwner = fixtureKey(178).toBase58(),fixture = portfolioFixture();
   for (const [index,minute] of [0,0,1,2,3,10,60,70].entries()) {

@@ -28,6 +28,8 @@
     "benchmark:native-activity": "npm run build && node dist/scripts/benchmarkNativeEventHistory.js",
     "benchmark:activity": "npm run build && node dist/scripts/benchmarkActivityHistory.js",
     "check:portfolio-snapshots": "npm run build && node dist/scripts/checkPortfolioSnapshots.js",
+    "inventory:legacy-retirement": "npm run build && node dist/scripts/duskRetirementInventory.js",
+    "rehearse:legacy-retirement": "npm run build && node dist/scripts/duskRetirementRehearsal.js",
     "generate:cmc-ucids": "node scripts/generate-cmc-unified-cryptoasset-map.mjs",
     "test:unit": "npm run build && node --test dist/tests/*.test.js",
     "test:yield-history-integration": "npm run build && node --test dist/tests/duskYieldClaims.integration.js dist/tests/duskYieldRates.integration.js",

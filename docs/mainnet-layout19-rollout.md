@@ -1,117 +1,207 @@
-# Coordinated mainnet upgrade to accrued interest
+# Coordinated mainnet retirement and accrued-interest upgrade
 
-Status: preparation only, 17 November 2026. This document does not authorize signing, deployment, publication, market creation, closing positions, changing authorities, or activating keepers.
+Preparation status: 19 November 2026. No mainnet execution, publishing, authority
+transfer, keeper activation or market creation is authorized by this document.
 
-## Current deployment and proposed changes
+## Fixed release decisions
 
-The finalized read-only inventory at slots 470551366–470551367 found one layout-17 market, seven leverage-position accounts, one borrow-position account, twelve yield accounts, twelve income archives, a junior exit, retired cohorts, and a delegated leverage order. Accounts existing is not equivalent to every account having an open balance; inspect each exact balance before execution. The market currently has nonzero debt, srLP/hLP supply and unpaid yield. It cannot be treated as an empty deployment.
+- Keep Dusk `DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj` and delegate
+  `DeLegABhDLREbDpwwcsbkHvDS5MwqKPAw1CJKoooUXFQ`.
+- Retire layout-17 OMFG/META
+  `7xf68VEvMtLJ2Up5zVZdA161uH1yNkTFYgDFhNUSwkM7` before replacing its normal
+  account/exit implementation. Reduce-only alone cannot preserve that exit path.
+- Include forced settlement with final net OMFG/META, the existing curve and
+  normal fees. Each token payout must be at least the integer ceiling of 99%
+  of its reviewed quote. No treasury top-up or original-deposit guarantee.
+- Permit immediate terminal junior settlement once frozen and all loans,
+  leverage and hLP funding are cleared, retaining the 0.5% junior exit fee.
+- Reconcile every user/operator/fee claim first. Only then send permanent seed,
+  protocol fees and rounding residual to
+  `8s6Jdoh7tgUqmU3D2EmpNJHSvuN5U4NybpLAdsiMitwB`.
+- Include #113's documented issuer-controlled asset extensions. The owner
+  accepted those issuer risks on 19 November; the private audit remains private.
+  Acceptance does not waive regression tests or allow active asset transfer hooks.
+- Keep the checked encrypted-volume deployer as the initial program and IDL
+  authority. Squads handoff is later. Keep all six KMS workers in SHADOW.
+- Users create replacement markets through the UI; the release creates none.
 
-- Dusk: `DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj`.
-- Delegate: `DeLegABhDLREbDpwwcsbkHvDS5MwqKPAw1CJKoooUXFQ`.
-- Active revision: `mainnet-2026-11-14`; SDK `2.27.0`.
-- Existing market: `7xf68VEvMtLJ2Up5zVZdA161uH1yNkTFYgDFhNUSwkM7`.
-- Current backend release: `9ce182e77f0e2fd0311659e60209864082346493`. Preserve its historical-price batching, portfolio query improvements and migrations through `059`.
+The recorded active release is layout 17, revision `mainnet-2026-11-14`, SDK
+`2.27.0`, derived from program source `0acc9057b53a0495571f1bbf8a18e5db0f2efd45`.
+Read back actual code, IDLs and authorities before signing. SDK `3.0.1` is the
+combined extension/accrued-interest candidate, unpublished until the protected
+publisher verifies the final normal deployment. Never invent registry integrity.
 
-The release keeps the agreed program IDs and local encrypted-volume signer workflow. It does not move authorities to Squads or change signing providers. Existing program and IDL authorities must be read back, rather than assumed from this document.
+The 18 November finalized 95-account bank at slot 470926403 contains five
+leverage positions, two loans, five beneficiaries, 16 yield accounts and two
+junior-exit accounts. These are dated discovery/rehearsal counts, not final
+payouts. New economic accounts, receipt ownership, code or issuer state require
+fresh review; do not force a changing market into the fixed scope.
 
-| Component | Preparation | Activation requirement |
+## Preparation and release artifacts
+
+| Component | Candidate | Required evidence before activation |
 | --- | --- | --- |
-| Programs | #112, #114, #115 integrated by #116, and separately reviewed #113 | One final combined main commit; exact verified production bundle for both programs |
-| SDK | Stable versions for the mainnet build; proposed `3.0.0` for #115's removed public APIs | GitHub publisher only, after exact binaries, IDLs and authorities match |
-| Indexer | #99 stages the decoder and pure candidate accounting; current API behavior stays intact | Separate API cutover, new revision/interval, matching quote artifacts and replay |
-| Webapp | #239 asset admission; #240 accrued-interest port | Published SDK, registry integrity, protocol manifest and API identity updated together |
-| Keepers | Existing KMS wallets and SHADOW workers | New frozen lock and full release evidence; no inherited layout-17 waiver |
+| Normal programs | #112 and #114/#116 integrated; #113 extensions | Final combined signed main commit; exact production binaries and both IDLs |
+| Temporary retirement | Program #117, isolated `production,legacy-retirement` | Separate exact-source reproducible bundle and frozen native replay; no SDK publication |
+| SDK | Stable `3.0.1` candidate | Protected GitHub publisher; both final binaries, IDLs and authorities match |
+| Indexer/API | #99 decoder, #100 API cutover, merged #102/#103 inventory/rehearsal and #104 historical reader | Published SDK, frozen complete identity, exact quote runtime, replay and retired-market projections |
+| Webapp | #239 extension admission; #240 accrued-interest port; paired portfolio archive validator | Coherent published SDK/API identity and all application gates |
+| Keepers | Existing separate AWS KMS keys and SHADOW workers | New captured mainnet lock, release matrix, simulation, lease and reconciliation gates |
 
-Merge preparation independently where its checks pass. Do not let a merge imply that a deployment or publishing gate passed. The final SDK version is fixed in the final source PR; do not overwrite a published version or invent a registry checksum.
+Merges prepare source; they are not evidence that an on-chain deployment passed.
+The normal and retirement bundles are different build profiles. Never substitute
+ordinary Anchor/devnet output for either reproducible release artifact.
 
-## Gate 1: decide how existing accounts survive
+## 1. Complete the preparation gates
 
-Layout 19 removes income books and interest vaults, shrinks Market, changes YieldAccount and operator revenue, and changes hLP state and instruction accounts. Uploading an IDL or restarting an indexer does not migrate those bytes. Neither #114 nor #115 supplies a production migration instruction for existing accounts.
+1. Synchronize the candidate PRs with current main, review combined behavior and
+   pass full required local/GitHub tests. Test both flash routes and every
+   temporary Token-2022 vault with the captured public USDv fixture. Retain
+   legacy accounting regressions independently from layout-19 fixtures.
+2. Build the temporary Dusk-only bundle and the normal two-program bundle from
+   their final signed source. Record full commits, builder, arguments, hashes,
+   generated IDLs, intended authorities and immutable artifact locations.
+3. Rehearse the temporary lifecycle against a finalized legacy bank. Check
+   incomplete batches, receipts/supply, review delays, burns, donations, unsafe
+   recipients, second-leg rollback, duplicate transactions, restart, stale
+   freezes and old-binary rollback. Native tests must consume exact artifacts.
+4. Prepare backend retirement observations, terminal portfolio handling, archive
+   lineage and frontend retired-market behavior. Existing historical captures
+   remain under their original full identity, never relabeled or re-decoded.
+5. Review the concrete temporary release and current funding before requesting
+   its execution window. Live-write checks remain unexecuted during preparation.
 
-The owner selected retirement with final net OMFG/META payouts and requested a one-off script including forced closures. Execution still requires a reviewed settlement manifest. The alternatives remain:
+Program #117 attests fixed economics computed by the exact old executable; it
+is not an on-chain implementation of every ordinary swap/repay instruction.
+Governance remains responsible for the reviewed curve order, normal fees and
+net manifest. On chain it enforces immutable funding, fixed beneficiaries,
+complete personal-account groups, safe recipients and single-use payouts.
 
-1. **Wind down the existing market using the current binary.** Obtain owners' authorization for closing trades, orders and loans; settle repayment, collateral, hLP, junior exits and all owed yield first. Inventory retired receipts, income archives, referral/operator/protocol claims, auction inventory, reserve dust and permanent junior seed. Do not assume permanent seed or every account can be closed. Produce a balance reconciliation and identify any value that the new binary would strand. Users create any replacement market through the UI; this preparation creates none.
-2. **Implement and audit a real migration.** Preserve every principal, debt share/index, accrued entitlement, cohort, escrow, authority and custody balance. Rehearse against a finalized clone and prove conservation and replay compatibility. If safe migration is unavailable, retain the current program deployment; do not reinterpret layout-17 bytes as layout 19. A separate program deployment would require an explicit ID and funding decision.
+## 2. Authorized temporary upgrade and cutoff
 
-A wind-down is not complete merely because the UI displays no positions. Require chain-level evidence and a signed-off reconciliation for all remaining liabilities. The additional five Dusk accounts are the canonical Anchor IDL and four LP transfer-hook validation PDAs; the delegate also has its canonical IDL. There are no unclassified accounts in this snapshot. Re-run classification before execution. Forced closures are authorized for preparation and testing only. No live closure execution, haircut, abandoned claim or lost permanent seed is approved by this plan.
+1. Announce maintenance, stop public transaction preparation and quiesce all
+   signing, simulation/capture and keeper workers. Reconcile pending signatures
+   and allow old transactions to expire. Preserve raw observations and take
+   tested encrypted database backups, including historical prices and repairs.
+2. Mount `Dusk Deploy`. Verify encryption, owner-only signer permissions and
+   public IDs. Compute current buffer rent, IDL funding and fees. Do not reuse
+   the initial-deployment budget or print key material/RPC credentials.
+3. Run the temporary release preflight. It rejects changed code/authorities,
+   unknown economic accounts, moved receipt supply and a new beneficiary.
+   Upgrade Dusk only and immediately upload its bundled temporary IDL through
+   `scripts/v2/upload_idl.sh`. Keep delegate on the reviewed old executable.
+4. Verify finalized temporary code/IDLs. Normal financial entrypoints are absent
+   in this build. Submit its freeze, preserving the exact interest clock, market
+   hash, all receipt mint/holder bytes and all eight underlying vault budgets.
+5. Capture a finalized bank and complete program catalogs. Build the explicitly
+   labeled old-executable quote model from the on-chain cutoff. It substitutes
+   only verified old code, cutoff clock, preserved receipt bytes and frozen
+   vault amounts. Post-cutoff donations and review time do not change claims.
 
-### Reduce-only and retiring the controlled test market
+The quote model is local evidence, not an observed RPC bank or an active pin.
+Do not change production decoding, cursor identity or price-repair identity to
+make it pass. The old isolated SDK/runtime is retained solely for this model.
 
-The owner has announced the intended OMFG/META wind-down to testers and selected final net entitlements in OMFG/META as the payout policy. The design and read-only inventory tool are in [indexer #102](https://github.com/omnipair/dusk-indexer/pull/102), superseding design-only #101. The 18 November capture found about $276 of reserve/position custody, five open leverage positions, two loans, five wallets with positions or claims and three receipt holders. These dated balances are not final payout amounts. The tool implements no payout instructions yet. This is an intention to retire that market, not authorization in this preparation round to change live settings or transact for users. The current binary can put a market into reduce-only; it has no general-purpose `close_market` instruction. Reduce-only blocks new borrowing, leverage increases and liquidity seeding while spot swaps and risk-reducing exits remain available. Borrow collateral withdrawal in reduce-only requires that position's debt to be zero. Normal health, available-cash, issuer-transfer and junior-exit timing checks still apply; reduce-only bypasses none of them.
+## 3. Review and authorize funded settlement
 
-Use this retirement sequence when execution is separately authorized:
+1. Run the existing legacy quote tool on the model. Require exhausted debt,
+   hLP funding and unpaid income; full holder/claim catalogs; no wallet token
+   spending; exact asset conservation; and classified permanent residual.
+2. Compile the immutable five-owner manifest from the actual capture, model,
+   quote and exact-binary native proof. Record exact token amounts, integer
+   minima, custody budgets, personal-account hashes, recipients and all roots.
+3. Run the second native replay from the actual frozen temporary bank using
+   that manifest's actual source slot and hashes. Test the same begin, clear,
+   associated-token creation and payout instructions as the operator. Verify
+   every user/treasury delta and recoverable typed CPI events.
+4. Review the final manifest before authorizing irreversible begin. A funding
+   attestation is not permission to quietly choose another quote or recipient.
 
-1. Save a finalized account/balance snapshot and announce repayment, withdrawal and claim instructions. Users must cancel pending delegated orders as well as close trades; a UI notice alone does not cancel on-chain orders. Check the actual junior-exit tickets and notice windows before announcing a deadline.
-2. Enable the chosen reduce-only setting through its actual authority. Market reduce-only requires the compiled emergency authority; global reduce-only uses the futarchy administrator and affects all markets. Do not assume the funded deployer can sign either setting without reading the live authority configuration.
-3. Rehearse the requested one-off script, including forced closures under narrowly scoped legacy retirement instructions where owner signatures are unavailable. Settle both lending modes, leverage, remaining collateral, hLP/srLP, junior liquidity, orders and earnings under the reviewed pricing/slippage policy. Reconcile pending exits, retired receipts, unpaid income, operator/referral/protocol liabilities, auctions and permanent junior seed. A balance unavailable for immediate collection remains a liability to resolve.
-4. Re-run the complete inventory and prove where every remaining token and entitlement will live. With the same program IDs, simply leaving the old account marked reduce-only does not preserve its exit path: the layout-19 binary replaces the code used by that account too, changes its decoding schema and rejects unsupported versions. Implement and rehearse a narrowly scoped retirement/migration or compatibility path for any remaining value before upgrading. Retaining the old binary under a separate legacy deployment would instead require different new program IDs and an explicit release decision.
-5. Retain the old revision's history in the backend and show the old market as retired, with any required claim/exit surface supported by the chosen on-chain path. A replacement market is a distinct market; its creation does not migrate the old balances or history.
+Before begin, a reviewed old-code rollback can resume the market. A resumed
+market that changes invalidates the old freeze; the helper permits resetting
+only a genuinely stale, unfunded cutoff. It cannot reset an unchanged cutoff to
+charge users interest for review time.
 
-For this small controlled market, an orderly wind-down is the preferred candidate to evaluate before attempting a live-position conversion. It is not yet a proven zero-liability decommission, and USDv remains subject to its separate final compatibility and issuer-policy review. The tester announcement must not promise an already completed upgrade, immediate junior exit, or finalized USDv release.
+## 4. Execute, reconcile and preserve claims
 
-### Proposed temporary retirement instructions
+The local operator defaults to preview and requires explicit execution, checked
+merged source, encrypted local signer, actual non-local capture, matching model
+and frozen proofs, and a private signature journal. It rechecks program/IDL and
+manifest identity, simulates with signature verification, submits with preflight,
+waits for finalization, and resumes from on-chain masks.
 
-The owner asked whether a temporary instruction can return funds and then be removed. This is feasible as a separate reviewed release, not an administrative transfer that ignores the old accounting. The implementation PR must remain separate from the USDv admission proposal and the new interest layout. No such instruction exists in this preparation yet.
+1. Begin once. Consolidate only frozen custody, fund all immutable claims and
+   replace the old market header with a permanent retirement tombstone.
+2. Clear all 26 scoped personal accounts in five complete owner groups, returning
+   their actual SOL rent. All groups clear before any principal/income payout.
+3. Pay each owner its fixed net OMFG/META. Both legs and the paid flag are atomic.
+   Unsafe/issuer-blocked recipients remain unpaid with no deadline; do not
+   redirect or write off those claims to finish an upgrade.
+4. Pay treasury only after every owner is paid. Reconcile all eight vaults,
+   post-cutoff donations, personal closures, token receipts and journals against
+   finalized chain evidence. Run the read-only completed-state verification.
+5. Preserve the empty delegate order's ordinary owner cancellation/rent path.
+   It has no staged token funds. Owners may burn/close their obsolete LP token
+   accounts; protocol metadata/mint/vault rents and permanent tombstone remain.
 
-Prefer an interim retirement build that still understands the deployed layout-17 accounts, derived from the verified deployed source rather than the layout-19 main head. Finish the legacy retirement and reconciliation before the layout-19 upgrade. That path needs two reviewed program upgrades and exact release bundles; the protected build/publisher tooling must explicitly support the intended legacy source and must not be bypassed. If instead combining retirement with layout 19, retain an explicitly isolated legacy decoder and settlement path until every old claim is paid. Removing that code prematurely has the same stranding risk as an ordinary incompatible upgrade.
+Do not count the old-binary model's hypothetical swaps as actual trading volume,
+realized trades or canonical financial events. Persist actual retirement CPI
+observations under their own verified temporary identity and complete
+instruction/CPI path before projecting payouts/closed positions. An unobserved
+zero must not replace a verified historical nonzero snapshot. The retirement
+interval and terminal reconciliations are separate from normal layout-19 state.
 
-The proposed design has these requirements:
+## 5. Normal program, SDK and data cutover
 
-- **Bounded scope and authority.** Hard-bind the legacy program, layout, market, mints, vault derivations, permitted authority and one retirement generation. It must not be a reusable administrator sweep for other markets. Use a dedicated retirement-state PDA rather than silently changing old struct offsets. Begin/finalize authorization is separate from who pays transaction fees or submits individual owner payouts.
-- **Frozen settlement state.** Reduce-only is the voluntary-exit phase. A final settlement snapshot additionally needs an on-chain terminal mode that guards every affected write path, LP transfer hook and delegated order; reduce-only alone still permits swaps and withdrawals. The final claim set must be derived and reconciled after that boundary. Define how remaining debt is repaid and how hLP, junior timing, accrued interest, outstanding orders, retired cohorts and issuer-blocked accounts are resolved; do not invent a liquidation price or waive debt to simplify the implementation. Forced closures are in the preparation scope. Their pricing, ordering, slippage/minimum payouts and exact authority restrictions remain review gates before execution; no treasury top-up or debt forgiveness is implied.
-- **Exact entitlements and destinations.** The owner confirmed final net entitlements in underlying OMFG/META after debt, gains/losses and fees. There is no treasury-funded restoration of original deposits or forced USD conversion. Existing stored harvest recipients and delegated rights must be reconciled explicitly. Bind destinations to verified ownership/designated recipients, token mints and token programs; the submitter supplies no arbitrary recipient or payout amount. Include every wallet holding receipts, including non-ATA balances and escrow; existing protocol accounts alone are not proof of the complete holder set.
-- **Single-use, resumable payouts.** Use bounded per-owner or per-claim transactions with immutable settlement commitments, replay protection, exact remaining liabilities and net credited-amount receipts. Token-account owners normally authorize LP burns; mint authority alone cannot burn arbitrary users' balances. Specify owner-signed redemption or a rigorously terminalized claim scheme that invalidates old receipts, blocks transfer/reuse and cannot pay the same economic right twice. A failed/frozen destination must remain unpaid and retryable; another owner's payment must not erase it. No timeout silently forfeits an unpaid claim.
-- **Proven finalization and removal.** Reconcile custody by mint to paid claims, remaining reserves and approved non-user balances. Classify permanent junior seed, sub-atom/rounding residuals, donation dust, protocol/operator/referral balances and account rent separately; no implicit treasury sweep or loss write-off. Require proof that every claim is paid or preserved in a separately reviewed durable claim path before disabling the legacy handlers. A count asserted by an off-chain script is not proof that no holder was omitted. Keep a terminal tombstone or equivalent replay/reinitialization barrier where necessary, preserve historical events/identity intervals and archive the exact claim manifest and release artifacts. Only then can a subsequent audited release remove temporary execution code.
+1. Require completed retirement masks, zero remaining funded claims, permanent
+   tombstone and closed personal accounts. The separate successor upgrade
+   preflight also rejects an extra legacy claim and verifies exact prior code,
+   IDs, authorities and funding. Old market bytes must never be read as layout19.
+2. Upgrade both normal programs from the exact reviewed normal bundle and upload
+   each matching bundled IDL immediately. Verify finalized bytes and both IDL /
+   upgrade authorities, then complete independent source verification against
+   the exact normal commit/profile. Keep external signing closed throughout.
+3. Re-run the protected GitHub SDK publisher only after deployment matching.
+   Confirm the actual stable version, npm dist-tags, provenance and tarball
+   integrity. Never use manual `npm publish` or republish a version.
+4. Promote backend migration, actual SDK, protocol lock, runtime binaries and
+   quote artifacts together. New `(cluster, program_id, idl_hash, revision)`
+   identity means a fresh scoped cursor and verified deployment interval.
+   Replay/reconcile from the first slot after both programs are active, retain
+   the old interval and refuse any wrong identity or gap falsely marked complete.
+5. Deploy the pinned frontend only against that coherent API identity. Activate
+   #239's asset policy with the compatible program/SDK, not against SDK2.27.
+   Pass manifest, deployment envelope, read/mutation boundary, UI preservation,
+   complete tests, typecheck, lint and production build. Validate histories,
+   charts, search, USD values, PnL, APYs, grouped claims, performance and preview
+   CORS. No wildcard Vercel policy or new AWS provisioning is needed here.
 
-Before implementation is considered ready, clone finalized legacy state and test complete and interrupted batches; omitted/duplicate holders; multiple token accounts; receipt transfers around the freeze boundary; orders and both lending modes; retired and queued junior claims; rounding; token freeze/pause/transfer-fee failures; unauthorized/misdirected payouts; repeated begin/settle/finalize; and conservation before and after the final layout-19 upgrade. The live inventory must be refreshed after users finish withdrawing. The temporary design is not yet a deployed or audited refund mechanism.
+Merged indexer #104 keeps byte-verified layout-17 portfolio checkpoints readable
+under a successor identity. Its active-pin deduplication leaves current reads
+unchanged. The webapp must explicitly register the matching historical tuple
+before promotion; active trading/quote/signing checks stay strict. Record the
+actual temporary interval/IDL/lock before adding its observations to an archive.
 
-## Optional compatible USDC release
+Retain migrations through `059`, dated prices, Birdeye repair evidence, cash-flow
+provenance and the historical-price/portfolio batching fixes from #97/#98.
+Database rollback never undoes on-chain settlement or authorizes rewriting a
+finalized observation.
 
-If USDC support is urgent, #112 can be released independently using its own exact post-merge main bundle and stable SDK version. Its freeze-authority policy change leaves layout 17 and the wire IDLs unchanged, so it does not require the layout-19 account transition. This would be a separate explicitly authorized upgrade with normal binary/IDL/authority verification and a compatible deployment interval. It does not add USDv's other extensions or authorize #114/#115. Do not deploy a later main-head bundle while calling it the #112-only release.
+## 6. Controlled testing and keeper activation
 
-## Gate 2: freeze and test the combined source
+The six AWS KMS workers stay SHADOW until a new actual mainnet lock is captured,
+all required release scenarios pass and each worker verifies direct-RPC identity,
+fresh state, simulation, signing limits, lease and journal immediately before
+submission. A layout-17 waiver cannot authorize layout19 or shared/local keys.
 
-1. #112 and #114 are merged, and #115's unchanged source reached main through #116 at `9896ce116fe266588e437b048d22ef3f6024b34c`. #113 is integrated against that source at `3a2e8ef438089090867c99792a6f042c9d92c572`; its local and GitHub native, LiteSVM and exact-production-binary checks pass. It remains draft under the owner's hold and unresolved issuer-policy review. Preserve the hLP and ordinary flash fixes together. Do not bypass an unresolved issuer-control finding by silently narrowing the product.
-2. Generate both IDLs and TypeScript interfaces from the actual combined source. Run every local CI gate and all GitHub jobs. Re-measure compute baselines only from a fully successful run; retain the ordinary swap hard ceiling and exact 5% regression margins. Never replace missing measurements with a pass.
-3. Build and test the exact post-merge production commit in `release-build.yaml`. Record both ELF hashes, IDLs, SDK version, compiler image/arguments, account layouts and authority expectations. Download and retain that immutable bundle.
-4. Rehearse the actual transition on a finalized clone: pending transactions, current account handling, USDC/Token-2022 admission, both flash routes, hLP, orders, fees, claims, liquidation, deficit/loss allocation and failures/rollback. Old-client transactions must fail safely after the transition. No live market is created during preparation.
+After the user creates a replacement market in the UI, separately approved
+controlled tests must cover creation with genuine USDC/USDv, swaps, borrow/repay,
+leverage/TP-SL, hLP and junior flows, fees/claims, loss/liquidation, keepers and
+portfolio visibility. Until that market exists, report these mainnet write gates
+as unexecuted. A passing offline/CI gate is not a live E2E result.
 
-The old initial-deployment runner intentionally rejects an existing program with different bytes. It is not an upgrade command. Review a separate upgrade execution procedure against the old and new release manifests; its preflight must verify the exact old ProgramData, program/IDL authorities, mainnet genesis and available rent/fees before any write. Use only the new bundle's binaries. Do not substitute devnet or regular Anchor build output.
-
-## Gate 3: prepare the data and client cutover
-
-The eight candidate unit failures are resolved: the affected test workers now use isolated synthetic banks bound to the reviewed layout-19 IDL hashes. They contain no deployed binary or published-SDK assertion and do not alter the active protocol lock. Independent layout-17 regressions retain receivable-book, carried-interest and hLP-growth checks for old zero-income anchors. All 434 API unit tests and 127 rollback-only PostgreSQL integration tests pass locally. Finalized-clone/release-bank rehearsal and an archived-revision history reader remain separate release gates. The active #99 preparation deliberately retains current production accounting.
-
-- Archive the old lock, both IDLs, deployment interval, quote runtime/manifest, price references, decoder and release artifacts. Finalized observations remain immutable with their original identity. Do not relabel them with the new hash or reset away portfolio history.
-- Preserve dated prices, Birdeye repair evidence, cash flows, history provenance and the performance changes in #97/#98. Provide and test an explicit archived-revision history reader before claiming that a new pin preserves old wallet history. A fresh cursor alone does not do this.
-- Generate the new complete identity tuple: cluster, program ID, canonical IDL hash and revision. Bind the delegate, deployment interval, runtime binary and SDK to it. Stage a fresh cursor, replay and reconciliation from the first slot after **both** programs become active. Keep the old interval readable.
-- Prepare the webapp SDK/package-lock material and manifest together after the stable package exists. #240's three manifest failures are mandatory gates, not expected failures to waive. Production builds, read/mutation identity rejection, grouped claims, payable interest, USD values, PnL, history, market discovery, charts and APYs must pass against one coherent API identity.
-- Confirm HTTPS, gRPC, production and verified-preview CORS origins, streams, alert delivery and backup restoration. No wildcard preview origins or new infrastructure provisioning is needed for this preparation.
-
-If keeping an archived reader temporarily, use an explicitly read-only historical surface. An old service must not continue simulating or capturing live protocol state after its program identity changes. Do not weaken live identity checks to make an archive request work.
-
-## Authorized execution window, later
-
-After the preceding gates and explicit execution authorization:
-
-1. Announce a maintenance window and quiesce signing/capture workers. Reconcile pending transactions and signer journals; allow old prepared transactions to expire. Take tested encrypted native/keeper database backups and save finalized chain/account evidence. A proposed reduce-only setting is not a full protocol pause and must not be treated as one.
-2. Mount `Dusk Deploy` locally. Verify signer public keys, encrypted mount and owner-only permissions without copying secrets. Calculate current upgrade-buffer rent, ProgramData extension rent, both IDL allocations and fees from the final bundle. Do not assume the initial deployment's budget applies to an upgrade.
-3. Upgrade both programs from the reviewed buffers/binaries, then upload **both** bundled IDLs with `scripts/v2/upload_idl.sh`. Keep external signing closed while either program, IDL or authority check is incomplete. Read back finalized code bytes, IDLs and authorities and complete public source verification against the exact commit and build arguments.
-4. Re-run the protected GitHub SDK publisher. Verify provenance, actual npm version/dist-tags and tarball integrity. Promote the complete backend identity/artifact set together, deploy the prepared API/ingestion/quote workers, replay/reconcile and verify the common activation boundary before deploying the pinned frontend.
-5. Keep keepers in SHADOW until the new lock is CAPTURED/frozen, all required release scenarios pass, and each KMS profile verifies identity, simulation, limits, leases and reconciliation immediately before signing. The old scoped release waiver does not authorize the new revision. Do not switch AWS workers to local key files just because another PR supports them.
-
-The deployment window ends only after existing-history parity and controlled financial-flow checks pass. If a new market is needed for mainnet execution tests, the user creates it from the UI and separately approves the test transactions. Until then, report live-write checks as unexecuted.
-
-## Rollback limits
-
-Before the first layout-19 state mutation, restoring the old verified programs, IDLs, clients and pin may be possible only after proving all persistent accounts still match the old layout. After layout-19 markets/positions exist, a blind binary rollback can strand them; stop signing and use a reviewed roll-forward or migration instead.
-
-Database rollback does not undo on-chain changes. Never delete or rewrite finalized observations to imitate a rollback. Restore backups only with an explicit recovery/replay procedure and preserved identity intervals. SDK versions are immutable; client rollback pins the previously published version rather than republishing it.
-
-## Unresolved release gates
-
-- Existing-market wind-down versus audited state migration, including permanent seed and every remaining claim.
-- Final combined source and exact production-binary evidence after all program changes.
-- #113's issuer-control review and extension-specific regressions for every affected temporary vault.
-- Finalized-clone/release-bank replay, archived-revision portfolio/history compatibility, and coherent deployment promotion.
-- Published stable SDK/manifest, frontend production validation, and a new keeper lock/release matrix.
+After irreversible retirement begin, restoring the old binary does not restore
+old redemption rights; the tombstone is permanent. After new normal state is
+created, a blind binary/database rollback can strand accounts. Stop signing and
+use a reviewed roll-forward/recovery plan. Preserve every release, journal,
+observation, interval and immutable SDK version.
