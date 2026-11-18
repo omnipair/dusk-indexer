@@ -7,7 +7,7 @@ import { Connection, PublicKey, SYSVAR_CLOCK_PUBKEY, SYSVAR_RENT_PUBKEY,
   SystemProgram, ComputeBudgetProgram, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import { createInitializeAccount3Instruction, createTransferCheckedInstruction, createAssociatedTokenAccountIdempotentInstruction,
   getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, getAccountLenForMint, unpackMint } from '@solana/spl-token';
-import { address, getTransactionDecoder } from '@solana/kit';
+import { address, lamports, getTransactionDecoder } from '@solana/kit';
 import { FailedTransactionMetadata, LiteSVM } from 'litesvm';
 import type { Dusk } from '@omnipair/dusk-sdk';
 import { loadProtocolAt, canonicalJson, sha256 } from '../config/duskProtocol';
@@ -15,7 +15,7 @@ import { createFrozenProgramRuntime } from '../services/duskFrozenProgramRuntime
 import type { FrozenLeverageBank } from '../services/duskLeverageMaximumInput';
 import { LEGACY_RETIREMENT, retirementObservationHash, reconcileRetirementReceipts } from '../services/duskRetirementInventory';
 import { RETIREMENT_CLOSURE_POLICY, retirementMinimumNetPayout } from '../services/duskRetirementPolicy';
-import { parseRetirementRpcJson, assertRetirementFrozenBank } from '../services/duskRetirementBank';
+import { parseRetirementRpcJson, assertRetirementFrozenBank, assertRetirementWalletObservation } from '../services/duskRetirementBank';
 import { proposedRetirementTokens } from '../services/duskRetirementManifest';
 
 const UPGRADEABLE = 'BPFLoaderUpgradeab1e11111111111111111111111';
@@ -96,8 +96,7 @@ async function main() {
   // cohort and every economic account; the separate inventory retains all bytes.
   const unused=new Set<string>([
     ...inventory.ancillary.filter((row:any)=>row.kind!=='unclassified').map((row:any)=>row.address),
-    ...inventory.decoded.filter((row:any)=>row.kind==='LeverageDelegation'
-      || ['HlpCohort','JuniorCohort'].includes(row.kind) && row.state.retired===false).map((row:any)=>row.address),
+    ...inventory.decoded.filter((row:any)=>['HlpCohort','JuniorCohort'].includes(row.kind) && row.state.retired===false).map((row:any)=>row.address),
   ]);
   const keys=new Set<string>([
     SYSVAR_CLOCK_PUBKEY.toBase58(),SYSVAR_RENT_PUBKEY.toBase58(),
@@ -123,6 +122,11 @@ async function main() {
   const cpis=reference?fromReference(cpiKeys):await read<RpcBank>('getMultipleAccounts',[cpiKeys,{commitment:'finalized',encoding:'base64'}]);
   for(const raw of cpis.value)if(raw?.owner===UPGRADEABLE){const b=unpack(raw).data;
     if(b.length!==36 || b.readUInt32LE(0)!==2)throw new Error('Invalid CPI program');keys.add(new PublicKey(b.subarray(4)).toBase58());}
+  const wallets=[...new Set<string>([pin.dusk.deployment.upgradeAuthority!,...inventory.summary.owners])].sort();
+  // Only plain system-wallet SOL can move to a separate observation. Never
+  // split token balances, claim accounts, mints, sysvars or executable state.
+  const separateWallets=!!reference?.walletObservation||keys.size>100;
+  if(separateWallets)for(const wallet of wallets)keys.delete(wallet);
   const addresses=[...keys].sort();
   if(addresses.length>100)throw new Error('One-off bank exceeds single-RPC account limit');
   const captured=reference?fromReference(addresses):await read<RpcBank>('getMultipleAccounts',[addresses,{commitment:'finalized',encoding:'base64',minContextSlot:inventory.slotRange.through}]);
@@ -131,6 +135,18 @@ async function main() {
   const bank:FrozenLeverageBank={slot:captured.context.slot,accounts:captured.value.map((raw,index)=>({address:addresses[index],
     account:raw?{...raw,data:raw.data[0],rentEpoch:String(raw.rentEpoch)}:null}))};
   assertRetirementFrozenBank(bank,pin);
+  let walletObservation:FrozenLeverageBank|undefined;
+  if(separateWallets){
+    if(reference)walletObservation=reference.walletObservation;
+    else {
+      const capturedWallets=await read<RpcBank>('getMultipleAccounts',[wallets,{commitment:'finalized',encoding:'base64',minContextSlot:bank.slot}]);
+      if(capturedWallets.value.length!==wallets.length)throw new Error('Incomplete wallet observation');
+      walletObservation={slot:capturedWallets.context.slot,accounts:capturedWallets.value.map((raw,index)=>({address:wallets[index],
+        account:raw?{...raw,data:raw.data[0],rentEpoch:String(raw.rentEpoch)}:null}))};
+    }
+    if(!walletObservation)throw new Error('Missing offline wallet observation');
+    assertRetirementWalletObservation(walletObservation,bank,wallets);
+  }
   reconcileRetirementReceipts(inventory.summary.receipts.map((receipt:any)=>{
     const mint=bank.accounts.find(row=>row.address===receipt.mint)?.account;if(!mint)throw new Error('Missing receipt mint');
     return {mint:receipt.mint,supply:Buffer.from(mint.data,'base64').readBigUInt64LE(36).toString(),accounts:
@@ -169,6 +185,11 @@ async function main() {
   for(const variant of variants) {
     const order=variant.order;
     const svm=createFrozenProgramRuntime(bank,pin.dusk.programId,bytes.subarray(45));
+    for(const row of walletObservation?.accounts??[]){
+      const account=row.account;if(!account)continue;
+      svm.setAccount({address:address(row.address),programAddress:address(account.owner),lamports:lamports(BigInt(account.lamports)),
+        data:Buffer.alloc(0),executable:false,space:0n});
+    }
     const connection=connectionFor(svm,bank),payer=new PublicKey(pin.dusk.deployment.upgradeAuthority!);
     const provider=new AnchorProvider(connection,{publicKey:payer,signTransaction:async()=>{throw new Error('Rehearsal never signs');},
       signAllTransactions:async()=>{throw new Error('Rehearsal never signs');}},{commitment:'finalized'});
@@ -221,6 +242,18 @@ async function main() {
         }
         // Reuse only this same owner's already-realized protocol proceeds. No
         // treasury balance, outside wallet funds or synthetic token credits.
+        const direct=payouts.filter(payout=>payout.owner===state.owner.toBase58()&&payout.mint===debtMint.toBase58());
+        for(const source of direct){
+          const amount=tokenBalance(source.account);if(amount===0n)continue;
+          const mintRaw=await connection.getAccountInfo(debtMint);if(!mintRaw)throw new Error('Missing realized debt mint');
+          const mint=unpackMint(debtMint,mintRaw,mintRaw.owner);
+          await executeLocal([createTransferCheckedInstruction(source.account,debtMint,debtAccount,state.owner,amount,mint.decimals,[],mintRaw.owner)]);
+          steps.push({status:'same-owner-debt-proceeds-reused-locally',owner:state.owner.toBase58(),loan:row.address,
+            mint:debtMint.toBase58(),amountRaw:String(amount),sourceAccount:source.account.toBase58()});
+        }
+        if(tokenBalance(debtAccount)>0n)await executeLocal([await dusk.write.repayInstruction({market:state.market,owner:state.owner,
+          positionOwner:state.owner,positionId:state.position_id,borrowPosition:row.address,debtAssetMint:debtMint,
+          collateralAssetMint:collateralMint,ownerDebtAccount:debtAccount,repayAmount:tokenBalance(debtAccount)})]);
         if(!quoteDebt) {
           const sources=payouts.filter(payout=>payout.owner===state.owner.toBase58() && payout.mint===collateralMint.toBase58());
           for(const source of sources) {
@@ -573,6 +606,9 @@ async function main() {
   } catch(error) {proposal={status:'blocked',executionReady:false,reason:error instanceof Error?error.message:'incomplete accounting'};}
   const result={schemaVersion:'dusk-legacy-close-rehearsal.v1',observedAt:new Date().toISOString(),
     localOnly:true,policy:RETIREMENT_CLOSURE_POLICY,inventorySha256:contentSha256,bankSha256:retirementObservationHash(bank),bank,
+    ...(walletObservation?{walletObservation,walletObservationSha256:retirementObservationHash(walletObservation),
+      walletObservationBasis:'separate-finalized-plain-wallet-SOL; protocol/token state stays in one economic bank'}:{}),
+    ...(inventory.sourceModel?{sourceModel:inventory.sourceModel,bankKind:'reconstructed-quote-model'}:{}),
     assumptions:['signature checks disabled only in local LiteSVM','existing owner close semantics; no forced authority implemented',
       'discovery completeness still requires terminal market freeze and rescan',
       'junior ordinary-maturity projection models the approved immediate terminal exception; live retirement code is not implemented',
