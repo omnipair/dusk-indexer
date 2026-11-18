@@ -40,3 +40,4 @@
 057_dusk_activity_price_lookup.sql
 058_dusk_streamed_payload_fast_path.sql
 059_dusk_portfolio_history_lookup.sql
+060_dusk_empty_portfolio_catalogs.sql
