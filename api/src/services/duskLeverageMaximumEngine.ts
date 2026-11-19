@@ -14,12 +14,18 @@ const CAPACITY = new Set(['BorrowExceedsReserve','InsufficientLiquidity','Insuff
 export class NativeLeverageRejection extends Error {
   constructor(readonly rejection: string) { super(rejection); }
 }
+/** Wallet funding is distinct from the market's monotonic leverage capacity. */
+export class NativeLeverageBalanceRejection extends Error {
+  readonly rejection = 'InsufficientBalance';
+  constructor() { super('InsufficientBalance'); }
+}
 /** Every predicate uses the complete original transaction and exactly the same bank. */
 function frozenLeverageEvaluator(input: LeverageMaximumInput, bank: FrozenLeverageBank, idl: Idl, binary: Uint8Array) {
   const { parsed } = parseLeverageMaximumInput(input,idl), programId = new PublicKey(idl.address);
   if (!Number.isSafeInteger(bank.slot) || bank.slot < input.minimumSourceSlot) throw new Error('Regressed native quote bank');
   const svm = createFrozenProgramRuntime(bank,programId.toBase58(),binary,5_000_000n);
   const coder = new BorshInstructionCoder(convertIdlToCamelCase(idl)), capacities = new Map(idl.errors?.filter((e) => CAPACITY.has(e.name)).map((e) => [e.code,e.name]));
+  const balanceCode = idl.errors?.find((e) => e.name === 'InsufficientBalance')?.code;
   let candidates = 0;
   const instruction = convertIdlToCamelCase(idl).instructions.find((ix) => ix.name === 'openLeverage')!;
   const accountIndex = (name: string) => parsed.transaction.message.compiledInstructions[parsed.entryIndex].accountKeyIndexes[instruction.accounts.findIndex((a) => a.name === name)];
@@ -64,6 +70,7 @@ function frozenLeverageEvaluator(input: LeverageMaximumInput, bank: FrozenLevera
     const code = typeof error.err === 'function' ? error.err()?.code : undefined;
     const rejection = error.index === entryIndex && code !== undefined ? capacities.get(code) : undefined;
     if (rejection) throw new NativeLeverageRejection(rejection);
+    if (error.index === entryIndex && balanceCode !== undefined && code === balanceCode) throw new NativeLeverageBalanceRejection();
     throw Object.assign(new Error('Native quote execution unavailable'),{ cause: result.err().toString(),logs: result.meta().logs() });
   };
   return { read,parsed,count: () => candidates };
@@ -92,10 +99,10 @@ export function searchFrozenLeverageSize(input: LeverageMaximumInput, bank: Froz
   const { amount,kind,multiplierBps } = input.size,target = BigInt(amount);
   const evaluator = frozenLeverageEvaluator(input,bank,idl,binary);
   const max = (1n<<64n)-1n;
-  let low = 0n,high = BigInt(input.marginAmount),lastRejection: NativeLeverageRejection | undefined;
+  let low = 0n,high = BigInt(input.marginAmount),lastRejection: NativeLeverageRejection | NativeLeverageBalanceRejection | undefined;
   const read = (margin: bigint) => {
     try { return evaluator.read(multiplierBps,String(margin))[kind]; }
-    catch (error) { if (!(error instanceof NativeLeverageRejection)) throw error; lastRejection = error; return null; }
+    catch (error) { if (!(error instanceof NativeLeverageRejection) && !(error instanceof NativeLeverageBalanceRejection)) throw error; lastRejection = error; return null; }
   };
   let value = read(high);
   // Bracket using native outcomes, never an assumed spot-price conversion.

@@ -182,6 +182,8 @@ export class ServicesStack extends Stack {
       };
       if (profile) {
         environment.KEEPER_MODE = 'shadow';
+        if (profile === 'hlp-recovery' && props.config.hlpRecoveryMarket)
+          environment.KEEPER_HLP_MARKET = props.config.hlpRecoveryMarket;
         environment.PORT = '8080';
         if (profile !== 'sentinel') {
           const identity = props.config.kms[profile];

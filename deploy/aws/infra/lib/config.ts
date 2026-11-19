@@ -11,6 +11,8 @@ export interface ReleaseConfig {
   readonly indexerRegion: string;
   readonly apiCertificateArn: string;
   readonly browserOrigins?: readonly string[];
+  /** Owner-created market selected for the shadow hLP recovery profile. */
+  readonly hlpRecoveryMarket?: string;
   readonly kms: Readonly<Record<string, KmsIdentity>>;
 }
 
@@ -46,6 +48,8 @@ export function validateConfig(config: ReleaseConfig): void {
     try { const url = new URL(origin); return url.protocol !== 'https:' || url.origin !== origin || url.hostname.includes('*'); }
     catch { return true; }
   }))) throw new Error('Browser origins must be exact HTTPS origins');
+  if (config.hlpRecoveryMarket !== undefined && !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(config.hlpRecoveryMarket))
+    throw new Error('hLP recovery market must be a Solana public address');
   const keys = new Set<string>(), wallets = new Set<string>();
   for (const profile of SIGNING_PROFILES) {
     const identity = config.kms[profile];

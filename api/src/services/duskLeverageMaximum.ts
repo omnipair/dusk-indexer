@@ -15,6 +15,22 @@ const fail = (message: string,status = 503) => Object.assign(new Error(message),
 const executableAddresses = new Map<string,string>();
 const digest = (value: Uint8Array) => createHash('sha256').update(value).digest('hex');
 
+/** An RPC node may trail the floor returned by another node. Never lower it. */
+async function atMinimumQuoteSlot<T>(read: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try { return await read(); }
+    catch (error) {
+      // web3.js preserves the JSON-RPC code for account reads, but its
+      // versioned simulateTransaction path wraps this response in a plain Error.
+      const lag = Boolean(error && typeof error === 'object' && 'code' in error && error.code === -32016)
+        || (error instanceof Error && error.message === 'failed to simulate transaction: Minimum context slot has not been reached');
+      if (!lag) throw error;
+      if (attempt >= 3) throw Object.assign(fail('Quote RPC has not reached the required slot'),{ cause: error });
+      await new Promise((resolve) => setTimeout(resolve,500*(attempt+1)));
+    }
+  }
+}
+
 /** A distinct payer keeps the requested owner's balance unchanged by capture fees. */
 export async function captureLeverageQuoteBank(input: Pick<LeverageMaximumInput, 'minimumSourceSlot' | 'owner'>, keys: PublicKey[], payer: string, rpc: Connection): Promise<FrozenLeverageBank> {
   const unique = new Map(keys.map((key) => [key.toBase58(),key]));
@@ -28,7 +44,7 @@ export async function captureLeverageQuoteBank(input: Pick<LeverageMaximumInput,
   for (let attempt = 0; attempt < (batch ? 3 : 1); attempt++) {
     let slot: number, values: FrozenLeverageBank['accounts'];
     if (batch) {
-      const result = await rpc.getMultipleAccountsInfoAndContext(addresses,{ commitment: 'confirmed',minContextSlot: input.minimumSourceSlot });
+      const result = await atMinimumQuoteSlot(() => rpc.getMultipleAccountsInfoAndContext(addresses,{ commitment: 'confirmed',minContextSlot: input.minimumSourceSlot }));
       slot = result.context.slot;
       values = result.value.map((a,index) => ({ address: addresses[index].toBase58(),account: a ? {
         ...a,owner: a.owner.toBase58(),data: a.data.toString('base64'),rentEpoch: normalizeEpoch(a.rentEpoch),
@@ -37,8 +53,8 @@ export async function captureLeverageQuoteBank(input: Pick<LeverageMaximumInput,
       const instruction = ComputeBudgetProgram.setComputeUnitLimit({ units: 1000 });
       instruction.keys = addresses.map((pubkey) => ({ pubkey,isSigner: false,isWritable: false }));
       const transaction = new VersionedTransaction(new TransactionMessage({ payerKey: new PublicKey(payer),recentBlockhash: PublicKey.default.toBase58(),instructions: [instruction] }).compileToV0Message());
-      const result = await rpc.simulateTransaction(transaction,{ commitment: 'confirmed',replaceRecentBlockhash: true,sigVerify: false,minContextSlot: input.minimumSourceSlot,
-        accounts: { encoding: 'base64',addresses: addresses.map((key) => key.toBase58()) } });
+      const result = await atMinimumQuoteSlot(() => rpc.simulateTransaction(transaction,{ commitment: 'confirmed',replaceRecentBlockhash: true,sigVerify: false,minContextSlot: input.minimumSourceSlot,
+        accounts: { encoding: 'base64',addresses: addresses.map((key) => key.toBase58()) } }));
       if (result.value.err || !result.value.accounts) throw fail('Native quote bank unavailable');
       slot = result.context.slot;
       values = result.value.accounts.map((a,index) => {
@@ -119,7 +135,7 @@ export async function currentLeverageMaximum(body: unknown, signal?: AbortSignal
     const captureMs = performance.now()-captureStarted;
     const result = await runLeverageMaximumProcess(input,bank,idl,before.programId,before.programBinarySha256,signal);
     signal?.throwIfAborted();
-    if (result.kind !== 'maximum' && result.kind !== 'size' && result.kind !== 'capacity') throw fail('Native quote unavailable');
+    if (result.kind !== 'maximum' && result.kind !== 'size' && result.kind !== 'capacity' && result.kind !== 'balance') throw fail('Native quote unavailable');
     const after = await deploymentEnvelope(bank.slot);
     if (after.deploymentIdentitySha256 !== before.deploymentIdentitySha256) throw fail('Quote deployment changed',409);
     return { schemaVersion: 'dusk-leverage-maximum.v1',deployment: after,data: { ...result,captureMs,sourceSlot: bank.slot,transactionSha256: digest(transaction.serialize()),elapsedMs: performance.now()-started } };
