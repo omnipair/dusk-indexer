@@ -6,7 +6,7 @@ The [shared ECS estimate](shared-cost-estimate.json) recomputes with `python3 sc
 
 This CDK project implements the reviewed [Railway parity snapshot](../railway-parity.json): one TimescaleDB, API, gRPC service, ingestion daemon, four projection workers and six native keeper profiles. Singapore hosts the database and twelve tasks; Oregon hosts the ingestion daemon. Vercel and v1 remain on their current infrastructure. Helius is reused.
 
-The configuration is prospective. A successful synthesis or CI bootstrap test does not mean these resources are deployed. The core mainnet programs and SDK `2.27.0` are already deployed; this project does not redeploy them or create a market.
+The layout-19 core mainnet programs and SDK `3.0.1` are deployed. A successful synthesis or CI bootstrap test does not deploy a service update; use the reviewed release steps below. This project does not redeploy the programs or create a market.
 
 The two alert stacks require `AlertEmail1` and `AlertEmail2` parameters at deployment. They are `NoEcho` and must stay out of source/config examples. Supply both owner-approved destinations to both stacks; their SNS subscriptions require recipient confirmation. Singapore also creates the USD400 monthly budget with actual and forecast email warnings. Bootstrap uses `bootstrap-execution-policy.json`, with no external account trust and an explicit denial of KMS signing/key administration for the CloudFormation role.
 
@@ -24,6 +24,8 @@ shellcheck assets/database.sh assets/keeper-migrations/initialize.sh test/bootst
 npm run synth -- --no-lookups --quiet
 npm run synth -- --no-lookups --quiet -c services=true --output cdk.out.services
 ```
+
+After the owner creates and verifies a market, optional `hlpRecoveryMarket` supplies that public address only to the hLP recovery profile. It never enables live signing or replaces the frozen-lock gate.
 
 The example contains public account, certificate, KMS ARNs and Solana wallet addresses only. Optional `browserOrigins` lists exact HTTPS origins for production and verified owned previews; REST, Socket.IO and gRPC use the same allowlist. Never allow all Vercel hostnames. `release.config.json` is ignored. Keep private material out of it. The account-specific availability-zone lookup is checked in; changing regions or account requires new measured sizing, network review and actual AZ lookup. Review `cdk diff` before every deployment. Never use production hotswap, Express mode or a wildcard service deployment with placeholder image digests.
 

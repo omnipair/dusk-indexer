@@ -31,7 +31,8 @@ test('service parity, immutable images, network boundaries and isolated signer p
   const mainSecrets = new RuntimeSecretsStack(app, 'Secrets', { ...common, env: primaryEnv, services: mainSpecs });
   const westSecrets = new RuntimeSecretsStack(app, 'WestSecrets', { ...common, env: westEnv, services: westSpecs });
   const browserOrigins = ['https://beta.omnipair.fi', 'https://dusk-webapp-git-feat-test-omnipair.vercel.app'];
-  const fleet = new ServicesStack(app, 'Fleet', { ...common, env: primaryEnv, network: primary, registry, runtimeSecrets: mainSecrets, specs: mainSpecs, parity, config: { ...config, browserOrigins }, primary: true });
+  const hlpRecoveryMarket = 'GWrmPqBcmBgX3fcE3GPA6xgCUP3Cbd4DRvXHyfwu1795';
+  const fleet = new ServicesStack(app, 'Fleet', { ...common, env: primaryEnv, network: primary, registry, runtimeSecrets: mainSecrets, specs: mainSpecs, parity, config: { ...config, browserOrigins, hlpRecoveryMarket }, primary: true });
   const indexer = new ServicesStack(app, 'Indexer', { ...common, env: westEnv, network: west, registry, runtimeSecrets: westSecrets, specs: westSpecs, parity, config, primary: false });
   app.synth();
   const fleetTemplate = Template.fromStack(fleet);
@@ -44,6 +45,12 @@ test('service parity, immutable images, network boundaries and isolated signer p
   const fleetTasks = Object.values(fleetTemplate.findResources('AWS::ECS::TaskDefinition')) as any[];
   const apiTask = fleetTasks.find(task => task.Properties.ContainerDefinitions[0].Name === 'dusk-api')!;
   const grpcTask = fleetTasks.find(task => task.Properties.ContainerDefinitions[0].Name === 'dusk-grpc')!;
+  for (const task of fleetTasks) {
+    const container = task.Properties.ContainerDefinitions[0];
+    const market = container.Environment.find((entry:any) => entry.Name === 'KEEPER_HLP_MARKET');
+    if (container.Name === 'dusk-hlp-recovery') assert.equal(market?.Value,hlpRecoveryMarket);
+    else assert.equal(market,undefined,'hLP market selection must not leak to another profile');
+  }
   assert.equal(apiTask.Properties.ContainerDefinitions[0].Environment.find((entry: any) => entry.Name === 'CORS_ORIGIN').Value, browserOrigins.join(','));
   assert.equal(grpcTask.Properties.ContainerDefinitions[0].Environment.find((entry: any) => entry.Name === 'ALLOWED_ORIGINS').Value, browserOrigins.join(','));
   assert.equal(apiTask.Properties.Cpu, '1280', 'API task keeps one core plus Service Connect headroom');
@@ -156,6 +163,11 @@ test('configuration rejects shared wallets, extra signers and mismatched geograp
     const invalid = copy(); invalid.browserOrigins = [origin];
     assert.throws(() => validateConfig(invalid), /exact HTTPS/);
   }
+});
+
+test('hLP market configuration rejects URLs and malformed addresses', () => {
+  for (const hlpRecoveryMarket of ['', 'https://example.com', 'not a market', '0'.repeat(44)])
+    assert.throws(() => validateConfig({ ...config,hlpRecoveryMarket }),/Solana public address/);
 });
 
 test('approved budget and notification destinations stay separate from source material', () => {
