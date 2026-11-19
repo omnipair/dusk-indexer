@@ -53,6 +53,9 @@ test('service parity, immutable images, network boundaries and isolated signer p
   }
   assert.equal(apiTask.Properties.ContainerDefinitions[0].Environment.find((entry: any) => entry.Name === 'CORS_ORIGIN').Value, browserOrigins.join(','));
   assert.equal(grpcTask.Properties.ContainerDefinitions[0].Environment.find((entry: any) => entry.Name === 'ALLOWED_ORIGINS').Value, browserOrigins.join(','));
+  assert.ok(apiTask.Properties.ContainerDefinitions[0].Secrets.some((s:any)=>s.Name==='DUSK_VERCEL_WEBHOOK_SECRET'));
+  for (const task of fleetTasks.filter(t=>t!==apiTask))
+    assert.ok(!task.Properties.ContainerDefinitions[0].Secrets.some((s:any)=>s.Name==='DUSK_VERCEL_WEBHOOK_SECRET'),'callback authority belongs only to the API');
   assert.equal(apiTask.Properties.Cpu, '1280', 'API task keeps one core plus Service Connect headroom');
   assert.equal(apiTask.Properties.ContainerDefinitions[0].Cpu, 1024);
   const reservedCpu = fleetTasks.reduce((sum, task) => sum + (task.Properties.Cpu

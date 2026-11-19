@@ -1,5 +1,6 @@
 use {clap::Parser, sqlx::PgPool};
 
+mod preview_origins;
 mod db_listener;
 mod dusk_payloads;
 mod dusk_stream;

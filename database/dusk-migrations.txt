@@ -42,3 +42,4 @@
 059_dusk_portfolio_history_lookup.sql
 060_dusk_empty_portfolio_catalogs.sql
 061_dusk_retirement_receipts.sql
+062_dusk_browser_preview_origins.sql

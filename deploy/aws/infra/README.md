@@ -31,33 +31,48 @@ The example contains public account, certificate, KMS ARNs and Solana wallet add
 
 ### Mainnet frontend previews
 
-A server-rendered first page does not prove browser access. A preview built with
-mainnet settings also needs its exact origin in both AWS browser allowlists.
-Register an owned, ready preview using the authenticated Vercel CLI:
+Owned Dusk previews register automatically through signed Vercel
+`deployment.created`, `deployment.succeeded` and `deployment.cleanup` events.
+The API validates the raw-body HMAC, fixed project/team/repository identities,
+preview target, deployment ID and exact origins. Creation alone grants nothing;
+success activates the immutable hostname and its aliases. Duplicate deliveries
+are idempotent, out-of-order deliveries retain aliases, and permanent cleanup is
+a terminal revocation. Unrelated projects and arbitrary Vercel hostnames remain
+denied. No Vercel account token is copied into AWS.
 
-```sh
-node scripts/register-preview.mjs \
-  --origin https://dusk-webapp-git-feat-first-visit-tour-omnipair.vercel.app \
-  --origin https://dusk-webapp-git-feat-beta-comments-omnipair.vercel.app
-# Review the public ownership receipt, then repeat with --write.
-```
+REST and Socket.IO use the same persisted registry. gRPC-Web refreshes the exact
+registry over the existing private API address and fails closed on errors or
+stale data. Explicit `browserOrigins` remain baseline exceptions, including the
+production site. A preview must still use the SDK/program identity compatible
+with mainnet; CORS admission does not bypass deployment validation.
 
-The helper verifies the immutable Vercel project/team IDs and GitHub repository
-identity through Vercel's API. It adds only each requested origin and the exact
-immutable deployment URL; it preserves existing origins and other configuration.
-`--write` changes only the local release configuration. It does not deploy or
-change Vercel environments. Keep the preview's SDK, network and backend settings
-on the matching mainnet identity, including its server-side Jupiter key.
+For first activation:
 
-Run the infrastructure checks and inspect `cdk diff` for
-`DuskServicesSingapore` with every current CloudFormation image digest and
-`indexerCommit` parameter preserved. Deploy that stack exclusively. An origin-only
-change replaces the API/gRPC task definitions, so no new images, SDK publication,
-program upgrade, database or Oregon rollout are required. Keep image build
-provenance unchanged. Test REST and Socket.IO from the actual preview browser,
-gRPC-Web preflight, and rejection of an unrelated Vercel origin. Stable branch
-aliases remain allowed across redeployments; register a new immutable URL when
-testing a new deployment directly. Remove retired preview origins after review.
+1. Run the infrastructure tests and review/deploy `DuskSecretsSingapore`. Its
+   new dedicated secret is readable only by the API task; other runtime secrets
+   and signing keys are unchanged.
+2. Run `node scripts/provision-preview-webhook.mjs` to review the plan, then add
+   `--execute`. It scopes the callback to the fixed Dusk project and stores the
+   callback secret directly in Secrets Manager, without files or command-line
+   secrets. Reruns verify the saved webhook identity.
+3. Deploy the passing exact-main images, applying migration
+   `062_dusk_browser_preview_origins.sql` through the normal explicit migration
+   manifest before the API upgrade. Review the service change set; retain all
+   signer modes and protocol pins.
+4. Capture existing ready previews with
+   `node scripts/capture-ready-previews.mjs --output /private/tmp/dusk-previews.json`.
+   In the API container run `node dist/scripts/seedDuskPreviewOrigins.js FILE`.
+   The public metadata may be passed through stdin as `FILE=/dev/stdin`. This
+   authenticated API bootstrap is recorded separately from webhook deliveries.
+5. Verify a newly built owned preview through REST, Socket.IO and gRPC-Web;
+   check rejection of a foreign origin, invalid signatures and foreign projects.
+   Future preview deployments require no infrastructure deployment or manual
+   origin edit. Keep the callback secret out of browser bundles and logs.
+
+The existing `register-preview.mjs --origin URL [--write]` helper remains an
+operator fallback for explicit exceptions. It verifies immutable ownership and
+preserves existing configuration. Do not replace ownership checks with a
+`*.vercel.app` or team-name suffix pattern.
 
 CI synthesizes both phases without AWS credentials, checks IAM/network/parity invariants, and starts the exact pinned PostgreSQL 17.11 / TimescaleDB 2.29.2 image using synthetic AWS responses. It verifies certificate trust and hostname refusal, rejection of non-TLS access, non-superuser roles, idempotent keeper migrations, readable logical backups and certificate reload. CI uses 128 MB shared buffers because its runner is smaller; production keeps the measured 5722 MB setting.
 

@@ -9,7 +9,8 @@ import dotenv from 'dotenv';
 import routes from './routes';
 import { errorHandler, notFound } from './middleware/errorHandler';
 import { perfMetrics } from './utils/perfMetrics';
-import { corsOrigins } from './utils/corsOrigins';
+import { browserOriginCallback, corsOrigins } from './utils/corsOrigins';
+import { previewWebhook, previewOriginRegistry } from './routes/duskPreviewWebhook';
 
 dotenv.config();
 
@@ -22,7 +23,7 @@ app.use('/docs-assets', express.static(path.join(__dirname, '../public')));
 app.use(compression());
 app.use(helmet());
 app.use(cors({
-  origin: corsOrigins(),
+  origin: browserOriginCallback(corsOrigins()),
   credentials: true,
   exposedHeaders: ['Retry-After', 'x-request-id']
 }));
@@ -63,6 +64,16 @@ app.use((req, res, next) => {
   });
   next();
 });
+
+if (process.env.ENABLE_DUSK_ROUTES !== 'false') {
+  app.post(
+    '/internal/vercel/previews',
+    ...createApiRateLimits(),
+    express.raw({ type: 'application/json', limit: '100kb' }),
+    previewWebhook,
+  );
+  app.get('/internal/browser-origins', ...createApiRateLimits(), previewOriginRegistry);
+}
 
 // Count and log rejected reads too; rate limiting must be visible in metrics.
 app.use(...createApiRateLimits());

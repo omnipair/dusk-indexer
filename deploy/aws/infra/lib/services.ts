@@ -54,6 +54,7 @@ export class RegistryStack extends Stack {
 
 export class RuntimeSecretsStack extends Stack {
   readonly secrets: Readonly<Record<string, secrets.Secret>>;
+  readonly previewWebhookSecret?: secrets.Secret;
   constructor(scope: Construct, id: string, props: StackProps & { readonly services: readonly ServiceSpec[] }) {
     super(scope, id, props);
     const values: Record<string, secrets.Secret> = {};
@@ -64,6 +65,14 @@ export class RuntimeSecretsStack extends Stack {
       value.applyRemovalPolicy(RemovalPolicy.RETAIN);
       values[service.name] = value;
       new CfnOutput(this, service.name.replaceAll('-', '') + 'SecretArn', { value: value.secretArn });
+    }
+    if (props.services.some(service => service.name === 'dusk-api')) {
+      this.previewWebhookSecret = new secrets.Secret(this, 'DuskPreviewWebhook', {
+        description: 'Signature verification for owned Dusk Vercel preview deployment events',
+        generateSecretString: { secretStringTemplate: JSON.stringify({ webhookId: null }), generateStringKey: 'secret' },
+      });
+      this.previewWebhookSecret.applyRemovalPolicy(RemovalPolicy.RETAIN);
+      new CfnOutput(this, 'DuskPreviewWebhookSecretArn', { value: this.previewWebhookSecret.secretArn });
     }
     this.secrets = values;
   }
@@ -204,7 +213,11 @@ export class ServicesStack extends Stack {
         // rather than asking CDK to distinguish an unresolved token from a tag.
         image: ecs.ContainerImage.fromRegistry(Fn.join('@', [props.registry.repositories[kind].repositoryUri, digests[kind].valueAsString])),
         environment,
-        secrets: Object.fromEntries(secretFields.map(field => [field, ecs.Secret.fromSecretsManager(runtime, field)])),
+        secrets: {
+          ...Object.fromEntries(secretFields.map(field => [field, ecs.Secret.fromSecretsManager(runtime, field)])),
+          ...(props.primary && spec.name === 'dusk-api' && props.runtimeSecrets.previewWebhookSecret
+            ? { DUSK_VERCEL_WEBHOOK_SECRET: ecs.Secret.fromSecretsManager(props.runtimeSecrets.previewWebhookSecret, 'secret') } : {}),
+        },
         logging: ecs.LogDrivers.awsLogs({ logGroup, streamPrefix: spec.name, mode: ecs.AwsLogDriverMode.NON_BLOCKING }),
         stopTimeout: Duration.seconds(90),
         ...(props.primary ? {
