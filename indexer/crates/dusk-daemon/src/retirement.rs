@@ -305,7 +305,9 @@ pub async fn ingest_remote(pool: &PgPool, rpc: &RpcClient) -> Result<()> {
         || url.fragment().is_some()
         || url.port_or_known_default() != Some(443)
         || !url.host_str().is_some_and(|host| {
-            host.ends_with(".s3.ap-southeast-1.amazonaws.com")
+            host == "s3.ap-southeast-1.amazonaws.com"
+                || host == "s3.us-west-2.amazonaws.com"
+                || host.ends_with(".s3.ap-southeast-1.amazonaws.com")
                 || host.ends_with(".s3.us-west-2.amazonaws.com")
         })
     {
