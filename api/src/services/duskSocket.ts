@@ -10,7 +10,11 @@ import {
   Subscriber,
 } from './duskSnapshotStream';
 import { openDuskChangeFeed, DuskChangeSink } from './duskChangeStream';
-import { allowsOrigin, corsOrigins } from '../utils/corsOrigins';
+import {
+  allowsBrowserOrigin,
+  browserOriginCallback,
+  corsOrigins,
+} from '../utils/corsOrigins';
 
 export interface DuskSocketSources {
   payload: {
@@ -53,12 +57,12 @@ export function createDuskSocketServer(
     serveClient: false,
     transports: ['websocket'],
     maxHttpBufferSize: 16 * 1024,
-    cors: { origin: allowedOrigins },
-    allowRequest: (req, done) =>
-      done(
-        null,
-        allowsOrigin(allowedOrigins, req.headers.origin),
-      ),
+    cors: { origin: browserOriginCallback(allowedOrigins) },
+    allowRequest: (req, done) => {
+      void allowsBrowserOrigin(allowedOrigins, req.headers.origin)
+        .then((allowed) => done(null, allowed))
+        .catch(() => done(null, false));
+    },
   });
   let subscriptions = 0;
   io.use((_socket, next) => {

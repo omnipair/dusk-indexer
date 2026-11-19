@@ -280,10 +280,11 @@ pub async fn start_grpc_server(
             .collect();
         log::info!("CORS allows: {}", patterns.join(", "));
 
+        let previews = crate::preview_origins::PreviewOrigins::new(std::env::var("DUSK_API_URL").ok());
         AllowOrigin::predicate(move |origin, _| {
             origin
                 .to_str()
-                .is_ok_and(|origin| origin_allowed(&patterns, origin))
+                .is_ok_and(|s| origin_allowed(&patterns, s) || previews.allows(s))
         })
     } else {
         log::info!("Running in development mode with permissive CORS");
