@@ -5,22 +5,23 @@ import { resolve } from 'node:path';
 import { BorshCoder,BN,utils } from '@coral-xyz/anchor';
 import type { Idl } from '@coral-xyz/anchor';
 import { Keypair,PublicKey,TransactionInstruction,TransactionMessage,VersionedTransaction } from '@solana/web3.js';
-import { validateRetirementReceipts } from '../services/duskRetirementReceipts';
+import { validateRetirementReceipts,encodeRetirementObservations } from '../services/duskRetirementReceipts';
 import type { RetirementReceiptManifest,RetirementTransactionObservation } from '../services/duskRetirementReceipts';
 const idl=JSON.parse(readFileSync(resolve(__dirname,'../../src/tests/fixtures/legacy-retirement-idl.json'),'utf8')) as Idl;
 const coder=new BorshCoder(idl),program=new PublicKey(idl.address);
 const key=(n:number)=>Keypair.fromSeed(new Uint8Array(32).fill(n));
 function fixture(){
   const users=Array.from({length:6},(_,index)=>({owner:key(index+1).publicKey.toBase58(),baseRaw:String(index+10),quoteRaw:String(index+20)}));
-  const manifest:RetirementReceiptManifest={sourceSlot:20,onChainManifestSha256:'ab'.repeat(32),custodyRaw:['77','137'],users,
+  const manifest:RetirementReceiptManifest={sourceSlot:95,cutoffSlot:90,onChainManifestSha256:'ab'.repeat(32),custodyRaw:['77','137'],users,
     treasury:{owner:key(8).publicKey.toBase58(),baseRaw:'2',quoteRaw:'2'}};
-  const definitions=[{name:'LegacyRetirementBegun',data:{manifest_sha256:Array(32).fill(171),source_slot:new BN(20),custody:[new BN(77),new BN(137)]}},
+  const definitions=[{name:'LegacyMarketFrozen',data:{slot:new BN(90),market_sha256:Array(32).fill(1),receipts_sha256:Array(32).fill(2)}},
+    {name:'LegacyRetirementBegun',data:{manifest_sha256:Array(32).fill(171),source_slot:new BN(95),custody:[new BN(77),new BN(137)]}},
     ...users.map(user=>({name:'LegacyOwnerCleared',data:{owner:new PublicKey(user.owner),rent_lamports:new BN(42)}})),
     ...[...users,manifest.treasury].map((user,index)=>({name:'LegacyRetirementPaid',data:{owner:new PublicKey(user.owner),base:new BN(user.baseRaw),quote:new BN(user.quoteRaw),treasury:index===6}}))];
   const observations:RetirementTransactionObservation[]=definitions.map(({name,data},index)=>{
     const signer=key(9),tx=new VersionedTransaction(new TransactionMessage({payerKey:signer.publicKey,recentBlockhash:key(10).publicKey.toBase58(),
       instructions:[new TransactionInstruction({programId:program,keys:[],data:Buffer.from([index])})]}).compileToV0Message());tx.sign([signer]);
-    const signature=utils.bytes.bs58.encode(Buffer.from(tx.signatures[0])),slot=100+index;
+    const signature=utils.bytes.bs58.encode(Buffer.from(tx.signatures[0])),slot=index===0?90:99+index;
     const event=Buffer.concat([Buffer.from('e445a52e51cb9a1d','hex'),Buffer.from(idl.events!.find(row=>row.name===name)!.discriminator),coder.types.encode(name,data)]);
     return {signature,transaction:{slot,blockTime:1000+index,version:0,transaction:[Buffer.from(tx.serialize()).toString('base64'),'base64'],meta:{err:null,
       innerInstructions:[{index:0,instructions:[{programIdIndex:1,accounts:[],data:utils.bytes.bs58.encode(event),stackHeight:2}]}]}},
@@ -30,7 +31,7 @@ function fixture(){
 }
 test('all six actual clear/payout receipts match the manifest while raw CPI evidence remains unchanged',()=>{
   const {manifest,observations}=fixture(),before=JSON.stringify(observations),result=validateRetirementReceipts(observations,idl,manifest,10);
-  assert.equal(result.usersPaid,6);assert.equal(result.events.length,14);assert.equal(result.treasuryPaid,true);
+  assert.equal(result.usersPaid,6);assert.equal(result.events.length,15);assert.equal(result.treasuryPaid,true);
   assert.equal(result.events[0].outerInstructionIndex,0);assert.equal(result.events[0].innerInstructionIndex,0);assert.equal(result.events[0].stackHeight,2);
   assert.equal(JSON.stringify(observations),before);assert.equal(result.observationsSha256.length,64);
 });
@@ -61,4 +62,19 @@ test('local rehearsal evidence is refused before any network or verifier is invo
   const network=t.mock.method(globalThis,'fetch',async()=>{throw new Error('Unexpected network');});
   try{await assert.rejects(archiveRetirementReceipts(['not-a-checkout','not-a-bundle',manifest,capture,'model','quote','proof','proof',resolve(directory,'out.json')]),/Local manifests/);assert.equal(network.mock.callCount(),0);}
   finally{rmSync(directory,{recursive:true});}
+});
+
+test('archived RPC JSON retains signed bytes and tiny/large UI prices without cross-language numeric seals',()=>{
+  const {observations}=fixture();
+  (observations[0].transaction.meta as any).preTokenBalances=[{uiTokenAmount:{amount:'2',uiAmount:0.000002,uiAmountString:'0.000002',decimals:6}}];
+  const encoded=encodeRetirementObservations(observations);
+  assert.deepEqual(JSON.parse(encoded[0].transactionJson),observations[0].transaction);
+  assert.equal(typeof encoded[0].transactionJson,'string');
+  assert.equal(JSON.parse(encoded[0].transactionJson).meta.preTokenBalances[0].uiTokenAmount.amount,'2');
+});
+
+test('the shared JavaScript/Rust archive-seal fixture retains its exact canonical digest',async()=>{
+  const {canonicalJson,sha256}=await import('../config/duskProtocol');
+  const fixture=JSON.parse(readFileSync(resolve(__dirname,'../../src/tests/fixtures/retirement-json-seal-v2.json'),'utf8'));
+  assert.equal(sha256(canonicalJson(fixture.payload)),fixture.sha256);
 });

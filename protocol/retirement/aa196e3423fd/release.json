@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "dusk-retirement-ingestion-release.v1",
+  "protocolRevision": "mainnet-retirement-aa196e3423fd",
+  "sourceCommit": "aa196e3423fd5f46b00630a4f161d91f95ef7b3d",
+  "cluster": "mainnet-beta",
+  "genesisHash": "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d",
+  "programId": "DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj",
+  "programData": "58HpCNM5jydkig5bhy8BR77DJn2E3KcuD9hruj13mUqz",
+  "authority": "EdYBBhu2PU84eNt6r8zPWkaxrxbXVAzVvAz3tR3XveRq",
+  "market": "7xf68VEvMtLJ2Up5zVZdA161uH1yNkTFYgDFhNUSwkM7",
+  "owners": [
+    "2K9ZpC3LVqRfR8Vveo92LhiofbDcF6PuDRJbaPp9V34m",
+    "3XAr6KPC1x75XcBLVRc5TxD39gDXMGu4P1kFgDn5PFu2",
+    "41shojZU4PwxKBV1MmX3yYyAHiGrF3DyDLAdvsuSCUm7",
+    "526W6vNe3WtRsfw8ELNKtAcpa2eFzXBtvre6RSsn3xUi",
+    "5YE9xb49trAeZHzEcuusySswFb5pWdsZLCTYqiymoiFa",
+    "8tF4uYMBXqGhCUGRZL3AmPqRzbX8JJ1TpYnY3uJKN4kt"
+  ],
+  "treasury": "8s6Jdoh7tgUqmU3D2EmpNJHSvuN5U4NybpLAdsiMitwB",
+  "baseMint": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+  "quoteMint": "METAwkXcqyXKy1AtsSgJ8JiUHwGCafnZL38n3vYmeta",
+  "assetDecimals": 6,
+  "idlCanonicalSha256": "2352edf3484da82f44408b556948647b9a05c8afa8efea815f6e63046286df52",
+  "idlRawSha256": "ed22ac7882bc8ecfed963526538661b3350d1cf785bf3cb5667d43c50f3226a8",
+  "binarySha256": "5df5f3312567c27fe09527afbf278015f3d32d2112cf5cab33cad9c3cb90f2f6",
+  "binarySize": 399784,
+  "bundleSha256": "952797468e18d086cf44837e90cd7a30f15fb3865d6592e9b2715e10202d72a5"
+}

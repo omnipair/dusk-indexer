@@ -1,3 +1,4 @@
+import { readPortfolioRetirementWithdrawals } from './duskPortfolioRetirement';
 import { BorshCoder } from '@coral-xyz/anchor';
 import { AccountInfo, PublicKey, SystemProgram } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, unpackAccount } from '@solana/spl-token';
@@ -527,7 +528,8 @@ export async function readPortfolioHistory(client: PoolClient,options: Portfolio
   const pending = await client.query(`SELECT count(*)::text AS count FROM dusk_ingestion.portfolio_capture_observations o
     WHERE (${pendingScope})
       AND NOT EXISTS(SELECT 1 FROM dusk_ingestion.portfolio_capture_projections p WHERE p.capture_id=o.capture_id)`,pendingValues);
-  return { snapshots: rows.map((row) => ({ captureId: row.capture_id,owner: row.owner,capturedAt: row.bucket.toISOString(),
+  const withdrawals=await readPortfolioRetirementWithdrawals(client,options,revisions);
+  return { ...(withdrawals.length?{withdrawals}:{}),snapshots: rows.map((row) => ({ captureId: row.capture_id,owner: row.owner,capturedAt: row.bucket.toISOString(),
     components: row.components,valuations: row.valuations,coverage: row.coverage,provenance: {
       cluster:row.cluster,programId:row.program_id,idlSha256:row.idl_hash,protocolRevision:row.protocol_revision,commitment:'finalized' as const,
       sourceMinSlot: row.source_min_slot,sourceMaxSlot: row.source_max_slot,observedAt: row.observed_at.toISOString(),

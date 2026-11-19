@@ -411,6 +411,7 @@ pub struct PinnedIdlDecoder {
     dusk: ProgramRegistry,
     delegate: ProgramRegistry,
     limits: DecodeLimits,
+    dusk_identity: ProtocolIdentity,
 }
 
 impl PinnedIdlDecoder {
@@ -418,7 +419,9 @@ impl PinnedIdlDecoder {
         verify_vendored_protocol()?;
         let cluster = cluster.into();
         ProtocolIdentity::vendored_dusk(cluster.clone())?;
+        let dusk_identity = ProtocolIdentity::vendored_dusk(cluster.clone())?;
         Ok(Self {
+            dusk_identity,
             cluster,
             dusk: ProgramRegistry::from_bytes(DUSK_IDL, DUSK_PROGRAM_ID)?,
             delegate: ProgramRegistry::from_bytes(
@@ -427,6 +430,27 @@ impl PinnedIdlDecoder {
             )?,
             limits: DecodeLimits::default(),
         })
+    }
+
+    /// Archive-only decoder for the exact reviewed temporary executable. This
+    /// never changes the live decoder, account readers or cursor identity.
+    pub fn legacy_retirement() -> Result<Self, DecoderError> {
+        let pin = crate::retirement_release();
+        let idl = crate::RETIREMENT_IDL;
+        crate::verify_canonical_idl(
+            "legacy retirement",
+            idl,
+            pin["idlCanonicalSha256"].as_str().unwrap(),
+        )?;
+        let mut decoder = Self::new("mainnet-beta")?;
+        decoder.dusk = ProgramRegistry::from_bytes(idl, DUSK_PROGRAM_ID)?;
+        decoder.dusk_identity = ProtocolIdentity::new(
+            "mainnet-beta",
+            DUSK_PROGRAM_ID,
+            pin["idlCanonicalSha256"].as_str().unwrap(),
+            pin["protocolRevision"].as_str().unwrap(),
+        )?;
+        Ok(decoder)
     }
 
     pub fn event_names(&self, program: PinnedProgram) -> Vec<&str> {
@@ -583,7 +607,7 @@ impl PinnedIdlDecoder {
         raw_event: &[u8],
     ) -> Result<DecodedEventEnvelope, DecoderError> {
         let identity = match program {
-            PinnedProgram::Dusk => ProtocolIdentity::vendored_dusk(self.cluster.clone())?,
+            PinnedProgram::Dusk => self.dusk_identity.clone(),
             PinnedProgram::LeverageDelegate => {
                 ProtocolIdentity::vendored_leverage_delegate(self.cluster.clone())?
             }
