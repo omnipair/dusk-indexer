@@ -238,11 +238,16 @@ async fn observe_rpc(
         .bind(text(archive,"contentSha256")?).bind(kind).bind(key).bind(digest(&payload)).bind(payload.to_string()).execute(pool).await?;
     Ok(())
 }
+fn upgradeable_loader() -> Result<Pubkey> {
+    Pubkey::from_str(crate::identity::UPGRADEABLE_LOADER)
+        .context("parsing the canonical upgradeable loader")
+}
+
 async fn attest(pool: &PgPool, rpc: &RpcClient, archive: &Value) -> Result<()> {
     let pin = retirement_release();
     let program = Pubkey::from_str(pin["programId"].as_str().unwrap())?;
     let data_key = Pubkey::from_str(pin["programData"].as_str().unwrap())?;
-    let loader = Pubkey::from_str("BPFLoaderUpgradeab1e11111111111111111111")?;
+    let loader = upgradeable_loader()?;
     let base = Pubkey::find_program_address(&[], &program).0;
     let idl_key = Pubkey::create_with_seed(&base, "anchor:idl", &program)?;
     let rows = rpc
@@ -661,6 +666,15 @@ mod tests {
         }
         (json!({"onChainManifestSha256":"ab".repeat(32)}), events)
     }
+    #[test]
+    fn live_attestation_loader_derives_the_pinned_program_data_address() {
+        let pin = retirement_release();
+        let program = Pubkey::from_str(text(&pin, "programId").unwrap()).unwrap();
+        let loader = upgradeable_loader().unwrap();
+        let data = Pubkey::find_program_address(&[program.as_ref()], &loader).0;
+        assert_eq!(data.to_string(), text(&pin, "programData").unwrap());
+    }
+
     #[test]
     fn actual_helper_wire_receipts_decode_with_distinct_identity_and_full_cpi_path() {
         let (archive, events) = terminal_fixture();

@@ -11,7 +11,7 @@ use {
     std::str::FromStr,
 };
 
-const UPGRADEABLE_LOADER: &str = "BPFLoaderUpgradeab1e11111111111111111111111";
+pub(crate) const UPGRADEABLE_LOADER: &str = "BPFLoaderUpgradeab1e11111111111111111111111";
 /// Loader instructions that replace, re-authorize or close a program:
 /// Upgrade, SetAuthority, Close and SetAuthorityChecked.
 const DEPLOYMENT_CHANGES: [u32; 4] = [3, 4, 5, 7];
