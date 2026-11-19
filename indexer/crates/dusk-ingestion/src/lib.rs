@@ -442,33 +442,9 @@ fn verify_locked_program(
 }
 
 fn verify_canonical_idl(name: &str, bytes: &[u8], expected: &str) -> Result<(), FoundationError> {
-    fn canonical(value: &serde_json::Value) -> String {
-        match value {
-            serde_json::Value::Object(map) => {
-                let mut keys: Vec<_> = map.keys().collect();
-                keys.sort();
-                format!(
-                    "{{{}}}",
-                    keys.into_iter()
-                        .map(|key| format!(
-                            "{}:{}",
-                            serde_json::to_string(key).unwrap(),
-                            canonical(&map[key])
-                        ))
-                        .collect::<Vec<_>>()
-                        .join(",")
-                )
-            }
-            serde_json::Value::Array(values) => format!(
-                "[{}]",
-                values.iter().map(canonical).collect::<Vec<_>>().join(",")
-            ),
-            value => value.to_string(),
-        }
-    }
     let value: serde_json::Value = serde_json::from_slice(bytes)
         .map_err(|error| FoundationError::InvalidProtocolLock(error.to_string()))?;
-    verify_bytes(name, canonical(&value).as_bytes(), expected)
+    verify_bytes(name, canonical_json(&value).as_bytes(), expected)
 }
 
 /// Runtime attestation uses the same vendored lock as decoding and cursors.
@@ -512,6 +488,48 @@ fn is_sha256(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+pub fn canonical_json(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut keys: Vec<_> = map.keys().collect();
+            keys.sort();
+            format!(
+                "{{{}}}",
+                keys.into_iter()
+                    .map(|key| format!(
+                        "{}:{}",
+                        serde_json::to_string(key).unwrap(),
+                        canonical_json(&map[key])
+                    ))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )
+        }
+        serde_json::Value::Array(values) => format!(
+            "[{}]",
+            values
+                .iter()
+                .map(canonical_json)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        value => value.to_string(),
+    }
+}
+
+/// Generated IDL and immutable source/binary pin; contains no invented slots.
+pub const RETIREMENT_IDL: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../protocol/retirement/aa196e3423fd/dusk.json"
+));
+pub fn retirement_release() -> serde_json::Value {
+    serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../protocol/retirement/aa196e3423fd/release.json"
+    )))
+    .expect("retirement release pin")
 }
 
 #[cfg(test)]

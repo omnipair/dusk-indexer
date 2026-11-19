@@ -1,0 +1,12 @@
+{
+  "payload": {
+    "observations": [
+      {
+        "signature": "local-json-seal-fixture",
+        "transactionJson": "{\"slot\":123,\"meta\":{\"preTokenBalances\":[{\"uiTokenAmount\":{\"amount\":\"2\",\"uiAmount\":0.000002,\"uiAmountString\":\"0.000002\",\"decimals\":6}}],\"postTokenBalances\":[{\"uiTokenAmount\":{\"amount\":\"1000000000000000000\",\"uiAmount\":1000000000000,\"uiAmountString\":\"1000000000000\",\"decimals\":6}}]}}",
+        "blockJson": "{\"blockTime\":1800000000,\"parentSlot\":122}"
+      }
+    ]
+  },
+  "sha256": "57439922190d8950409c561c49ba3338ade3cc6ae78f83f5c7c8f24628b5e4d7"
+}

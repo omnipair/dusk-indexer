@@ -8,12 +8,16 @@ import { inflateSync } from 'node:zlib';
 import type { Idl } from '@coral-xyz/anchor';
 import { canonicalJson,sha256 } from '../config/duskProtocol';
 import { LEGACY_RETIREMENT } from '../services/duskRetirementInventory';
-import { validateRetirementReceipts } from '../services/duskRetirementReceipts';
+import { validateRetirementReceipts,encodeRetirementObservations } from '../services/duskRetirementReceipts';
 import type { RetirementTransactionObservation } from '../services/duskRetirementReceipts';
 
 const json=(path:string)=>JSON.parse(readFileSync(resolve(path),'utf8'));
 function evidence(path:string){const value=json(path),{contentSha256,...body}=value;assert.equal(contentSha256,sha256(canonicalJson(body)),'Evidence hash differs');return value;}
-function accountBytes(account:any){assert.ok(account);return {...account,owner:account.owner.toBase58(),data:account.data.toString('base64')};}
+function accountBytes(account:any){assert.ok(account);const {rentEpoch:_rentEpoch,...record}=account;
+  // web3.js exposes the runtime u64 rent epoch as an unsafe JS number. It is
+  // not used by loader/IDL attestation; never persist an inexact number as fact.
+  return {...record,owner:account.owner.toBase58(),data:account.data.toString('base64')};}
+
 export async function archiveRetirementReceipts(args:string[]){
   assert.equal(args.length,9,'Expected CORE_CHECKOUT BUNDLE MANIFEST CAPTURE MODEL QUOTE MODEL_PROOF FROZEN_PROOF NEW_OUTPUT');
   const [core,bundlePath,manifestPath,...rest]=args;
@@ -70,15 +74,19 @@ export async function archiveRetirementReceipts(args:string[]){
       body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})});assert.ok(response.ok,'Read-only receipt RPC failed');
     const body=await response.json() as any;assert.ok(!body.error&&body.result,'Receipt RPC result unavailable');return body.result;
   };
-  const signatures:string[]=[];let cursor:string|undefined,complete=false;
-  for(let page=0;page<10;page++){
-    const rows=await rpc.getSignaturesForAddress(state,{limit:1000,...(cursor?{before:cursor}:{})},'finalized');
-    observe('signature-page',rows);
-    signatures.push(...rows.filter(row=>row.slot>before.deploySlot).map(row=>row.signature));
-    if(rows.length<1000||rows.some(row=>row.slot<=before.deploySlot)){complete=true;break;}
-    cursor=rows.at(-1)!.signature;
+  const freeze=PublicKey.findProgramAddressSync([Buffer.from('legacy_freeze'),new PublicKey(scope.market).toBuffer()],program)[0];
+  const signatures=new Set<string>();
+  for(const address of [state,freeze]){
+    let cursor:string|undefined,complete=false;
+    for(let page=0;page<10;page++){
+      const rows=await rpc.getSignaturesForAddress(address,{limit:1000,...(cursor?{before:cursor}:{})},'finalized');
+      observe('signature-page',{address:address.toBase58(),rows});
+      for(const row of rows)if(row.slot>before.deploySlot)signatures.add(row.signature);
+      if(rows.length<1000||rows.some(row=>row.slot<=before.deploySlot)){complete=true;break;}
+      cursor=rows.at(-1)!.signature;
+    }
+    assert.ok(complete,'Receipt history exceeds bounded scan; reconcile before continuing');
   }
-  assert.ok(complete,'Receipt history exceeds bounded scan; reconcile before continuing');
   const observations:RetirementTransactionObservation[]=[],blocks=new Map<number,any>();
   for(const signature of signatures){
     const transaction=await read('getTransaction',[signature,{encoding:'base64',commitment:'finalized',maxSupportedTransactionVersion:0}]);
@@ -91,12 +99,13 @@ export async function archiveRetirementReceipts(args:string[]){
   const validated=validateRetirementReceipts(observations,JSON.parse(idl.toString()) as Idl,manifest,before.deploySlot);
   const after=await readDeployment(before.slot);observe('deployment-after',after);assert.deepEqual(after.accounts,before.accounts,'Deployment changed during receipt archival');
   verifyCompleted();
-  const body={schemaVersion:'dusk-retirement-receipt-archive.v1',readOnly:true,localOnly:false,observedAt:new Date().toISOString(),
+  const body={schemaVersion:'dusk-retirement-receipt-archive.v2',readOnly:true,localOnly:false,observedAt:new Date().toISOString(),
     protocolIdentity:identity,
     sourceCommit:bundle.sourceCommit,bundleSha256:manifest.bundleSha256,manifestSha256:manifest.contentSha256,onChainManifestSha256:manifest.onChainManifestSha256,
-    deployment:before,verifiedThroughSlot:after.slot,generatedIdl:JSON.parse(idl.toString()),verified,...validated,observations,
+    deployment:before,verifiedThroughSlot:after.slot,generatedIdl:JSON.parse(idl.toString()),verified,...validated,observations:encodeRetirementObservations(observations),
+    observationsSha256:sha256(canonicalJson(encodeRetirementObservations(observations))),
     projectionStatus:'raw finalized archive only; decode and project through the common identity-scoped ingestion path before normal promotion',
-    limitations:['Finalized RPC is the chain-observation boundary','CPI validation coordinates are not canonical event keys','No hypothetical swaps or ordinary financial events are synthesized']};
+    limitations:['Finalized RPC is the chain-observation boundary','Runtime rent epoch is omitted from loader metadata because web3.js exposes an unsafe u64 number','CPI validation coordinates are not canonical event keys','No hypothetical swaps or ordinary financial events are synthesized']};
   writeFileSync(resolve(output),JSON.stringify({...body,contentSha256:sha256(canonicalJson(body))},null,2)+'\n',{flag:'wx',mode:0o600});
   return {usersPaid:validated.usersPaid,transactions:observations.length,events:validated.events.length,readOnly:true};
 }

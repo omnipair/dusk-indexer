@@ -24,6 +24,7 @@ mod orders;
 mod persist;
 mod pipeline;
 mod processors;
+mod retirement;
 
 use {
     anyhow::{anyhow, Context as _, Result},
@@ -119,6 +120,22 @@ async fn main() -> Result<()> {
         .connect(&config.database_url)
         .await
         .context("connecting to postgres")?;
+    if let Some(path) = flag_value("--retirement-archive") {
+        if config.cluster != "mainnet-beta" {
+            anyhow::bail!("retirement archive is mainnet only");
+        }
+        let rpc =
+            RpcClient::new_with_commitment(config.rpc_url.clone(), CommitmentConfig::finalized());
+        return retirement::ingest(&pool, &rpc, &path).await;
+    }
+    if std::env::args().any(|arg| arg == "--retirement-archive-url") {
+        if config.cluster != "mainnet-beta" {
+            anyhow::bail!("retirement archive is mainnet only");
+        }
+        let rpc =
+            RpcClient::new_with_commitment(config.rpc_url.clone(), CommitmentConfig::finalized());
+        return retirement::ingest_remote(&pool, &rpc).await;
+    }
     persist::ensure_protocol_identity(&pool, &config.cluster).await?;
 
     let rpc = RpcClient::new_with_commitment(config.rpc_url.clone(), CommitmentConfig::finalized());
