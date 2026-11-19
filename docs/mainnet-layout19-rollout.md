@@ -1,7 +1,11 @@
 # Coordinated mainnet retirement and accrued-interest upgrade
 
-Preparation status: 19 November 2026. No mainnet execution, publishing, authority
-transfer, keeper activation or market creation is authorized by this document.
+Preparation status: 19 November 2026. Program #113 and #117 are merged after
+owner-approved administrator overrides. Signed main is
+`aa196e3423fd5f46b00630a4f161d91f95ef7b3d`; its source tree exactly matches the
+checked combined candidate. Final-commit unsigned release builds are separate
+from that source approval. No mainnet execution, publishing, authority transfer,
+keeper activation or market creation is authorized by this document.
 
 ## Fixed release decisions
 
@@ -45,8 +49,8 @@ unreviewed financial account or beneficiary.
 
 | Component | Candidate | Required evidence before activation |
 | --- | --- | --- |
-| Normal programs | #112 and #114/#116 integrated; #113 extensions | Final combined signed main commit; exact production binaries and both IDLs |
-| Temporary retirement | Program #117, isolated `production,legacy-retirement` | Separate exact-source reproducible bundle and frozen native replay; no SDK publication |
+| Normal programs | Merged #112, #114/#116, #113 and #117; normal production profile | Final combined signed main commit; exact production binaries and both IDLs |
+| Temporary retirement | Merged program #117, isolated `production,legacy-retirement` | Separate exact-source reproducible bundle and frozen native replay; no SDK publication |
 | SDK | Stable `3.0.1` candidate | Protected GitHub publisher; both final binaries, IDLs and authorities match |
 | Indexer/API | #99 decoder, #100 API cutover, merged #102/#103 inventory/rehearsal, #104 historical reader and #105 atomic growing catalog; #106 verified empty portfolios | Published SDK, frozen complete identity, exact quote runtime, replay and retired-market projections |
 | Webapp | merged #239 extension admission and #250 portfolio archive validator; draft #240 accrued-interest port | Coherent published SDK/API identity and all application gates |
@@ -167,9 +171,17 @@ interval and terminal reconciliations are separate from normal layout-19 state.
    the first possible normal Dusk write after the common replay boundary. Verify finalized bytes and both IDL /
    upgrade authorities, then complete independent source verification against
    the exact normal commit/profile. Keep external signing closed throughout.
-3. Re-run the protected GitHub SDK publisher only after deployment matching.
-   Confirm the actual stable version, npm dist-tags, provenance and tarball
-   integrity. Never use manual `npm publish` or republish a version.
+3. Publish only in an authorized window after the final normal binaries, IDLs
+   and authorities match. The automatic #113 push publisher targets merge commit
+   `1b6dc5379b049d6347dbaa70a704c6e4086b7a83`; it correctly skipped npm while the
+   legacy programs remain deployed. #117 changed no SDK files, so it did not
+   create a publisher run for final main. Use the protected release tag
+   `dusk-sdk-v3.0.1` on the exact deployed normal commit (currently planned
+   `aa196e3423fd5f46b00630a4f161d91f95ef7b3d`) to trigger the matching publisher.
+   Do not re-run the earlier #113 publisher against later-commit binaries.
+   Confirm actual version, dist-tags, provenance and tarball integrity. Never
+   use manual `npm publish` or republish a version. Do not create the tag during
+   source-only preparation.
 4. Promote backend migration, actual SDK, protocol lock, runtime binaries and
    quote artifacts together. New `(cluster, program_id, idl_hash, revision)`
    identity means a fresh scoped cursor and verified deployment interval.
