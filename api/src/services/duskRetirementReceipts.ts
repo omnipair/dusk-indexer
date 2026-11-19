@@ -7,7 +7,7 @@ import { PublicKey,VersionedTransaction } from '@solana/web3.js';
 import { canonicalJson,sha256 } from '../config/duskProtocol';
 
 export interface RetirementReceiptManifest {
-  sourceSlot:number;onChainManifestSha256:string;custodyRaw:string[];
+  sourceSlot:number;cutoffSlot:number;onChainManifestSha256:string;custodyRaw:string[];
   users:{owner:string;baseRaw:string;quoteRaw:string}[];treasury:{owner:string;baseRaw:string;quoteRaw:string};
 }
 export interface RetirementTransactionObservation {
@@ -63,6 +63,10 @@ export function validateRetirementReceipts(observations:RetirementTransactionObs
       }
     }
   }
+  const frozen=events.filter(event=>event.name==='LegacyMarketFrozen');assert.equal(frozen.length,1,'One actual freeze receipt required');
+  assert.equal(String(frozen[0].data.slot),String(manifest.cutoffSlot),'Frozen cutoff differs');
+  assert.equal(frozen[0].slot,manifest.cutoffSlot,'Freeze event differs from its actual slot');
+  assert.ok(manifest.cutoffSlot<=manifest.sourceSlot,'Frozen cutoff follows the quoted bank');
   const begun=events.filter(event=>event.name==='LegacyRetirementBegun');assert.equal(begun.length,1,'One begin receipt required');
   assert.equal(Buffer.from(begun[0].data.manifest_sha256).toString('hex'),manifest.onChainManifestSha256,'Another retirement manifest');
   assert.equal(String(begun[0].data.source_slot),String(manifest.sourceSlot));assert.deepEqual(begun[0].data.custody.map(String),manifest.custodyRaw);
@@ -78,3 +82,9 @@ export function validateRetirementReceipts(observations:RetirementTransactionObs
   assert.ok(events.every(event=>['LegacyMarketFrozen','LegacyRetirementBegun','LegacyOwnerCleared','LegacyRetirementPaid'].includes(event.name)),'Unknown retirement receipt');
   return {events,observationsSha256:sha256(canonicalJson(observations)),usersPaid:manifest.users.length,treasuryPaid:true};
 }
+
+/** Opaque JSON preserves all RPC metadata without making archive seals depend
+ * on another language's floating-point rendering of derived UI token amounts. */
+export const encodeRetirementObservations=(rows:RetirementTransactionObservation[])=>rows.map(row=>({
+  signature:row.signature,transactionJson:JSON.stringify(row.transaction),blockJson:JSON.stringify(row.block),
+}));

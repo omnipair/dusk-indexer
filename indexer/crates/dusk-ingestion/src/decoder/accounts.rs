@@ -125,6 +125,11 @@ impl PinnedIdlDecoder {
         owner_program_id: &str,
         data: &[u8],
     ) -> Result<DecodedAccountEnvelope, DecoderError> {
+        if self.dusk_identity.protocol_revision != crate::PROTOCOL_REVISION {
+            return Err(DecoderError::InvalidAccountContext(
+                "retirement decoder is event-only".to_owned(),
+            ));
+        }
         let program = self.program_for_id(owner_program_id)?;
         let identity = match program {
             PinnedProgram::Dusk => ProtocolIdentity::vendored_dusk(self.cluster.clone())?,
