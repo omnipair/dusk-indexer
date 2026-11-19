@@ -17,7 +17,7 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import type { AccountInfo, SimulateTransactionConfig } from '@solana/web3.js';
 import { marketLayoutVersion } from '../services/duskProtocolSchema';
 const MARKET_LAYOUT_VERSION = marketLayoutVersion();
-import { deriveIncomeEpochAddress, deriveJuniorCohortAddress } from '@omnipair/dusk-sdk';
+import { deriveJuniorCohortAddress } from '@omnipair/dusk-sdk';
 import type { Dusk, HlpCohort, JuniorCohort, Market, YieldAccount } from '@omnipair/dusk-sdk';
 import { deriveYieldAccountAddress } from '../services/virtualBook/native';
 import { createSdkTestRuntime } from './duskSdkTestRuntime';
@@ -52,13 +52,6 @@ async function fixture(hlp = false, taxed = false, junior = false, retiredJunior
   const simulations: SimulateTransactionConfig[] = [];
   const transactions: import("@solana/web3.js").VersionedTransaction[] = [];
   const connection = {
-    getMultipleAccountsInfoAndContext: async (keys: PublicKey[]) => ({ context: {slot: 1010}, value: keys.map(address => {
-      for (let bookIndex=0; bookIndex<4; bookIndex++) for(let epoch=0n;epoch<32n;epoch++) {
-        const [expected,bump] = deriveIncomeEpochAddress(marketAddress,bookIndex,epoch,dusk.program.programId);
-        if(address.equals(expected)) return encodeAccount('incomeEpoch',{market:marketAddress,bookIndex,bump,book:{...market.income.books[bookIndex],epoch:new BN(epoch.toString())}});
-      }
-      return null;
-    }) }),
     getAccountInfoAndContext: async (key: PublicKey) => ({ context: { slot: 1010 },value: key.equals(marketAddress) ? encodeAccount('market',market) : null }),
     simulateTransaction: async (_tx: unknown, config: SimulateTransactionConfig) => {
       simulations.push(config); transactions.push(_tx as import("@solana/web3.js").VersionedTransaction);
@@ -105,8 +98,11 @@ async function fixture(hlp = false, taxed = false, junior = false, retiredJunior
   market.baseSide.fees.swapFeeGrowthIndexQ64 = new BN((Q / 2n).toString());
   market.baseSide.fees.unallocatedSwapFeeLiability = new BN(50);
   market.baseSide.fees.interestGrowthIndexQ64 = new BN(Q.toString());
+  market.baseSide.reserves.cashReserve = new BN(1000);
   market.baseHlpVault.srlpShares = new BN(20);
   market.baseHlpVault.hlpSupply = new BN(10);
+  // hLP interest is published to the vault's own index at accrual.
+  market.baseHlpVault.baseInterestGrowthIndexQ64 = new BN((2n * Q).toString());
   const cohort = blank<HlpCohort>('hlpCohort');
   Object.assign(cohort, { market: marketAddress, mint: lpMint, targetAsset: 0, retired: true,
     bump: hlpCohortAddress(marketAddress, lpMint, dusk.program.programId)[1] });
@@ -173,28 +169,50 @@ async function fixture(hlp = false, taxed = false, junior = false, retiredJunior
   return { dusk: dusk as Dusk, market, cohort, juniorCohort, yields, response, encode, group, simulations, transactions, payer: owner.toBase58() };
 }
 
-test('live yield carries undistributed growth forward and checkpoints both hLP layers', async () => {
+test('live yield carries swap fees forward and reads hLP interest from the vault index', async () => {
   const normal = await fixture(),
     hedged = await fixture(true);
   assert.deepEqual(projectLiveYield(normal.market, normal.yields[0].account, 3n),
     { side: 'base', swapFeeAmount: 5n, interestAmount: 4n, totalAmount: 9n });
   assert.deepEqual(projectLiveYield(hedged.market, hedged.yields[0].account, 3n),
     { side: 'base', swapFeeAmount: 8n, interestAmount: 7n, totalAmount: 15n });
+  // The vault's srLP is not checkpointed for interest: the srLP index is not hLP income.
+  hedged.market.baseSide.fees.interestGrowthIndexQ64 = new BN((40n * Q).toString());
+  assert.equal(projectLiveYield(hedged.market, hedged.yields[0].account, 3n).interestAmount, 7n);
   hedged.yields[0].account.tokenKind = 0;
   assert.throws(() => projectLiveYield(hedged.market, hedged.yields[0].account, 3n), /srLP/);
 });
 
-test('a group is valued in one updated bank with transfer fees applied to fees and interest separately', async () => {
+test('a group is valued in one updated bank with one transfer fee on what a claim pays', async () => {
   const f = await fixture(false, true);
   const streams = (await captureYieldGroup(f.dusk, f.group, f.payer, 1005))!;
+  // Swap fees and payable interest leave the reserve in one transfer: 9 atoms
+  // pay a single one-atom fee.
   assert.deepEqual(streams[0], {
     address: f.yields[0].address.toBase58(), holder: f.group.holder, market: f.group.market, lpMint: f.group.lpMint,
-    assetMint: f.group.baseMint, kind: 'srlp', retired: false, recipient: f.group.holder, initialized: true, needsGrowth: false, needsIncomeCatchup: false,
-    lpBalance: '3', escrowBalance: '0', lpDecimals: 9, assetDecimals: 9, swapFeeAmount: '5', interestAmount: '4', recipientCredit: '7', sourceSlot: 1010,
+    assetMint: f.group.baseMint, kind: 'srlp', retired: false, recipient: f.group.holder, initialized: true, needsGrowth: false,
+    lpBalance: '3', escrowBalance: '0', lpDecimals: 9, assetDecimals: 9, swapFeeAmount: '5', interestAmount: '4', interestPayable: '4',
+    recipientCredit: '8', sourceSlot: 1010,
   });
+  assert.equal(streams[1].interestPayable, '0');
   assert.equal(streams[1].recipientCredit, '0');
   assert.equal(f.simulations[0].minContextSlot, 1005);
   assert.equal((f.simulations[0].accounts as { addresses: string[] }).addresses.length, 8);
+});
+
+test('interest a claim pays is limited by reserve cash while the rest stays claimable', async () => {
+  const f = await fixture(false, true);
+  f.market.baseSide.reserves.cashReserve = new BN(2);
+  f.encode();
+  const [stream] = (await captureYieldGroup(f.dusk, f.group, f.payer, 1005))!;
+  assert.equal(stream.interestAmount, '4');
+  assert.equal(stream.interestPayable, '2');
+  assert.equal(stream.recipientCredit, '6');
+  f.market.baseSide.reserves.cashReserve = new BN(0);
+  f.encode();
+  const [dry] = (await captureYieldGroup(f.dusk, f.group, f.payer, 1005))!;
+  assert.equal(dry.interestPayable, '0');
+  assert.equal(dry.recipientCredit, '4');
 });
 
 test('missing ledgers, unsupported layouts, rejected previews and changed identities', async () => {
@@ -300,24 +318,4 @@ for (const retired of [false,true]) test(`junior income includes escrow and froz
     f.juniorCohort.bump^=1;f.encode();
     await assert.rejects(captureYieldGroup(f.dusk,f.group,f.payer,1005),/Invalid retired junior cohort/);
   }
-});
-
-test('catch-up is identified per asset without hiding historical zero-balance holders',async()=>{
-  const f=await fixture();f.yields[0].account.incomeInitialized=true;
-  f.market.income.books[0].epoch=new BN(1);f.encode();
-  const streams=(await captureYieldGroup(f.dusk,f.group,f.payer,1005))!;
-  assert.equal(streams[0].needsIncomeCatchup,true);
-  assert.equal(streams[1].needsIncomeCatchup,false);
-});
-
-
-test('large historical gaps retain actionable receipts without reporting a complete claim', async () => {
-  const f = await fixture();
-  f.yields[0].account.incomeInitialized = true;
-  f.market.income.books[0].epoch = new BN(33);
-  f.encode();
-  const rows = (await captureYieldGroup(f.dusk,f.group,f.payer,1005))!;
-  assert.equal(rows[0].needsIncomeCatchup,true);
-  assert.equal(rows[0].initialized,true);
-  assert.equal(rows[1].needsIncomeCatchup,false);
 });

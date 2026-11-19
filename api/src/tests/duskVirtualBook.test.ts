@@ -19,7 +19,10 @@ import { DuskVirtualBookSnapshot, readDuskVirtualBook } from '../services/virtua
 import {
   type Dusk,
 } from '@omnipair/dusk-sdk';
-import fixture from './fixtures/virtual-book-layout17.json';
+import fixture from './fixtures/virtual-book-layout19.json';
+import { pinnedDuskIdl } from '../services/duskProtocolSchema';
+const brokenInvariant=pinnedDuskIdl().errors!.find(row=>row.name==='BrokenInvariant')!.code;
+const invariantOverflow=pinnedDuskIdl().errors!.find(row=>row.name==='InvariantOverflow')!.code;
 import { currentVirtualBook, VirtualBookDependencies, VirtualBookEnvelope, virtualBookSelection } from '../services/duskVirtualBook';
 import type { DuskDeploymentEnvelope } from '../services/duskDeploymentService';
 
@@ -134,8 +137,9 @@ test('depth keeps only natively executable levels when a small cumulative quote 
     name: 'DuskSimulationError',
     simulation: { value: { err: { InstructionError: [2, { Custom: code }] } } },
   });
-  assert.equal(unquotableAmount(broken(6047)), true);
+  assert.equal(unquotableAmount(broken(brokenInvariant)), true);
   assert.equal(unquotableAmount(broken(999)), false);
+  assert.equal(unquotableAmount(broken(invariantOverflow)),false,'arithmetic overflow must invalidate the book, not appear as missing liquidity');
   assert.equal(unquotableAmount(new Error('transport unavailable')), false);
   const rejected = new Set<bigint>();
   let calls = 0;
@@ -154,10 +158,10 @@ test('depth keeps only natively executable levels when a small cumulative quote 
         if (batch.length === 4 && batch[0].side === 'bids' && !rejected.size) {
           rejected.add(batch[0].amount);
           rejected.add(batch[1].amount);
-          throw broken(6047);
+          throw broken(brokenInvariant);
         }
         if (batch.length === 1 && rejected.has(batch[0].amount))
-          throw broken(6047);
+          throw broken(brokenInvariant);
         return {
           ...decoded,
           quotes: batch.map(request => ({
@@ -235,7 +239,7 @@ test('depth halves batches that run out of compute before giving up', async () =
   assert.equal(computeExhausted(failedSimulation([3, 'ComputationalBudgetExceeded'])), true);
   assert.equal(computeExhausted(failedSimulation([3, 'ProgramFailedToComplete'], panicked)), false);
   assert.equal(computeExhausted(failedSimulation([1, 'ComputationalBudgetExceeded'])), false);
-  assert.equal(computeExhausted(failedSimulation([2, { Custom: 6047 }])), false);
+  assert.equal(computeExhausted(failedSimulation([2, { Custom: brokenInvariant }])), false);
   assert.equal(computeExhausted(new Error('exceeded CUs meter at BPF instruction')), false);
   assert.equal(unquotableAmount(outOfCompute()), false);
 
@@ -248,7 +252,7 @@ test('depth halves batches that run out of compute before giving up', async () =
         if (batch.length > 2) throw outOfCompute();
         const rejected = batch.findIndex(request =>
           request.side === 'bids' && request.amount === 3n * unit);
-        if (rejected >= 0) throw failedSimulation([2 + rejected, { Custom: 6047 }]);
+        if (rejected >= 0) throw failedSimulation([2 + rejected, { Custom: brokenInvariant }]);
         return echoQuotes(decoded, batch);
       },
     },

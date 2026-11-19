@@ -7,8 +7,10 @@ optional public market address. The interval must be 1 hour to 90 days.
 The response uses `dusk-yield-rates.v1` inside the standard freshly verified
 `dusk-deployment.v1` envelope. The rate basis is
 `recorded-claimable-srlp-rate.v1`, with simple 365-day annualization. These values
-are **APR components, not total APY**. `fullApyAvailable` is false. Unpaid debt
-interest, compounded principal and protocol revenue are not included.
+are **APR components, not total APY**. `fullApyAvailable` is false. Interest is
+credited to holders when it accrues (market layout 19), so the interest index includes
+interest borrowers have not repaid yet and `unpaidInterestIncluded` is true. Compounded
+principal and protocol revenue are not included.
 
 For each boundary, the reader selects the latest committed Market account at or
 before the requested time, at most 15 minutes old. Both boundaries must exist.

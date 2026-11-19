@@ -174,9 +174,9 @@ export class ServicesStack extends Stack {
       const environment: Record<string, string> = {
         ...spec.sourcePublicSettings,
         NODE_ENV: 'production', DUSK_CLUSTER: 'mainnet-beta',
-        DUSK_PROTOCOL_REVISION: 'mainnet-2026-11-14',
+        DUSK_PROTOCOL_REVISION: 'mainnet-2026-11-19',
         DUSK_PROGRAM_ID: 'DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj',
-        DUSK_IDL_HASH: 'dfd05743bca263f84193acbe882d281cb532806928fa357fc4ce0f07a4ec383c',
+        DUSK_IDL_HASH: 'feaeb5ddbdec18a7b1c103fdc2e09730114c57f7c4948e5f6ce2ef50368e18a0',
         DUSK_DEVNET_MOCK_ORACLE_ENABLED: 'false',
         DUSK_BUILD_REVISION: indexerCommit.valueAsString,
       };

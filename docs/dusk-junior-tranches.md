@@ -12,7 +12,9 @@ The `dusk-srlp-rates.v1` object has basis `recorded-claimable-srlp-rate.v1`,
 `swapRatePct`, `interestRatePct`, and `totalRatePct`. It uses the same recorded
 srLP growth as hLP and tranche rates. A failed read returns `srlpRates: null`;
 unpriced components remain null, and `growth: none` is not measured zero yield.
-These are claimable APR components, excluding compounded fees and unpaid interest.
+These are claimable APR components, excluding compounded fees. Interest is credited to
+holders when it accrues (market layout 19), so the interest component includes interest
+borrowers have not repaid yet.
 
 The v1 `tranches` projection requires an initialized junior mint. When it is
 unset, the API keeps `tranches: null`; this does **not** mean that junior capital

@@ -1,6 +1,6 @@
 # Native leverage-capacity runtime
 
-`dusk.so` is the exact 4,058,688-byte production ELF from Dusk commit `0acc9057b53a0495571f1bbf8a18e5db0f2efd45`, deployed on mainnet at slot 469349657. Both programs are active from slot 469350144. The payload and full allocation are byte-identical; the previous layout-16 devnet runtime remains archived under its own identity.
+`dusk.so` contains the exact 4,058,688-byte on-chain ProgramData payload for Dusk commit `aa196e3423fd5f46b00630a4f161d91f95ef7b3d`: the tested 3,824,008-byte production ELF followed by zero allocation padding. Dusk finalized at slot 471276209; the delegate finalized at 471275760, so the complete revision starts at 471276210. The old layout-17 runtime remains immutable under its original archive.
 
 The manifest pins both hashes; `compatible-deployment.json` pins the complete on-chain allocation. Future compatible upgrades must update these artifacts together. A mismatched runtime refuses quotes.
 
@@ -30,16 +30,9 @@ A read-only simulation with a distinct payer captures small account sets without
 charging the trade owner's snapshot. Larger sets, or a payer-owner collision,
 use a bounded read-only batch retry and require Clock.slot == context.slot.
 
-Fixtures in `api/src/tests/fixtures/leverage-maximum-*.json.gz` contain public
-account data, unsigned transactions and expected results. Current live fixtures cover the fresh constant-product and concentrated
-markets in both debt directions. Historical fixtures retain their original
-identities. The eight offline cases were generated through the
-Dusk smoke harness's real market creation, liquidity and both hLP deposit paths:
-CPMM/concentrated (3x, 250-bps core, 500-bps shoulder), both debt directions,
-classic/Token-2022 transfer fees and 50% swap-fee compounding. The independent
-original SBF runtime accepted each selected economic grid point and rejected its
-next point under the same financial-capacity budget. These are offline financial
-parity checks, not a claim that every case fits devnet's execution budget.
+Current layout-19 depth fixtures execute this exact production SBF against a synthetic bank produced by the matching smoke harness, with explicit Clock, Rent and CPI executable bytes. They verify 12/24/36 levels, stable bank reuse, stale/foreign deployment rejection and worker cancellation. The static layout-19 decoder fixture preserves historical financial inputs and return data for transport regressions; it is not presented as a new SBF receipt.
+
+Archived leverage-capacity fixtures keep their original IDLs, executable hashes and economic inputs. They retain CPMM/concentrated, both debt directions, transfer-fee and compounding coverage under their historical revisions. Replacement-market mainnet write and native-capacity acceptance awaits the owner's UI-created market; synthetic fixtures do not claim that live gate passed.
 
 Previous runtimes and their immutable parity fixtures remain bound to their
 archived IDLs and executables. They are not relabelled as current accounts.

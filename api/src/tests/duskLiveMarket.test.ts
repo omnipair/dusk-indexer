@@ -1,3 +1,4 @@
+import './duskAccruedInterestTestProtocol';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BorshCoder, BN } from '@coral-xyz/anchor';
@@ -68,6 +69,17 @@ test('live payload uses one bank and preserves program debt, curve price and exp
   assert.deepEqual(payload.deposits,{ schemaVersion: 'dusk-market-deposits.v1',sourceSlot: sample.snapshot.slot,basis: 'reserve-and-collateral-custody.v1',
     baseReserveAmount: '100',quoteReserveAmount: '100',baseCollateralAmount: '200',quoteCollateralAmount: '200',baseLeverageAmount: '300',quoteLeverageAmount: '300' });
   assert.equal(payload.tokenMetadata.base,null);
+});
+
+test('LP interest liability is the ledger credit less the current operator share, and no interest vault is served',() => {
+  const sample = liveFixture();
+  Object.assign(sample.market.base_side.fees.ledger,{ credited: new BN(900),operator_claimable: new BN(200) });
+  sample.snapshot.marketAccount.data = encodeFixtureAccount('Market',sample.market).toString('base64');
+  const payload = projectMarketSnapshot(sample.snapshot,sample.references) as any;
+  assert.equal(payload.state.baseLpInterestFeeLiability,'700');
+  assert.equal(payload.state.quoteLpInterestFeeLiability,'0');
+  assert.equal('baseInterestVault' in payload,false);
+  assert.equal('quoteInterestVault' in payload,false);
 });
 
 test('senior earnings survive funded and wiped permanent seeds, with or without a jrLP mint', async () => {

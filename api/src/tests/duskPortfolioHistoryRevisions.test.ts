@@ -3,18 +3,20 @@ import assert from 'node:assert/strict';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { loadPinnedProtocol, sha256 } from '../config/duskProtocol';
+import { loadPinnedProtocol, loadProtocolAt, sha256 } from '../config/duskProtocol';
 import { checkedPortfolioHistoryRevisions, readPortfolioHistoryRevisions } from '../services/duskPortfolioHistoryRevisions';
 
 const protocol=resolve(__dirname,'../../../protocol');
 
 test('the registered mainnet archive verifies byte-for-byte and deduplicates the current identity',()=>{
   const active=loadPinnedProtocol();
-  assert.deepEqual(readPortfolioHistoryRevisions(protocol,active),[active]);
+  const archived=loadProtocolAt(resolve(protocol,'archive/mainnet-2026-11-14'));
+  assert.deepEqual(readPortfolioHistoryRevisions(protocol,active),[active,archived]);
+  assert.deepEqual(readPortfolioHistoryRevisions(protocol,archived),[archived]);
   // Synthetic future active identity tests archive selection only; it is not a
   // substitute for a real published layout-19 lock or decoder.
   const future={...active,revision:`${active.revision}-future-test`,dusk:{...active.dusk,idlCanonicalSha256:'a'.repeat(64)}};
-  assert.deepEqual(readPortfolioHistoryRevisions(protocol,future),[future,active]);
+  assert.deepEqual(readPortfolioHistoryRevisions(protocol,future),[future,archived]);
 });
 
 test('absent archives preserve current-pin behavior without reading another deployment',()=>{
@@ -39,10 +41,11 @@ test('archive lock/IDL mutation, revision substitution and path traversal cannot
   const active=loadPinnedProtocol(),root=mkdtempSync(resolve(tmpdir(),'dusk-history-check-'));
   const registry=JSON.parse(readFileSync(resolve(protocol,'history-revisions.json'),'utf8'));
   const writeRegistry=()=>writeFileSync(resolve(root,'history-revisions.json'),JSON.stringify(registry));
-  const archive=resolve(root,'archive',active.revision);
+  const archivedRevision=registry.releases[0].revision;
+  const archive=resolve(root,'archive',archivedRevision);
   try {
-    cpSync(resolve(protocol,'archive',active.revision),archive,{recursive:true});writeRegistry();
-    assert.equal(readPortfolioHistoryRevisions(root,active).length,1);
+    cpSync(resolve(protocol,'archive',archivedRevision),archive,{recursive:true});writeRegistry();
+    assert.equal(readPortfolioHistoryRevisions(root,active).length,2);
     const lockPath=resolve(archive,'protocol.lock.json'),lock=readFileSync(lockPath);
     writeFileSync(lockPath,Buffer.concat([lock,Buffer.from('\n')]));
     assert.throws(()=>readPortfolioHistoryRevisions(root,active),/lock hash differs/);

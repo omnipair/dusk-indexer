@@ -32,6 +32,10 @@ test('saved capture income, canonical claims and accrued interest reconcile with
       for(const side of ['base','quote']){
         market[`${side}_side`].fees.swap_fee_growth_index_q64=new BN(after&&side==='base'?(400003n*Q64).toString():0);
         market[`${side}_side`].fees.interest_growth_index_q64=new BN(after&&side==='base'?(100002n*Q64).toString():0);
+        // This scenario has no hLP earnings. A true zero start anchor must
+        // clear those fixture lane indexes as well as the srLP indexes.
+        for(const vault of ['base_hlp_vault','quote_hlp_vault'])for(const index of ['swap_fee_growth_index_q64','interest_growth_index_q64'])
+          market[vault][`${side}_${index}`]=new BN(0);
       }
       group.marketAccount.data=encodeFixtureAccount('Market',market).toString('base64');
       const preview=coder.types.decode('MarketPreview',Buffer.from(group.preview!,'base64')) as any;
@@ -51,7 +55,7 @@ test('saved capture income, canonical claims and accrued interest reconcile with
         const yieldAccount=encodeFixtureAccount('YieldAccount',{owner:new PublicKey(item.owner),market:new PublicKey(item.market),
           lp_mint:new PublicKey(item.lpMint),asset_mint:new PublicKey(item.baseMint),token_kind:0,recipient:new PublicKey(item.owner),bump,
           swap_fee_checkpoint_q64:new BN((400000n*Q64).toString()),interest_checkpoint_q64:new BN((100000n*Q64).toString())});
-        group.incomeEvidence={items:[item],archives:[],accounts:[
+        group.incomeEvidence={items:[item],accounts:[
           {address:addresses[1],account:{owner:loadPinnedProtocol().dusk.programId,executable:false,data:yieldAccount.toString('base64')}},
           {address:addresses[2],account:null}]};
       }

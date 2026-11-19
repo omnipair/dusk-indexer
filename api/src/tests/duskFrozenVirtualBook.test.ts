@@ -18,11 +18,11 @@ import type { VirtualBookSelection } from '../services/duskVirtualBook';
 const protocol = resolve(__dirname, '../../../protocol');
 process.env.DUSK_PROTOCOL_DIR = protocol;
 const idl = JSON.parse(readFileSync(resolve(protocol, 'idl/dusk.json'), 'utf8')) as Idl;
-const fixture = () => JSON.parse(gunzipSync(readFileSync(resolve(__dirname, '../../src/tests/fixtures/virtual-book-mainnet-bank.json.gz'))).toString()) as {
-  bank: FrozenLeverageBank; deployment: DuskDeploymentEnvelope; selection: VirtualBookSelection;
+const fixture = () => JSON.parse(gunzipSync(readFileSync(resolve(__dirname, '../../src/tests/fixtures/virtual-book-layout19-bank.json.gz'))).toString()) as {
+  bank: FrozenLeverageBank; deployment: DuskDeploymentEnvelope; selection: VirtualBookSelection; expectedMid: number;
 };
 
-test('the deployed SBF prices all 12/24/36 levels from one unchanged mainnet bank', async () => {
+test('the exact production SBF prices all 12/24/36 levels from one unchanged synthetic harness bank', async () => {
   const f = fixture(), original = JSON.stringify(f.bank);
   const frames: Awaited<ReturnType<typeof quoteFrozenVirtualBook>>[] = [];
   for (const levels of [12, 24, 36]) {
@@ -32,7 +32,7 @@ test('the deployed SBF prices all 12/24/36 levels from one unchanged mainnet ban
     assert.equal(result.book.slot, f.bank.slot);
     assert.equal(result.book.bids.length, levels);
     assert.equal(result.book.asks.length, levels);
-    assert.equal(result.book.mid, 0.04062938);
+    assert.equal(result.book.mid, f.expectedMid);
     assert.ok(result.book.bids[0].price < result.book.mid);
     assert.ok(result.book.asks[0].price > result.book.mid);
     for (const side of ['bids', 'asks'] as const) {

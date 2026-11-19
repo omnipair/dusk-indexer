@@ -4,13 +4,12 @@ import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { BorshCoder, Idl } from '@coral-xyz/anchor';
 import { IdlCoder } from '@coral-xyz/anchor/dist/cjs/coder/borsh/idl';
 import { AccountLayout } from '@solana/spl-token';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import * as simulation from '../services/duskMarketSimulation';
 import { hlpCohortAddress } from '../services/duskHlpCohort';
 import { portfolioSampleSeconds, projectPortfolioSource } from '../services/duskPortfolioSnapshots';
 import { portfolioFixture } from './duskPortfolioFixtures';
 import { fixtureKey } from './duskYieldCheckpointFixtures';
+import { pinnedDuskIdl } from '../services/duskProtocolSchema';
 
 test('portfolio sampling accepts explicit whole intervals and rejects malformed requests',() => {
   for (const input of [undefined,0,'0']) assert.equal(portfolioSampleSeconds(input),0);
@@ -28,7 +27,7 @@ test('native portfolio replay combines indexed positions and non-ATA LP ownershi
 
 test('retired hLP receipts replay with proven zero principal and require their captured cohort',async () => {
   const { source } = portfolioFixture();
-  const rawIdl = JSON.parse(readFileSync(resolve(__dirname,'../../../protocol/idl/dusk.json'),'utf8')) as Idl;
+  const rawIdl: Idl = pinnedDuskIdl();
   const coder = new BorshCoder(rawIdl),program = new PublicKey(rawIdl.address),mint = fixtureKey(180);
   const group = source.groups[0],market = new PublicKey(group.market);
   source.catalog.items[1].kind = 'base_hlp';
@@ -129,7 +128,7 @@ test('incomplete, duplicate, foreign and stale catalog captures cannot project',
 
 test('junior receipt replay retains the holder and requires authenticated retirement evidence',async () => {
   const { source } = portfolioFixture();
-  const rawIdl = JSON.parse(readFileSync(resolve(__dirname,'../../../protocol/idl/dusk.json'),'utf8')) as Idl;
+  const rawIdl: Idl = pinnedDuskIdl();
   const coder = new BorshCoder(rawIdl),program = new PublicKey(rawIdl.address),mint = fixtureKey(181);
   const group = source.groups[0],market = new PublicKey(group.market);
   source.catalog.items[1].kind = 'junior'; source.catalog.items[1].lpMint = mint.toBase58();

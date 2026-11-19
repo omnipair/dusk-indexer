@@ -81,8 +81,6 @@ test('a referral partner nets each streamed accrual of the transfer fee in force
   assert.equal(result.streams.length, 2);
   assert.deepEqual(result.streams[0], {
     address: baseAccrual.toBase58(), market, assetMint: base, assetDecimals: 6, tokenProgram: TOKEN_2022_PROGRAM_ID.toBase58(),
-    interestVault: PublicKey.findProgramAddressSync([Buffer.from('market_interest'), new PublicKey(market).toBuffer(),
-      new PublicKey(base).toBuffer()], program)[0].toBase58(),
     initialized: true, amount: '1000', recipientCredit: '990',
   });
   assert.equal(result.streams[1].initialized, false);

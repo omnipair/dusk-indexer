@@ -90,3 +90,23 @@ test('worker records genuine zero after verified absence and keeps the previousl
   assert.equal(current.owner,prior.catalog.knownOwners[0]);assert.equal(current.valuations.netPositionValueUsd,'0');
   assert.equal((await client.query('SELECT count(*)::int AS n FROM dusk_ingestion.portfolio_checkpoints WHERE capture_id=$1',[previousId])).rows[0].n,1);
 }));
+test('a replacement market discovered before the first empty capture still retains approved archived owner addresses only',()=>transaction(async client=>{
+  const time=new Date(Date.now()-5000);await streamedRelease(client,{slot:910_000_100,time});
+  const {streamedMarket}=await import('./duskStreamedFixtures');await streamedMarket(client);
+  const source=portfolioFixture().source,id=await storePortfolioCapture(client,source);await projectPortfolioCapture(client,id);
+  const archived={...pin,revision:pin.revision+'-retired-owner-candidate',dusk:{...pin.dusk,idlCanonicalSha256:'4'.repeat(64)}};
+  const identity=portfolioRevisionIdentity(archived),owner=fixtureKey(235).toBase58();
+  await client.query(`INSERT INTO dusk_ingestion.protocol_identities(cluster,program_id,idl_hash,protocol_revision) VALUES($1,$2,$3,$4)`,identity);
+  const archivedSource=JSON.parse(JSON.stringify(source));archivedSource.catalog.knownOwners=[owner];
+  const capture=(await client.query(`INSERT INTO dusk_ingestion.portfolio_capture_observations
+    (cluster,program_id,idl_hash,protocol_revision,source_min_slot,source_max_slot,capture_time,observed_at,deployment_identity_sha256,source,content_hash)
+    SELECT $1,$2,$3,$4,source_min_slot,source_max_slot,capture_time,observed_at,deployment_identity_sha256,$5,content_hash
+    FROM dusk_ingestion.portfolio_capture_observations WHERE capture_id=$6 RETURNING capture_id::text`,[...identity,JSON.stringify(archivedSource),id])).rows[0].capture_id;
+  await client.query(`INSERT INTO dusk_ingestion.portfolio_checkpoints(cluster,program_id,idl_hash,protocol_revision,owner,bucket,observed_at,source_min_slot,source_max_slot,components,coverage,valuations,capture_id)
+    SELECT $1,$2,$3,$4,$5,bucket,observed_at,source_min_slot,source_max_slot,'[]'::jsonb,coverage,valuations,$6
+    FROM dusk_ingestion.portfolio_checkpoints WHERE capture_id=$7`,[...identity,owner,capture,id]);
+  const {readPortfolioCatalog}=await import('../services/duskPortfolioSnapshots');
+  const current=await readPortfolioCatalog(client,false,[pin,archived]);
+  assert.equal(current.markets.length,1);assert.ok(current.knownOwners.includes(owner));assert.deepEqual(current.items,[]);
+  assert.ok(!(await readPortfolioCatalog(client)).knownOwners.includes(owner),'Unregistered old identities remain excluded');
+}));

@@ -6,7 +6,7 @@ use {
     std::collections::BTreeSet,
 };
 
-const DUSK_EVENTS: [&str; 60] = [
+const DUSK_EVENTS: [&str; 58] = [
     "BorrowInterestAccrued",
     "BorrowInterestPaid",
     "BorrowPositionLiquidated",
@@ -19,7 +19,6 @@ const DUSK_EVENTS: [&str; 60] = [
     "HlpCohortRotated",
     "HlpFlashSettled",
     "HlpFlashStarted",
-    "HlpInterestAllocated",
     "HlpOpened",
     "HlpRebalanced",
     "HlpRetiredReceiptBurned",
@@ -55,7 +54,6 @@ const DUSK_EVENTS: [&str; 60] = [
     "ProtocolAuctionSettled",
     "ProtocolAuctionSplitUpdated",
     "ProtocolInterestMarkupCheckpointed",
-    "PublicInterestFunded",
     "ReferralBound",
     "ReferralInterestAccrued",
     "ReferralInterestClaimed",
@@ -93,12 +91,11 @@ const DELEGATE_INSTRUCTIONS: [&str; 19] = [
     "update_leverage_order",
 ];
 
-const DUSK_ACCOUNTS: [&str; 16] = [
+const DUSK_ACCOUNTS: [&str; 15] = [
     "BorrowPosition",
     "FutarchyAuthority",
     "HlpCohort",
     "HlpFlashSession",
-    "IncomeEpoch",
     "JuniorCohort",
     "JuniorExitAccount",
     "LeverageDelegation",
@@ -129,6 +126,16 @@ const DELEGATE_ACCOUNTS: [&str; 12] = [
 
 fn decoder() -> PinnedIdlDecoder {
     PinnedIdlDecoder::new("devnet").unwrap()
+}
+
+// Historical rejection tests retain the actual archived ABI rather than
+// treating the current layout as if it were still layout 17.
+fn legacy_registry() -> ProgramRegistry {
+    ProgramRegistry::from_bytes(
+        include_bytes!("../../../../../protocol/archive/mainnet-2026-11-14/idl/dusk.json"),
+        DUSK_PROGRAM_ID,
+    )
+    .unwrap()
 }
 
 fn context() -> TransactionObservationContext {
@@ -273,6 +280,19 @@ fn account_data(decoder: &PinnedIdlDecoder, program: PinnedProgram, name: &str) 
         .unwrap();
     let mut data = discriminator.to_vec();
     data.extend_from_slice(&zero_named_type(&registry.types, &descriptor.name));
+    if name == "Market" {
+        let mut prefix = Vec::new();
+        for field in registry.types.definition("Market").unwrap()["type"]["fields"]
+            .as_array()
+            .unwrap()
+        {
+            if field["name"] == "version" {
+                break;
+            }
+            zero_type(&registry.types, &field["type"], &mut prefix, 0);
+        }
+        data[8 + prefix.len()] = 19;
+    }
     data
 }
 
@@ -293,7 +313,7 @@ fn registry_classifies_every_pinned_event_and_instruction() {
         actual_delegate_events,
         DELEGATE_EVENTS.into_iter().collect()
     );
-    assert_eq!(decoder.instruction_names(PinnedProgram::Dusk).len(), 79);
+    assert_eq!(decoder.instruction_names(PinnedProgram::Dusk).len(), 76);
     let actual_delegate: BTreeSet<_> = decoder
         .instruction_names(PinnedProgram::LeverageDelegate)
         .into_iter()
@@ -307,8 +327,8 @@ fn anchor_tags_and_every_idl_discriminator_are_cryptographically_verified() {
     anchor_event_digest.reverse();
     assert_eq!(anchor_event_digest, ANCHOR_EVENT_CPI_TAG);
     let decoder = decoder();
-    assert_eq!(decoder.dusk.events.len(), 60);
-    assert_eq!(decoder.dusk.instructions.len(), 79);
+    assert_eq!(decoder.dusk.events.len(), 58);
+    assert_eq!(decoder.dusk.instructions.len(), 76);
     assert_eq!(decoder.delegate.events.len(), 2);
     assert_eq!(decoder.delegate.instructions.len(), 19);
 
@@ -663,7 +683,7 @@ fn registry_classifies_every_pinned_account_declaration() {
         .collect();
     assert_eq!(dusk, DUSK_ACCOUNTS.into_iter().collect());
     assert_eq!(delegate, DELEGATE_ACCOUNTS.into_iter().collect());
-    assert_eq!(decoder.dusk.accounts.len(), 16);
+    assert_eq!(decoder.dusk.accounts.len(), 15);
     assert_eq!(decoder.delegate.accounts.len(), 12);
 
     let mut idl: Value = serde_json::from_slice(DUSK_IDL).unwrap();
@@ -858,17 +878,10 @@ fn market_and_keeper_projections_cover_curve_and_all_protocol_auction_lanes() {
     assert_eq!(market.auction_lanes.len(), 8);
     assert_eq!(decoded.projections.keeper_discovery.len(), 8);
     assert_eq!(market.base.live_reserve.as_str(), "0");
-    // An undeployed candidate must not remove fields from active layout-17
-    // responses.
     let active = serde_json::to_value(market).unwrap();
-    assert_eq!(
-        active["base"]["interest_vault"],
-        decoded.decoded_fields.as_ref().unwrap()["base_side"]["interest_vault"]
-    );
-    assert_eq!(
-        active["quote"]["interest_vault"],
-        decoded.decoded_fields.as_ref().unwrap()["quote_side"]["interest_vault"]
-    );
+    assert_eq!(active["version"], 19);
+    assert!(active["base"].get("interest_vault").is_none());
+    assert!(active["quote"].get("interest_vault").is_none());
     assert_eq!(market.params_hash_hex, format!("0x{}", "00".repeat(32)));
 
     let mut fields = decoded.decoded_fields.unwrap();
@@ -1001,7 +1014,7 @@ fn oracle_candidate_matches_sdk_wire_bytes_without_promoting_the_pin() {
             )
             .is_err()
     );
-    assert_eq!(crate::PROTOCOL_REVISION, "mainnet-2026-11-14");
+    assert_eq!(crate::PROTOCOL_REVISION, "mainnet-2026-11-19");
 }
 
 #[test]
@@ -1073,7 +1086,7 @@ fn accrued_interest_candidate_interface_drops_books_epochs_and_interest_vaults()
         manifest["programs"][0]["idl"]["sha256"],
         crate::DUSK_IDL_RAW_SHA256
     );
-    assert_eq!(crate::PROTOCOL_REVISION, "mainnet-2026-11-14");
+    assert_eq!(crate::PROTOCOL_REVISION, "mainnet-2026-11-19");
 
     let registry = accrued_interest_registry();
     let events: BTreeSet<&str> = registry
@@ -1183,13 +1196,15 @@ fn accrued_interest_candidate_market_and_yield_accounts_project_without_income_b
     assert!(projected["base"].get("interest_vault").is_none());
     assert_eq!(projected["auction_lanes"].as_array().unwrap().len(), 8);
 
-    // The active layout-17 decoder cannot read a layout-19 account.
+    // The archived layout-17 decoder must still reject layout-19 bytes.
     let mut account = anchor_discriminator("account", "Market").to_vec();
     account.extend_from_slice(&market_bytes);
-    let active = decoder()
-        .decode_account(&account_context(), DUSK_PROGRAM_ID, &account)
-        .unwrap();
-    assert_eq!(active.status, AccountDecodeStatus::MalformedKnownPayload);
+    assert!(
+        legacy_registry()
+            .types
+            .decode_named_account_type("Market", &account[8..], DecodeLimits::default())
+            .is_err()
+    );
 
     let yield_bytes = zero_named_type(&registry.types, "YieldAccount");
     let (mut holder, _) = registry

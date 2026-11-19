@@ -1,7 +1,7 @@
 # Accrued-interest candidate (market layout 19)
 
 The two generated IDLs come from the Dusk accrued-interest rewrite on base
-commit `633287d47d022f2177d96be45fa937287042f5a6`. Borrower interest is credited to holders at accrual through
+commit `0004e04b93d68e7454fc2e00b0e28a2aa8335d29`. Borrower interest is credited to holders at accrual through
 growth indexes and a per-asset `InterestLedger` in `Fees`; claims are paid from
 reserve cash, limited by the cash present. The income receivable books,
 `IncomeEpoch`, `roll_income_epoch`, `checkpoint_income`, `fund_interest`, the

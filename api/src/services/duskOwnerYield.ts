@@ -1,9 +1,9 @@
 import { snapshotTransaction } from './duskSnapshotTransaction';
 import { marketLayoutVersion } from './duskProtocolSchema';
 /**
- * An owner's claimable LP yield: every (holder, market, LP mint) it has held,
- * and every hLP stop order escrow it still owns, valued at the amount Harvest
- * would pay now.
+ * An owner's LP yield: every (holder, market, LP mint) it has held, and every
+ * hLP stop order escrow it still owns, valued at what the holder is owed and
+ * at the amount Harvest would pay now.
  *
  * Discovery comes from the database: the streamed LP balances (including
  * holdings that have since gone to zero, whose yield accounts can still hold
@@ -12,6 +12,9 @@ import { marketLayoutVersion } from './duskProtocolSchema';
  * amounts change without a transaction as interest and fees accrue, so each
  * group is valued from the program's `preview_market` post-state in one
  * simulated bank with its yield accounts, LP holding, asset mints and Clock.
+ * Interest is credited at accrual, so claimable interest comes from the lane's
+ * growth index and the holder's checkpoint alone. Harvest pays it from the
+ * asset's reserve cash as cash allows; `interestPayable` is that part.
  */
 
 import {
@@ -30,7 +33,7 @@ import {
 } from '@solana/web3.js';
 import type { AccountInfo } from '@solana/web3.js';
 import type { Pool, PoolClient } from 'pg';
-import { readIncomeArchives, deriveJuniorCohortAddress } from '@omnipair/dusk-sdk';
+import { deriveJuniorCohortAddress } from '@omnipair/dusk-sdk';
 import type { Dusk, HlpCohort, JuniorCohort, Market, YieldAccount } from '@omnipair/dusk-sdk';
 
 import pool from '../config/database';
@@ -39,7 +42,7 @@ import type { DuskDeploymentEnvelope } from './duskDeploymentService';
 import { captureWithDeadline, currentDisplayState, displayRuntime } from './duskDisplayState';
 import { readStreamCursor } from './duskHistoryCoverage';
 import { completeBatch } from './duskWalletSnapshot';
-import { projectLiveYield } from './duskYieldAccounting';
+import { payableInterest, projectLiveYield } from './duskYieldAccounting';
 import { assertRetiredHlpCohort, hlpCohortAddress } from './duskHlpCohort';
 import { boundedDuskRpcRead, decodePreviewMarketReturnData, deriveYieldAccountAddress } from './virtualBook/native';
 
@@ -67,14 +70,19 @@ export interface YieldStream {
   recipient: string;
   initialized: boolean;
   needsGrowth: boolean;
-  needsIncomeCatchup?: boolean;
   lpBalance: string;
   escrowBalance?: string;
   lpDecimals: number;
   assetDecimals: number;
   swapFeeAmount: string;
+  /** Credited, unclaimed interest: the checkpointed amount plus the balance's
+   * share of the lane index change. */
   interestAmount: string;
-  /** Total net of each asset transfer's current transfer fee. */
+  /** The part of `interestAmount` Harvest pays now, limited by the asset's
+   * reserve cash in the same bank. The rest stays claimable. */
+  interestPayable: string;
+  /** Swap fees plus `interestPayable`, net of the asset's current transfer
+   * fee on that single transfer. */
   recipientCredit: string;
   sourceSlot: number;
 }
@@ -145,7 +153,6 @@ export async function readOwnerYieldGroups(
   return { groups, sourceSlot: Number(stream.throughSlot) };
 }
 
-/** Known legacy layouts omit only zero-default trailing fields. */
 /** One group in one simulated bank. A rejected market preview is `null`. */
 export async function captureYieldGroup(
   dusk: Dusk,
@@ -234,7 +241,7 @@ export async function captureYieldGroup(
   const balance = token?.amount ?? 0n,
     epoch = clock.data.readBigUInt64LE(16);
   const size = dusk.program.coder.accounts.size('yieldAccount');
-  return Promise.all(assets.map(async (assetMint, index) => {
+  return assets.map((assetMint, index) => {
     const mintInfo = infos[5 + index];
     if (!mintInfo || (!mintInfo.owner.equals(TOKEN_2022_PROGRAM_ID) && !mintInfo.owner.equals(TOKEN_PROGRAM_ID)))
       throw new Error('Invalid yield asset mint');
@@ -253,13 +260,13 @@ export async function captureYieldGroup(
         account.recipient.equals(PublicKey.default))
     )
       throw new Error('Yield account identity changed');
-    const retiredLedger = cohort?.finalVault ?? juniorCohort?.finalIncome?.[index];
-    const projectionPending = Boolean(account && group.kind !== 'hlp' && account.incomeInitialized &&
-      [0,1].some(source => BigInt(state.income.books[index+source*2].epoch.toString()) - BigInt(account.income[source].epoch.toString()) > 32n));
-    const archives = account && !projectionPending ? await boundedDuskRpcRead(() => readIncomeArchives({dusk,market,holder:account,books:state.income.books,asset:index as 0|1,minContextSlot:slot}),signal) : undefined;
-    const amounts = account ? projectLiveYield(state as any, account, balance, retiredLedger,{archives,ends:juniorCohort?.incomeEnd,pendingHistory:projectionPending}) : { swapFeeAmount: 0n, interestAmount: 0n, totalAmount: 0n };
+    const retiredLedger = (cohort?.finalVault ?? juniorCohort?.finalIncome?.[index]) as Record<string, unknown> | undefined;
+    const amounts = account ? projectLiveYield(state as any, account, balance, retiredLedger) : { swapFeeAmount: 0n, interestAmount: 0n };
+    const interestPayable = payableInterest(state as any, index === 0 ? 'base' : 'quote', amounts.interestAmount);
+    // Harvest pays swap fees and payable interest in one reserve transfer.
+    const payable = amounts.swapFeeAmount + interestPayable;
     const fees = getTransferFeeConfig(mint);
-    const fee = (amount: bigint) => (fees ? calculateEpochFee(fees, epoch, amount) : 0n);
+    const fee = fees ? calculateEpochFee(fees, epoch, payable) : 0n;
     return {
       address: yields[index].toBase58(),
       holder: group.holder,
@@ -271,18 +278,17 @@ export async function captureYieldGroup(
       recipient: account?.recipient.toBase58() ?? group.holder,
       initialized: account !== null,
       needsGrowth: false,
-      needsIncomeCatchup: Boolean(account && group.kind !== 'hlp' && account.incomeInitialized &&
-        [0,1].some(source => BigInt(account.income[source].epoch.toString()) < BigInt(state.income.books[index+source*2].epoch.toString()))),
       lpBalance: balance.toString(),
       escrowBalance: account?.escrowBalance.toString() ?? "0",
       lpDecimals: lp.decimals,
       assetDecimals: mint.decimals,
       swapFeeAmount: amounts.swapFeeAmount.toString(),
       interestAmount: amounts.interestAmount.toString(),
-      recipientCredit: (amounts.totalAmount - fee(amounts.swapFeeAmount) - fee(amounts.interestAmount)).toString(),
+      interestPayable: interestPayable.toString(),
+      recipientCredit: (payable - fee).toString(),
       sourceSlot: slot,
     };
-  }));
+  });
 }
 
 export const ownerYieldDependencies = { groups: readOwnerYieldGroups, group: captureYieldGroup };
