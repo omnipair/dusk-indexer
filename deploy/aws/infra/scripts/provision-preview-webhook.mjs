@@ -1,7 +1,7 @@
 // Provision a project-scoped callback. The callback secret stays in memory and Secrets Manager.
 import { parseArgs } from 'node:util';
 import { readFileSync } from 'node:fs';
-import { commandJson } from './aws-cli.mjs';
+import { awsClient, commandJson } from './aws-cli.mjs';
 const projectId = 'prj_ztwzUn81e0xHqLa2NjoHbnqXy0EF',
   teamId = 'team_mUKFDc1HjGHQuYhtdIuDIh0x';
 const endpoint = 'https://api.dusk.omnipair.fi/internal/vercel/previews';
@@ -18,23 +18,9 @@ const { values } = parseArgs({
   },
 });
 const config = JSON.parse(readFileSync(values.config, 'utf8'));
+const requestAws = awsClient(values.profile);
 const aws = (service, action, input = {}) =>
-  commandJson(
-    'aws',
-    [
-      service,
-      action,
-      '--profile',
-      values.profile,
-      '--region',
-      config.primaryRegion,
-      '--output',
-      'json',
-      '--cli-input-json',
-      'file:///dev/stdin',
-    ],
-    { input },
-  );
+  requestAws(config.primaryRegion, service, action, input);
 const vercel = (path, method = 'GET', input) =>
   commandJson(
     'vercel',

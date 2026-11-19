@@ -95,6 +95,7 @@ database/
 !database/migrations/059_dusk_portfolio_history_lookup.sql
 !database/migrations/060_dusk_empty_portfolio_catalogs.sql
 !database/migrations/061_dusk_retirement_receipts.sql
+!database/migrations/062_dusk_browser_preview_origins.sql
 !database/dusk-migrations.txt
 
 # Other language artifacts
