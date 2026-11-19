@@ -5,10 +5,13 @@ import { resolve } from 'node:path';
 import type { PoolClient } from 'pg';
 import pool from '../config/database';
 import { canonicalJson,loadPinnedProtocol,sha256 } from '../config/duskProtocol';
+import { readPortfolioHistoryRevisions } from '../services/duskPortfolioHistoryRevisions';
 import { readPortfolioRetirementWithdrawals } from '../services/duskPortfolioRetirement';
 if(process.env.DUSK_ALLOW_DISPOSABLE_DB_TESTS!=='true'||!process.env.DATABASE_URL)throw new Error('A disposable DATABASE_URL is required');
 after(()=>pool.end());
 const pin=JSON.parse(readFileSync(resolve(__dirname,'../../../protocol/retirement/aa196e3423fd/release.json'),'utf8'));
+const historyPins=readPortfolioHistoryRevisions(resolve(__dirname,'../../../protocol'),loadPinnedProtocol());
+const legacy=historyPins.find(row=>row.revision==='mainnet-2026-11-14')!;
 const identity=[pin.cluster,pin.programId,pin.idlCanonicalSha256,pin.protocolRevision];
 const seal='b'.repeat(64),date=new Date('2026-11-19T01:00:00.000Z');
 async function transaction(work:(client:PoolClient)=>Promise<void>){const client=await pool.connect();try{await client.query('BEGIN');await work(client);}finally{await client.query('ROLLBACK');client.release();}}
@@ -38,15 +41,16 @@ async function event(client:PoolClient,row:Awaited<ReturnType<typeof fixture>>[n
 test('terminal withdrawal history stays unavailable through partial ingestion and retains exact native amounts after reconciliation',()=>transaction(async client=>{
   const rows=await fixture(client);
   for(const row of rows.slice(0,-1))await event(client,row);
-  assert.deepEqual(await readPortfolioRetirementWithdrawals(client,{owner:pin.owners[0]},[loadPinnedProtocol()]),[]);
+  assert.deepEqual(await readPortfolioRetirementWithdrawals(client,{owner:pin.owners[0]},historyPins),[]);
   await event(client,rows.at(-1)!);
-  const paid=await readPortfolioRetirementWithdrawals(client,{owner:pin.owners[0]},[loadPinnedProtocol()]);
+  const paid=await readPortfolioRetirementWithdrawals(client,{owner:pin.owners[0]},historyPins);
+  assert.deepEqual(await readPortfolioRetirementWithdrawals(client,{owner:pin.owners[0]},[loadPinnedProtocol()]),[], 'a current-only reader cannot relabel the legacy payout');
   assert.equal(paid.length,1);assert.equal(paid[0].kind,'market-retirement');assert.equal(paid[0].direction,'withdrawal');
   assert.deepEqual(paid[0].assets,[{mint:pin.baseMint,decimals:6,amount:'10'},{mint:pin.quoteMint,decimals:6,amount:'20'}]);
   assert.equal(paid[0].valuation.usd,null);assert.equal(paid[0].provenance.protocolRevision,pin.protocolRevision);
-  assert.equal(paid[0].provenance.retiredIdentity.protocolRevision,loadPinnedProtocol().revision);
-  assert.deepEqual(await readPortfolioRetirementWithdrawals(client,{owner:pin.treasury},[loadPinnedProtocol()]),[]);
-  assert.deepEqual(await readPortfolioRetirementWithdrawals(client,{owner:pin.owners[0],since:'2026-11-20T00:00:00Z'},[loadPinnedProtocol()]),[]);
+  assert.equal(paid[0].provenance.retiredIdentity.protocolRevision,legacy.revision);
+  assert.deepEqual(await readPortfolioRetirementWithdrawals(client,{owner:pin.treasury},historyPins),[]);
+  assert.deepEqual(await readPortfolioRetirementWithdrawals(client,{owner:pin.owners[0],since:'2026-11-20T00:00:00Z'},historyPins),[]);
   assert.equal((await client.query('SELECT count(*)::int AS n FROM dusk_ingestion.retirement_payouts')).rows[0].n,7);
   assert.equal((await client.query(`SELECT count(*)::int AS n FROM dusk_ingestion.ingestion_cursors WHERE protocol_revision=$1`,[pin.protocolRevision])).rows[0].n,0);
 }));
@@ -58,5 +62,5 @@ test('an archive cannot be rewritten and a changed canonical payout never become
   await client.query('SAVEPOINT no_canonical_rewrite');
   await assert.rejects(client.query(`UPDATE dusk_ingestion.event_observations SET decoded_payload=jsonb_set(decoded_payload,'{base}','"999"') WHERE event_key=$1`,[rows.at(-2)!.eventKey]),/FINALIZED_INVARIANT/);
   await client.query('ROLLBACK TO SAVEPOINT no_canonical_rewrite');
-  assert.equal((await readPortfolioRetirementWithdrawals(client,{owner:pin.owners[0]},[loadPinnedProtocol()]))[0].assets[0].amount,'10');
+  assert.equal((await readPortfolioRetirementWithdrawals(client,{owner:pin.owners[0]},historyPins))[0].assets[0].amount,'10');
 }));

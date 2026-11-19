@@ -1,16 +1,18 @@
 # Dusk mainnet protocol pin
 
-The active revision is `mainnet-2026-11-14`, from deployed Dusk commit `0acc9057b53a0495571f1bbf8a18e5db0f2efd45`. Both mainnet programs and published Anchor IDLs match the tested production release and passed independent source verification. The exact registry SDK is `@omnipair/dusk-sdk@2.27.0`.
+The active revision is `mainnet-2026-11-19`, from Dusk commit `aa196e3423fd5f46b00630a4f161d91f95ef7b3d`. Both finalized programs and Anchor IDLs match the tested production bundle, and both independent source verifications passed. The exact registry SDK is `@omnipair/dusk-sdk@3.0.1`.
 
-- Dusk: `DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj`, deployed at slot 469349657.
-- Delegate: `DeLegABhDLREbDpwwcsbkHvDS5MwqKPAw1CJKoooUXFQ`, deployed at slot 469350143.
-- The complete revision begins at **469350144**. Use fresh mainnet cursors and a mainnet database identity. No production market was created during this release.
+- Dusk: `DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj`, upgraded at slot 471276209.
+- Delegate: `DeLegABhDLREbDpwwcsbkHvDS5MwqKPAw1CJKoooUXFQ`, upgraded at slot 471275760.
+- Both are active from **471276210**. The new tuple uses fresh cursors; layout-17 observations keep their original identity.
 
-The former active devnet pin, IDLs, executable and price policy are preserved byte-for-byte in `archive/devnet-2026-11-14-main-grid/`. Do not relabel their observations or reuse their cursors. Historical devnet quote lineage remains isolated from mainnet reads.
+The old OMFG/META market was frozen and fully retired before this upgrade. Its six user payouts and final treasury residual are independently reconciled through 15 finalized canonical retirement events. The full post-replay database backup passed an isolated restore before the temporary helper was removed. The normal executable contains no retirement instructions. The archived market tombstone and immutable payout evidence remain.
 
-`mainnet-price-references.json` provides only the explicit native USDC dollar peg. SOL and other assets require event-time provider prices or native market-derived references; devnet demo prices are not mainnet valuations. An environment override must carry the exact active identity.
+`archive/mainnet-2026-11-14/` preserves the old lock, IDLs, runtime, feature snapshot and price policy byte-for-byte. The registered history reader includes this revision without relabelling its account bytes, prices or cash flows. No new mainnet market was created: the owner creates it through the UI. Live-write acceptance for that replacement market remains a separate gate.
 
-See [mainnet rollout](../docs/mainnet-release.md) for deployment and acceptance steps.
+`mainnet-price-references.json` provides only the explicit native USDC dollar peg. Other assets require event-time provider prices or native market-derived references. Environment overrides must carry the exact active identity. The API, daemon and AWS task environment are promoted together with these artifacts.
+
+See [mainnet rollout](../docs/mainnet-release.md) for operational steps.
 
 ## Historical devnet release notes
 

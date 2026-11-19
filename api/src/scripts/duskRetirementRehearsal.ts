@@ -9,7 +9,7 @@ import { createInitializeAccount3Instruction, createTransferCheckedInstruction, 
   getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, getAccountLenForMint, unpackMint } from '@solana/spl-token';
 import { address, lamports, getTransactionDecoder } from '@solana/kit';
 import { FailedTransactionMetadata, LiteSVM } from 'litesvm';
-import type { Dusk } from '@omnipair/dusk-sdk';
+import type { Dusk } from '@omnipair/dusk-sdk-layout17';
 import { loadProtocolAt, canonicalJson, sha256 } from '../config/duskProtocol';
 import { createFrozenProgramRuntime } from '../services/duskFrozenProgramRuntime';
 import type { FrozenLeverageBank } from '../services/duskLeverageMaximumInput';
@@ -57,7 +57,9 @@ async function main() {
   const {contentSha256,...durable} = inventory;
   if (retirementObservationHash(durable) !== contentSha256 || inventory.schemaVersion !== 'dusk-legacy-retirement-inventory.v1'
     || inventory.summary.market !== LEGACY_RETIREMENT.market) throw new Error('Invalid retirement inventory artifact');
-  const root=resolve(__dirname,'../../../protocol'),pin=loadProtocolAt(root);
+  const root=resolve(__dirname,'../../../protocol/archive',LEGACY_RETIREMENT.revision),pin=loadProtocolAt(root);
+  // Historical rehearsal never inherits the successor layout or runtime features.
+  process.env.DUSK_PROTOCOL_DIR=root;
   if (pin.revision !== LEGACY_RETIREMENT.revision || pin.cluster !== 'mainnet-beta'
     || canonicalJson(inventory.identity.dusk)!==canonicalJson(pin.dusk)
     || canonicalJson(inventory.identity.delegate)!==canonicalJson(pin.leverageDelegate)) throw new Error('Retirement pin changed');
@@ -171,7 +173,7 @@ async function main() {
     if(state.market.toBase58()!==LEGACY_RETIREMENT.market)throw new Error('Position crossed retirement market');
     return [{address:row.address,state}];
   });
-  const sdk=await import('@omnipair/dusk-sdk');
+  const sdk=await (new Function("return import('@omnipair/dusk-sdk-layout17')") as () => Promise<typeof import('@omnipair/dusk-sdk-layout17')>)();
   if(sha256(canonicalJson(sdk.IDL))!==pin.dusk.idlCanonicalSha256)throw new Error('Rehearsal SDK differs from pin');
   const longFirst=[...positions].sort((a,b)=>b.state.debt_asset-a.state.debt_asset || a.address.localeCompare(b.address));
   const variants=[

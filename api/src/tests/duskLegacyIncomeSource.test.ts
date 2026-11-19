@@ -1,3 +1,4 @@
+import './duskLegacyTestProtocol';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BN } from '@coral-xyz/anchor';

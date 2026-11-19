@@ -1,3 +1,4 @@
+import { pinnedDuskIdl } from '../duskProtocolSchema';
 import {
   combineVirtualBookBatches,
   decodeDuskVirtualBookBatch as decodeBatch,
@@ -45,7 +46,8 @@ function failedPreview(error: unknown) {
  * observed bank. Omit that level; all other simulation failures invalidate the
  * book rather than being treated as missing liquidity. */
 export function unquotableAmount(error: unknown): boolean {
-  return failedPreview(error)?.reason?.Custom === 6047;
+  const code=pinnedDuskIdl().errors?.find(row=>row.name==='BrokenInvariant')?.code;
+  return code!==undefined && failedPreview(error)?.reason?.Custom===code;
 }
 
 /** The batch ran out of compute, which is metered per transaction. Fewer

@@ -1,17 +1,17 @@
 {
-  "eventRevision": "mainnet-2026-11-14",
+  "eventRevision": "mainnet-2026-11-19",
   "programId": "DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj",
-  "idlCanonicalSha256": "dfd05743bca263f84193acbe882d281cb532806928fa357fc4ce0f07a4ec383c",
-  "sourceCommit": "0acc9057b53a0495571f1bbf8a18e5db0f2efd45",
-  "deploySlot": 469349657,
-  "binarySha256": "047a30c6396791c962c62a958c1b099b12e5994bc07dfffc69d5bd2a91031b0a",
+  "idlCanonicalSha256": "feaeb5ddbdec18a7b1c103fdc2e09730114c57f7c4948e5f6ce2ef50368e18a0",
+  "sourceCommit": "aa196e3423fd5f46b00630a4f161d91f95ef7b3d",
+  "deploySlot": 471276209,
+  "binarySha256": "bf2153cbee2c5ada9dd943d57c6fe9d23b5c696f94b4a3cb1a984c7117b48733",
   "allocatedBinaryBytes": 4058688,
   "leverageDelegate": {
     "programId": "DeLegABhDLREbDpwwcsbkHvDS5MwqKPAw1CJKoooUXFQ",
-    "idlCanonicalSha256": "58f03db70f59e04ed594848bda54dcf5a05b4fa9ef31868c4d98273443321d22",
-    "sourceCommit": "0acc9057b53a0495571f1bbf8a18e5db0f2efd45",
-    "deploySlot": 469350143,
-    "binarySha256": "0b62f3ea48dbddadf5935ec57f0de907bcf26b99793d6ce7c2155225097c5e6e",
+    "idlCanonicalSha256": "ba266f08038ed0b62aa2a64ef01f0d1fdd8e4b0fab099a2dd7581dfb411dda7c",
+    "sourceCommit": "aa196e3423fd5f46b00630a4f161d91f95ef7b3d",
+    "deploySlot": 471275760,
+    "binarySha256": "571e040b3feb9580a89278a2025da21bfa62e62f7fc3a441dd7a6fb499141f68",
     "allocatedBinaryBytes": 1289240
   }
 }
