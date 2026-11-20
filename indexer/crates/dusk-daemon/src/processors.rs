@@ -149,7 +149,9 @@ impl DuskTransactionProcessor {
         )?;
         let time = event_time(observed.block_time, Utc::now());
         // Every write is idempotent, so a transient database error retries
-        // the whole transaction.
+        // the whole transaction. Log persistence separately from startup/RPC
+        // attestation so operators can detect event-to-history latency.
+        let persistence_started = std::time::Instant::now();
         let mut attempt = 0;
         loop {
             match self.persist(&signature, &observed, time).await {
@@ -163,11 +165,12 @@ impl DuskTransactionProcessor {
             }
         }
         log::debug!(
-            "slot {}: {} event(s) [{}], {} order instruction(s)",
+            "slot {}: {} event(s) [{}], {} order instruction(s), persistence_ms={}",
             observed.slot,
             observed.events.len(),
             observed.event_names().join(", "),
-            observed.orders.len()
+            observed.orders.len(),
+            persistence_started.elapsed().as_millis()
         );
         Ok(observed.events.len())
     }
@@ -187,9 +190,7 @@ impl DuskTransactionProcessor {
             self.first_slot,
         )
         .await?;
-        for event in &observed.events {
-            persist::persist_event(&self.pool, event, time, self.first_slot).await?;
-        }
+        persist::persist_events(&self.pool, &observed.events, time, self.first_slot).await?;
         for order in &observed.orders {
             orders::persist(
                 &self.pool,
