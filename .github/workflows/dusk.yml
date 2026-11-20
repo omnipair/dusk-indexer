@@ -88,6 +88,8 @@ jobs:
           DUSK_MIGRATE_ONLY=true bash scripts/dusk-indexer-entrypoint.sh
           psql "$DATABASE_URL" -X -f database/tests/native-account-projections.sql
           psql "$DATABASE_URL" -X -f database/tests/lp-ownership.sql
+      - name: Verify batched transaction persistence on PostgreSQL
+        run: cargo test --locked -p dusk-indexer-daemon postgres_batch_is_atomic -- --ignored
       - run: npm ci
         working-directory: api
       - run: npm run test:unit

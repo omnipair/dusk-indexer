@@ -187,9 +187,7 @@ impl DuskTransactionProcessor {
             self.first_slot,
         )
         .await?;
-        for event in &observed.events {
-            persist::persist_event(&self.pool, event, time, self.first_slot).await?;
-        }
+        persist::persist_events(&self.pool, &observed.events, time, self.first_slot).await?;
         for order in &observed.orders {
             orders::persist(
                 &self.pool,

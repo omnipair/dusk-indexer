@@ -1,9 +1,9 @@
 //! Postgres persistence for decoded events, cursors, and the hypertable.
 //!
-//! Streamed ingestion writes confirmed events as they land, like the v1
-//! indexer: the observation is the canonical record and nothing revisits it
-//! for forks. JSON payloads are bound as text and cast to `jsonb` in SQL,
-//! which keeps this crate off sqlx's serde feature matrix.
+//! Observations commit before canonical projections. All events from one
+//! transaction are published together; the number of database round trips
+//! does not grow with its CPI/event count. Fork changes require reconciliation
+//! rather than replacing a canonical pointer from arrival order.
 
 use {
     anyhow::{Context as _, Result},
@@ -12,7 +12,9 @@ use {
         decoder::DecodedEventEnvelope, DUSK_IDL_SHA256, DUSK_PROGRAM_ID,
         LEVERAGE_DELEGATE_IDL_SHA256, LEVERAGE_DELEGATE_PROGRAM_ID, PROTOCOL_REVISION,
     },
+    serde_json::{json, Value},
     sqlx::PgPool,
+    std::collections::BTreeSet,
 };
 
 pub const STREAM_NAME: &str = "helius-atlas-ws";
@@ -173,162 +175,148 @@ pub fn require_release_slot(slot: u64, first_slot: u64) -> Result<()> {
     Ok(())
 }
 
-/// Observation + canonical row + hypertable row, idempotently. `time` is the
-/// block time when the source provides one and arrival time otherwise, as in
-/// the v1 indexer.
+/// The single-event entry point shares the exact same batched path as live
+/// ingestion. Retirement replay must not acquire different write semantics.
 pub async fn persist_event(
     pool: &PgPool,
     event: &DecodedEventEnvelope,
     stream_time: DateTime<Utc>,
     first_slot: u64,
 ) -> Result<()> {
-    require_release_slot(event.observation.slot, first_slot)?;
-    let record = event.canonical_record();
-    let decoded_payload = record
-        .decoded_payload
-        .as_ref()
-        .map(|value| value.to_string());
-    let instruction_path: Vec<i32> = record
-        .instruction_path
-        .iter()
-        .map(|segment| i32::from(*segment))
-        .collect();
-    let observed_at: DateTime<Utc> = Utc
-        .timestamp_millis_opt(record.observed_at_unix_ms as i64)
-        .single()
-        .unwrap_or_else(Utc::now);
+    persist_events(pool, std::slice::from_ref(event), stream_time, first_slot).await
+}
 
+fn batch_records(events: &[DecodedEventEnvelope], first_slot: u64) -> Result<Vec<Value>> {
+    let mut keys = BTreeSet::new();
+    events.iter().map(|event| {
+        require_release_slot(event.observation.slot, first_slot)?;
+        let record = event.canonical_record();
+        if !keys.insert(record.event_key.clone()) {
+            anyhow::bail!("duplicate event identity within one transaction");
+        }
+        let observed_at = Utc.timestamp_millis_opt(i64::try_from(record.observed_at_unix_ms)?)
+            .single().context("invalid event observation time")?;
+        Ok(json!({
+            "cluster": record.cluster, "program_id": record.program_id,
+            "idl_hash": record.idl_hash, "protocol_revision": record.protocol_revision,
+            "event_key": record.event_key, "transaction_signature": record.transaction_signature,
+            "instruction_path": record.instruction_path, "event_ordinal": record.event_ordinal,
+            "slot": i64::try_from(record.slot)?, "blockhash": record.blockhash,
+            "parent_slot": record.parent_slot.map(i64::try_from).transpose()?,
+            "commitment": commitment_str(record.commitment), "event_name": record.event_name,
+            "payload_hash": record.payload_hash, "decoded_payload": record.decoded_payload,
+            // PostgreSQL's bytea text input; JSON arrays are not bytea values.
+            "raw_event": format!("\\x{}", record.raw_event.iter().map(|b| format!("{b:02x}")).collect::<String>()),
+            "source": record.source, "observed_at": observed_at,
+        }))
+    }).collect()
+}
+
+/// Persist the observation archive first, then publish the whole transaction's
+/// canonical events and history atomically. A six-event swap takes the same
+/// fixed number of database round trips as a single-event transaction.
+pub async fn persist_events(
+    pool: &PgPool,
+    events: &[DecodedEventEnvelope],
+    stream_time: DateTime<Utc>,
+    first_slot: u64,
+) -> Result<()> {
+    let mut records = batch_records(events, first_slot)?;
+    if records.is_empty() {
+        return Ok(());
+    }
+    let payload = serde_json::to_string(&records)?;
     let mut transaction = pool.begin().await?;
-
-    let observation_id: i64 = match sqlx::query_scalar(
+    let observations: Vec<(String, i64)> = sqlx::query_as(
         r#"
-        INSERT INTO dusk_ingestion.event_observations
-            (cluster, program_id, idl_hash, protocol_revision, event_key,
-             transaction_signature, instruction_path, event_ordinal, slot,
-             blockhash, parent_slot, commitment, event_name, payload_hash,
-             decoded_payload, raw_event, source, observed_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-                $15::jsonb, $16, $17, $18)
-        ON CONFLICT (cluster, program_id, idl_hash, protocol_revision, event_key, blockhash)
-        DO NOTHING
-        RETURNING observation_id
-        "#,
-    )
-    .bind(&record.cluster)
-    .bind(&record.program_id)
-    .bind(&record.idl_hash)
-    .bind(&record.protocol_revision)
-    .bind(&record.event_key)
-    .bind(&record.transaction_signature)
-    .bind(&instruction_path)
-    .bind(i32::from(record.event_ordinal))
-    .bind(record.slot as i64)
-    .bind(&record.blockhash)
-    .bind(record.parent_slot.map(|slot| slot as i64))
-    .bind(commitment_str(record.commitment))
-    .bind(&record.event_name)
-    .bind(&record.payload_hash)
-    .bind(&decoded_payload)
-    .bind(&record.raw_event)
-    .bind(&record.source)
-    .bind(observed_at)
-    .fetch_optional(&mut transaction)
-    .await
-    .context("inserting event observation")?
-    {
-        Some(id) => id,
-        // Already observed for this blockhash — reuse the stored row.
-        None => sqlx::query_scalar(
-            r#"
-            SELECT observation_id FROM dusk_ingestion.event_observations
-            WHERE cluster = $1 AND program_id = $2 AND idl_hash = $3
-              AND protocol_revision = $4 AND event_key = $5 AND blockhash = $6
-              AND payload_hash = $7 AND slot = $8 AND parent_slot IS NOT DISTINCT FROM $9
-              AND decoded_payload IS NOT DISTINCT FROM $10::jsonb AND raw_event IS NOT DISTINCT FROM $11
-              AND commitment = $14 AND instruction_path = $12 AND event_ordinal = $13
-            "#,
-        )
-        .bind(&record.cluster)
-        .bind(&record.program_id)
-        .bind(&record.idl_hash)
-        .bind(&record.protocol_revision)
-        .bind(&record.event_key)
-        .bind(&record.blockhash)
-        .bind(&record.payload_hash).bind(record.slot as i64).bind(record.parent_slot.map(|slot| slot as i64))
-        .bind(&decoded_payload).bind(&record.raw_event).bind(&instruction_path).bind(i32::from(record.event_ordinal))
-        .bind(commitment_str(record.commitment))
-        .fetch_optional(&mut transaction).await?
-        .context("repeated observation has contradictory chain facts")?,
-    };
-
-    // Commit the observation before canonical projection, so a contradictory
-    // candidate stays available for diagnosis.
+        INSERT INTO dusk_ingestion.event_observations AS stored
+            (cluster,program_id,idl_hash,protocol_revision,event_key,
+             transaction_signature,instruction_path,event_ordinal,slot,blockhash,
+             parent_slot,commitment,event_name,payload_hash,decoded_payload,raw_event,source,observed_at)
+        SELECT cluster,program_id,idl_hash,protocol_revision,event_key,
+               transaction_signature,instruction_path,event_ordinal,slot,blockhash,
+               parent_slot,commitment,event_name,payload_hash,decoded_payload,raw_event,source,observed_at
+        FROM jsonb_to_recordset($1::jsonb) AS batch(
+            cluster text,program_id text,idl_hash text,protocol_revision text,event_key text,
+            transaction_signature text,instruction_path integer[],event_ordinal integer,slot bigint,
+            blockhash text,parent_slot bigint,commitment text,event_name text,payload_hash text,
+            decoded_payload jsonb,raw_event bytea,source text,observed_at timestamptz)
+        ORDER BY event_key
+        ON CONFLICT (cluster,program_id,idl_hash,protocol_revision,event_key,blockhash)
+        DO UPDATE SET event_key = stored.event_key
+        WHERE stored.payload_hash = EXCLUDED.payload_hash AND stored.slot = EXCLUDED.slot
+          AND stored.parent_slot IS NOT DISTINCT FROM EXCLUDED.parent_slot
+          AND stored.decoded_payload IS NOT DISTINCT FROM EXCLUDED.decoded_payload
+          AND stored.raw_event IS NOT DISTINCT FROM EXCLUDED.raw_event
+          AND stored.commitment = EXCLUDED.commitment
+          AND stored.instruction_path = EXCLUDED.instruction_path
+          AND stored.event_ordinal = EXCLUDED.event_ordinal
+          AND stored.transaction_signature = EXCLUDED.transaction_signature
+          AND stored.event_name IS NOT DISTINCT FROM EXCLUDED.event_name
+        RETURNING event_key,observation_id
+        "#
+    ).bind(&payload).fetch_all(&mut transaction).await
+        .context("persisting transaction observations")?;
+    if observations.len() != records.len() {
+        anyhow::bail!("repeated observation has contradictory chain facts");
+    }
     transaction.commit().await?;
+
+    let ids: std::collections::BTreeMap<_, _> = observations.into_iter().collect();
+    for record in &mut records {
+        record["observation_id"] = json!(ids[record["event_key"].as_str().unwrap()]);
+    }
+    let payload = serde_json::to_string(&records)?;
     let mut transaction = pool.begin().await?;
+    // Serialize replay and stream writes in stable order, before checking
+    // canonical pointers or deduplicating hypertable rows.
     sqlx::query(
         r#"
-        INSERT INTO dusk_ingestion.canonical_events
-            (cluster, program_id, idl_hash, protocol_revision, event_key,
-             observation_id, commitment)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (cluster, program_id, idl_hash, protocol_revision, event_key)
-        DO UPDATE SET
-            observation_id = EXCLUDED.observation_id,
-            commitment = EXCLUDED.commitment,
-            updated_at = now()
-        "#,
+        SELECT pg_advisory_xact_lock(lock_key) FROM (
+            SELECT DISTINCT hashtextextended(event_key,0) AS lock_key
+            FROM jsonb_to_recordset($1::jsonb) AS batch(event_key text)
+            ORDER BY lock_key
+        ) AS locks
+    "#,
     )
-    .bind(&record.cluster)
-    .bind(&record.program_id)
-    .bind(&record.idl_hash)
-    .bind(&record.protocol_revision)
-    .bind(&record.event_key)
-    .bind(observation_id)
-    .bind(commitment_str(record.commitment))
+    .bind(&payload)
     .execute(&mut transaction)
-    .await
-    .context("upserting canonical event")?;
-
-    // Event time orders history; observation time is diagnostic.
-    let market = record
-        .decoded_payload
-        .as_ref()
-        .and_then(|payload| payload.get("market"))
-        .and_then(|value| value.as_str())
-        .map(str::to_owned);
-    // One stream row per event. Arrival time differs on redelivery, so the
-    // (event_key, time) key alone would admit a second row; the event key
-    // decides, under a lock so a concurrent replay cannot race the stream.
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
-        .bind(&record.event_key)
-        .execute(&mut transaction)
-        .await?;
-    sqlx::query(
-        r#"
+    .await?;
+    let written = sqlx::query(r#"
+        INSERT INTO dusk_ingestion.canonical_events AS stored
+            (cluster,program_id,idl_hash,protocol_revision,event_key,observation_id,commitment)
+        SELECT cluster,program_id,idl_hash,protocol_revision,event_key,observation_id,commitment
+        FROM jsonb_to_recordset($1::jsonb) AS batch(
+            cluster text,program_id text,idl_hash text,protocol_revision text,event_key text,
+            observation_id bigint,commitment text)
+        ORDER BY event_key
+        ON CONFLICT (cluster,program_id,idl_hash,protocol_revision,event_key)
+        DO UPDATE SET commitment = CASE
+            WHEN stored.commitment = 'finalized' THEN 'finalized'
+            WHEN stored.commitment = 'confirmed' AND EXCLUDED.commitment = 'processed' THEN 'confirmed'
+            ELSE EXCLUDED.commitment END, updated_at = now()
+        WHERE stored.observation_id = EXCLUDED.observation_id
+    "#).bind(&payload).execute(&mut transaction).await
+        .context("publishing transaction canonical events")?;
+    if written.rows_affected() != records.len() as u64 {
+        anyhow::bail!(
+            "FINALIZED_INVARIANT: canonical observation differs; reconciliation required"
+        );
+    }
+    sqlx::query(r#"
         INSERT INTO dusk_ingestion.event_stream
-            (time, cluster, program_id, event_name, market,
-             transaction_signature, event_key, slot, payload, idl_hash, protocol_revision)
-        SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11
+            (time,cluster,program_id,event_name,market,transaction_signature,event_key,slot,
+             payload,idl_hash,protocol_revision)
+        SELECT $2,cluster,program_id,COALESCE(event_name,'<unknown>'),decoded_payload->>'market',
+               transaction_signature,event_key,slot,decoded_payload,idl_hash,protocol_revision
+        FROM jsonb_to_recordset($1::jsonb) AS batch(
+            cluster text,program_id text,idl_hash text,protocol_revision text,event_key text,
+            event_name text,decoded_payload jsonb,transaction_signature text,slot bigint)
         WHERE NOT EXISTS (
-            SELECT 1 FROM dusk_ingestion.event_stream WHERE event_key = $7
+            SELECT 1 FROM dusk_ingestion.event_stream AS stored WHERE stored.event_key = batch.event_key
         )
-        "#,
-    )
-    .bind(stream_time)
-    .bind(&record.cluster)
-    .bind(&record.program_id)
-    .bind(record.event_name.as_deref().unwrap_or("<unknown>"))
-    .bind(&market)
-    .bind(&record.transaction_signature)
-    .bind(&record.event_key)
-    .bind(record.slot as i64)
-    .bind(&decoded_payload)
-    .bind(&record.idl_hash)
-    .bind(&record.protocol_revision)
-    .execute(&mut transaction)
-    .await
-    .context("inserting event stream row")?;
-
+    "#).bind(&payload).bind(stream_time).execute(&mut transaction).await
+        .context("publishing transaction history")?;
     transaction.commit().await?;
     Ok(())
 }
@@ -344,7 +332,151 @@ fn commitment_str(commitment: dusk_indexer_foundation::Commitment) -> &'static s
 
 #[cfg(test)]
 mod tests {
-    use super::require_release_slot;
+    use {
+        super::*,
+        dusk_indexer_foundation::{
+            decoder::{EventDecodeStatus, EventTransport, PinnedProgram},
+            CanonicalEventKey, Commitment, EventObservation, ProtocolIdentity,
+        },
+    };
+
+    fn event(cluster: &str, ordinal: u16) -> DecodedEventEnvelope {
+        let identity =
+            ProtocolIdentity::new(cluster, DUSK_PROGRAM_ID, DUSK_IDL_SHA256, PROTOCOL_REVISION)
+                .unwrap();
+        DecodedEventEnvelope {
+            program: PinnedProgram::Dusk,
+            event_name: Some("SwapExecuted".into()),
+            discriminator: None,
+            status: EventDecodeStatus::Decoded,
+            transport: EventTransport::AnchorEventCpi,
+            raw_envelope: vec![0, 128, 255],
+            raw_event: vec![0, 128, 255],
+            payload: vec![],
+            decoded_fields: Some(json!({"market":"batch-test-market", "ordinal":ordinal})),
+            decode_error: None,
+            observation: EventObservation {
+                key: CanonicalEventKey::new(identity, "batch-test-signature", vec![3, ordinal], 0)
+                    .unwrap(),
+                slot: 20,
+                blockhash: "batch-test-block".into(),
+                parent_slot: Some(19),
+                commitment: Commitment::Confirmed,
+                payload_hash: "a".repeat(64),
+                observed_at_unix_ms: 1_795_000_000_000,
+                source: STREAM_NAME.into(),
+            },
+        }
+    }
+
+    #[test]
+    fn batch_validates_every_event_before_writing() {
+        let first = event("batch-unit-test", 0);
+        let mut second = event("batch-unit-test", 1);
+        assert!(batch_records(&[], 20).unwrap().is_empty());
+        let records = batch_records(&[first.clone(), second.clone()], 20).unwrap();
+        assert_eq!(records[0]["raw_event"], "\\x0080ff");
+        assert_eq!(records[1]["instruction_path"], json!([3, 1]));
+        assert!(batch_records(&[first.clone(), first.clone()], 20).is_err());
+        second.observation.slot = 19;
+        assert!(batch_records(&[first, second], 20).is_err());
+    }
+
+    /// Runs against an already migrated disposable database, after migrations
+    /// in CI.
+    #[tokio::test]
+    #[ignore = "requires migrated disposable PostgreSQL; CI runs explicitly"]
+    async fn postgres_batch_is_atomic_idempotent_and_preserves_observations() {
+        assert_eq!(
+            std::env::var("DUSK_ALLOW_DISPOSABLE_DB_TESTS").as_deref(),
+            Ok("true")
+        );
+        let pool = PgPool::connect(&std::env::var("DATABASE_URL").expect("DATABASE_URL"))
+            .await
+            .unwrap();
+        let cluster = format!(
+            "batch-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap()
+        );
+        ensure_protocol_identity(&pool, &cluster).await.unwrap();
+        let events: Vec<_> = (0..7).map(|n| event(&cluster, n)).collect();
+        let time = Utc.timestamp_opt(1_795_000_000, 0).unwrap();
+        persist_events(&pool, &events, time, 20).await.unwrap();
+        let (observations,canonical,stream,publication_times): (i64,i64,i64,i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM dusk_ingestion.event_observations WHERE cluster=$1),            (SELECT count(*) FROM dusk_ingestion.canonical_events WHERE cluster=$1),            (SELECT count(*) FROM dusk_ingestion.event_stream WHERE cluster=$1),            (SELECT count(DISTINCT canonical_since) FROM dusk_ingestion.canonical_events WHERE cluster=$1)"
+        ).bind(&cluster).fetch_one(&pool).await.unwrap();
+        assert_eq!(
+            (observations, canonical, stream, publication_times),
+            (7, 7, 7, 1)
+        );
+        // Redelivery changes arrival time, never stream identity or original time.
+        let mut replay = events.clone();
+        for e in &mut replay {
+            e.observation.observed_at_unix_ms += 1234;
+        }
+        let (a, b) = tokio::join!(
+            persist_events(&pool, &replay, time + chrono::Duration::seconds(5), 20),
+            persist_events(&pool, &events, time, 20)
+        );
+        a.unwrap();
+        b.unwrap();
+        let (count, original_time): (i64, DateTime<Utc>) = sqlx::query_as(
+            "SELECT count(*),min(time) FROM dusk_ingestion.event_stream WHERE cluster=$1",
+        )
+        .bind(&cluster)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 7);
+        assert_eq!(original_time, time);
+        let raw: Vec<u8> = sqlx::query_scalar(
+            "SELECT raw_event FROM dusk_ingestion.event_observations WHERE cluster=$1 LIMIT 1",
+        )
+        .bind(&cluster)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(raw, vec![0, 128, 255]);
+        // A different fork is archived but cannot replace a canonical pointer.
+        let mut fork = events[0].clone();
+        fork.observation.blockhash = "different-block".into();
+        let new = event(&cluster, 8);
+        let error = persist_events(&pool, &[new.clone(), fork], time, 20)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("reconciliation required"));
+        let (observations,canonical,stream): (i64,i64,i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM dusk_ingestion.event_observations WHERE cluster=$1),            (SELECT count(*) FROM dusk_ingestion.canonical_events WHERE cluster=$1),            (SELECT count(*) FROM dusk_ingestion.event_stream WHERE cluster=$1)"
+        ).bind(&cluster).fetch_one(&pool).await.unwrap();
+        assert_eq!((observations, canonical, stream), (9, 7, 7));
+        // A contradiction on a previously observed block is refused as a batch.
+        let mut contradiction = events[0].clone();
+        contradiction.observation.payload_hash = "b".repeat(64);
+        assert!(
+            persist_events(&pool, &[new.clone(), contradiction], time, 20)
+                .await
+                .is_err()
+        );
+        // Failure after observations commit does not poison later valid replay.
+        persist_events(&pool, &[new], time, 20).await.unwrap();
+        // Test namespace only. No reset, truncate, or changes to other identities.
+        for table in [
+            "event_stream",
+            "canonical_events",
+            "event_observations",
+            "protocol_identities",
+        ] {
+            sqlx::query(&format!(
+                "DELETE FROM dusk_ingestion.{table} WHERE cluster=$1"
+            ))
+            .bind(&cluster)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        pool.close().await;
+    }
 
     /// Confirmed events stream past the last attested finalized slot; only the
     /// release's first slot bounds them.
