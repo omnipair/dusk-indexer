@@ -110,3 +110,21 @@ test('a replacement market discovered before the first empty capture still retai
   assert.equal(current.markets.length,1);assert.ok(current.knownOwners.includes(owner));assert.deepEqual(current.items,[]);
   assert.ok(!(await readPortfolioCatalog(client)).knownOwners.includes(owner),'Unregistered old identities remain excluded');
 }));
+
+test('batched zero income retains an independently hashed checkpoint for every owner',()=>transaction(async client=>{
+  const source=emptyPortfolioFixture();source.catalog.knownOwners.push(fixtureKey(237).toBase58());
+  source.emptyCatalog!.observationId=await catalog(client,source.emptyCatalog!.evidence);
+  const original=client.query.bind(client);let incomeWrites=0;
+  client.query=(async(text:string,values?:any[])=>{
+    if(/^INSERT INTO dusk_ingestion\.portfolio_income_checkpoints/.test(text))incomeWrites++;
+    return original(text,values);
+  }) as typeof client.query;
+  try {
+    const id=await storePortfolioCapture(client,source);assert.equal(await projectPortfolioCapture(client,id),2);
+    assert.equal(incomeWrites,1);
+    const rows=(await original('SELECT owner,source_hash,income,content_hash FROM dusk_ingestion.portfolio_income_checkpoints WHERE capture_id=$1',[id])).rows;
+    assert.equal(rows.length,2);assert.equal(new Set(rows.map(r=>r.owner)).size,2);
+    for(const row of rows){assert.deepEqual(row.income,{streams:[],unavailable:[]});
+      assert.equal(row.content_hash,sha256(canonicalJson([id,row.owner,row.source_hash,row.income])));}
+  } finally {client.query=original;}
+}));

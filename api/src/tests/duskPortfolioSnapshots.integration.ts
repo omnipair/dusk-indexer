@@ -306,3 +306,22 @@ test('database guards reject substituted owners, slots and updates',() => transa
     FROM dusk_ingestion.portfolio_checkpoints WHERE capture_id=$1`,[id]),/FINALIZED_INVARIANT/);
   await client.query('ROLLBACK TO SAVEPOINT guard');
 }));
+
+test('portfolio evidence and multiple owner checkpoints are each written as one batch',()=>transaction(async client=>{
+  const fixture=portfolioFixture({lpOwner:fixtureKey(178).toBase58()}),counts={evidence:0,checkpoints:0};
+  const original=client.query.bind(client);
+  client.query=(async(text:string,values?:any[])=>{
+    if(/^INSERT INTO dusk_ingestion\.portfolio_account_evidence/.test(text))counts.evidence++;
+    if(/^INSERT INTO dusk_ingestion\.portfolio_checkpoints/.test(text))counts.checkpoints++;
+    return original(text,values);
+  }) as typeof client.query;
+  try {
+    const id=await storePortfolioCapture(client,fixture.source);
+    assert.equal(await projectPortfolioCapture(client,id),2);
+    assert.deepEqual(counts,{evidence:1,checkpoints:1});
+    const rows=await original('SELECT owner,valuations FROM dusk_ingestion.portfolio_checkpoints WHERE capture_id=$1',[id]);
+    assert.equal(rows.rows.length,2);
+    assert.equal(rows.rows.find(r=>r.owner===fixture.owner).valuations.netPositionValueUsd,'1.95');
+    assert.equal(rows.rows.find(r=>r.owner===fixtureKey(178).toBase58()).valuations.netPositionValueUsd,'50');
+  } finally { client.query=original; }
+}));

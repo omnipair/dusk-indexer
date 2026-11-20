@@ -43,3 +43,4 @@
 060_dusk_empty_portfolio_catalogs.sql
 061_dusk_retirement_receipts.sql
 062_dusk_browser_preview_origins.sql
+063_dusk_portfolio_evidence_integrity.sql

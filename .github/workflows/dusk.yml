@@ -169,3 +169,4 @@ jobs:
           dist/tests/duskEventHistory.integration.js
           dist/tests/duskQuoteHistory.integration.js
           dist/tests/duskArchivedQuoteHistory.integration.js
+          dist/tests/duskPortfolioEvidenceBanks.integration.js

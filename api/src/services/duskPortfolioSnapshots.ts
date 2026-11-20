@@ -294,15 +294,17 @@ export async function storePortfolioCapture(client: PoolClient,source: Portfolio
     return previous.rows[0].capture_id;
   }
   const id = inserted.rows[0].capture_id;
-  for (const group of source.groups) {
+  const evidence = source.groups.flatMap(group => {
     const facts = [{ address: group.market,basis: group.basis,state: [group.marketAccount,group.preview] },
       ...[...group.accounts,...(group.hlpCohorts ?? []),...(group.juniorCohorts ?? []),...(group.incomeEvidence?.accounts??[])].map((entry) => ({ address: entry.address,basis: 'rpc-account',state: entry.account }))];
-    for (const fact of facts) {
-      const stateHash = sha256(canonicalJson([group.blockhash,fact.state]));
-      await client.query(`INSERT INTO dusk_ingestion.portfolio_account_evidence(capture_id,account,slot,basis,blockhash,state_hash)
-        VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`,[id,fact.address,group.slot,fact.basis,group.blockhash,stateHash]);
-    }
-  }
+    return facts.map(fact => ({ account: fact.address,slot: group.slot,basis: fact.basis,
+      blockhash: group.blockhash,state_hash: sha256(canonicalJson([group.blockhash,fact.state])) }));
+  });
+  if (evidence.length) await client.query(`INSERT INTO dusk_ingestion.portfolio_account_evidence
+    (capture_id,account,slot,basis,blockhash,state_hash)
+    SELECT $1::bigint,account,slot,basis,blockhash,state_hash FROM jsonb_to_recordset($2::jsonb)
+      AS e(account text,slot bigint,basis text,blockhash text,state_hash text)
+    ON CONFLICT DO NOTHING`,[id,JSON.stringify(evidence)]);
   return id;
 }
 function portfolioRevisionFilter(pin:DuskPinnedProtocol,values:unknown[]) {
@@ -313,9 +315,12 @@ function portfolioRevisionFilter(pin:DuskPinnedProtocol,values:unknown[]) {
 export async function assertNoPortfolioConflict(client: PoolClient,revisions:readonly DuskPinnedProtocol[]=[loadPinnedProtocol()]) {
   await assertMarketCatalogConsistency(client,revisions);
   const values:unknown[]=[],scope=revisions.map(pin=>portfolioRevisionFilter(pin,values)).join(' OR ');
-  const conflicts = await client.query(`SELECT 1 FROM dusk_ingestion.portfolio_account_evidence e JOIN dusk_ingestion.portfolio_capture_observations o USING(capture_id)
-    WHERE (${scope})
-    GROUP BY cluster,program_id,idl_hash,protocol_revision,account,slot,basis HAVING count(DISTINCT (blockhash,state_hash))>1 LIMIT 1`,values);
+  // Migration 063 backfills existing disagreements and maintains this index
+  // atomically on every evidence insert. It has no TTL or process-local cache;
+  // immutable source identities and monotonic flags preserve the full scan's
+  // per-revision/account/bank/basis halt condition, including late backfills.
+  const conflicts = await client.query(`SELECT 1 FROM dusk_ingestion.portfolio_evidence_banks
+    WHERE (${scope}) AND conflicted LIMIT 1`,values);
   if (conflicts.rowCount) throw Object.assign(new Error('FINALIZED_INVARIANT: contradictory finalized portfolio account evidence'),{ status: 503 });
 }
 /** Verify immutable evidence before either original projection or a price repair. */
@@ -342,14 +347,19 @@ export async function projectPortfolioCapture(client: PoolClient,captureId: stri
   const previous = await client.query('SELECT owner_count FROM dusk_ingestion.portfolio_capture_projections WHERE capture_id=$1',[captureId]);
   if (previous.rows[0]) return previous.rows[0].owner_count;
   const coverage = { ...projected.coverage,sourceHash: row.content_hash,deploymentIdentitySha256: row.deployment_identity_sha256 };
-  for (const owner of projected.owners) await client.query(`INSERT INTO dusk_ingestion.portfolio_checkpoints
+  if (projected.owners.length) await client.query(`INSERT INTO dusk_ingestion.portfolio_checkpoints
     (cluster,program_id,idl_hash,protocol_revision,owner,bucket,observed_at,source_min_slot,source_max_slot,components,coverage,valuations,capture_id)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,[...active,owner.owner,projected.captureTime,row.observed_at,projected.minSlot,projected.maxSlot,
-      JSON.stringify(owner.components),JSON.stringify(coverage),JSON.stringify(owner.valuations),captureId]);
-  if(['dusk-portfolio-capture.v3','dusk-portfolio-capture.v4'].includes((row.source as PortfolioCaptureSource).schemaVersion))for(const owner of projected.owners){
-    const value={streams:projected.income.streams.filter(stream=>stream.owner===owner.owner),unavailable:projected.income.unavailable.filter(entry=>entry.owner===owner.owner)};
+    SELECT $1,$2,$3,$4,p.owner,$5::timestamptz,$6::timestamptz,$7::bigint,$8::bigint,p.components,$9::jsonb,p.valuations,$10::bigint
+    FROM jsonb_to_recordset($11::jsonb) AS p(owner text,components jsonb,valuations jsonb)`,
+    [...active,projected.captureTime,row.observed_at,projected.minSlot,projected.maxSlot,JSON.stringify(coverage),captureId,JSON.stringify(projected.owners)]);
+  if (projected.owners.length && ['dusk-portfolio-capture.v3','dusk-portfolio-capture.v4'].includes((row.source as PortfolioCaptureSource).schemaVersion)) {
+    const income = projected.owners.map(owner => {
+      const value = { streams: projected.income.streams.filter(stream=>stream.owner===owner.owner),unavailable: projected.income.unavailable.filter(entry=>entry.owner===owner.owner) };
+      return { owner: owner.owner,income: value,content_hash: sha256(canonicalJson([captureId,owner.owner,row.content_hash,value])) };
+    });
     await client.query(`INSERT INTO dusk_ingestion.portfolio_income_checkpoints(capture_id,owner,source_hash,income,content_hash)
-      VALUES($1,$2,$3,$4,$5)`,[captureId,owner.owner,row.content_hash,JSON.stringify(value),sha256(canonicalJson([captureId,owner.owner,row.content_hash,value]))]);
+      SELECT $1::bigint,p.owner,$2,p.income,p.content_hash
+      FROM jsonb_to_recordset($3::jsonb) AS p(owner text,income jsonb,content_hash text)`,[captureId,row.content_hash,JSON.stringify(income)]);
   }
   await client.query('INSERT INTO dusk_ingestion.portfolio_capture_projections(capture_id,owner_count) VALUES($1,$2)',[captureId,projected.owners.length]);
   return projected.owners.length;
