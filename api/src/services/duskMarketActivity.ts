@@ -46,15 +46,21 @@ export async function projectMarketActivityBatch(client: PoolClient,limit = 500)
       AND NOT EXISTS(SELECT 1 FROM dusk_ingestion.market_activity_events a WHERE
         (a.cluster,a.program_id,a.idl_hash,a.protocol_revision,a.event_key)=(c.cluster,c.program_id,c.idl_hash,c.protocol_revision,c.event_key))
     ORDER BY o.slot,c.event_key LIMIT $7`,[...active,pin.historyFirstSlot,ACTIVITY_EVENTS,limit]);
-  for (const row of result.rows) {
+  const events = result.rows.map(row => {
     if (row.stream_count !== '1' || row.matching_count !== '1' || !(row.block_time instanceof Date) || !Number.isFinite(row.block_time.getTime()) || typeof row.block_time_exact !== 'string')
       throw new Error('FINALIZED_INVARIANT: activity event lacks one matching event-time record');
     const parsed = parseActivityEvent(row.event_name,row.payload,row.slot,swapBasis);
-    await client.query(`INSERT INTO dusk_ingestion.market_activity_events
-      (cluster,program_id,idl_hash,protocol_revision,event_key,observation_id,event_name,market,signature,slot,blockhash,block_time,payload)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-      [...active,row.event_key,row.observation_id,row.event_name,parsed.market,row.signature,row.slot,row.blockhash,row.block_time_exact,JSON.stringify(row.payload)]);
-  }
+    return { event_key: row.event_key,observation_id: row.observation_id,event_name: row.event_name,
+      market: parsed.market,signature: row.signature,slot: row.slot,blockhash: row.blockhash,
+      block_time: row.block_time_exact,payload: row.payload };
+  });
+  // Validate the entire page before writing; PostgreSQL source guards still
+  // authenticate every inserted row. Keep timestamp text at native precision.
+  if (events.length) await client.query(`INSERT INTO dusk_ingestion.market_activity_events
+    (cluster,program_id,idl_hash,protocol_revision,event_key,observation_id,event_name,market,signature,slot,blockhash,block_time,payload)
+    SELECT $1,$2,$3,$4,e.event_key,e.observation_id,e.event_name,e.market,e.signature,e.slot,e.blockhash,e.block_time,e.payload
+    FROM jsonb_to_recordset($5::jsonb) AS e(event_key text,observation_id bigint,event_name text,market text,
+      signature text,slot bigint,blockhash text,block_time timestamptz,payload jsonb)`,[...active,JSON.stringify(events)]);
   return result.rows.length;
 }
 export async function projectFinalizedMarketActivity(limit = 500) {

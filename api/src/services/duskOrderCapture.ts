@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { previewDuskExitOrderMark } from './duskExitOrderMark';
 import { marketLayoutVersion } from './duskProtocolSchema';
 // Backend display capture; ported from the reviewed webapp adapter.
@@ -119,7 +120,7 @@ export async function readDuskOrders(options: {
   previewPayer?: string;
   kinds?: readonly Name[];
   signal?: AbortSignal;
-}): Promise<DuskOrderSnapshot> {
+}, dependencies = { exitMark: previewDuskExitOrderMark }): Promise<DuskOrderSnapshot> {
   const observedAt = Date.now();
   const { dusk, boundary, deployment, owner, signal } = options;
   const delegate = createLeverageDelegateProgram({
@@ -137,29 +138,31 @@ export async function readDuskOrders(options: {
   let floor = Math.max(before.observedSlot, minimumDuskReadSlot(deployment));
   const scope = await currentAccountMarkets(dusk, floor, signal);
   floor = scope.sourceSlot;
-  const readKind = async <N extends Name>(
-    name: N,
-  ): Promise<DuskOrderRow<N>[]> => {
-    if (options.kinds && !options.kinds.includes(name)) return [];
-    const discovery = await boundedDuskRpcRead(
-      () =>
-        connection.getProgramAccounts(delegate.programId, {
-          commitment: 'confirmed',
-          withContext: true,
-          minContextSlot: floor,
-          filters: [
-            { memcmp: delegate.coder.accounts.memcmp(name) },
-            { memcmp: { offset: 8, bytes: owner } },
-          ],
-        }),
-      signal,
-    );
-    if (
-      !Number.isSafeInteger(discovery.context.slot) ||
-      discovery.context.slot < floor ||
-      discovery.value.length > 500
-    )
+  const kinds: Name[] = (['leverageOrder','leverageEntryOrder','hlpOrder'] as const)
+    .filter(name => !options.kinds || options.kinds.includes(name));
+  const discover = async (name: Name,minimumSlot: number,readSignal = signal) => {
+    const discovery = await boundedDuskRpcRead(() => connection.getProgramAccounts(delegate.programId, {
+      commitment: 'confirmed',withContext: true,minContextSlot: minimumSlot,
+      filters: [{ memcmp: delegate.coder.accounts.memcmp(name) },{ memcmp: { offset: 8,bytes: owner } }],
+    }),readSignal);
+    if (!Number.isSafeInteger(discovery.context.slot) || discovery.context.slot < minimumSlot || discovery.value.length > 500)
       throw new Error('Order discovery is behind confirmed state');
+    return discovery;
+  };
+  // The three independent discoveries can share a round trip. Detail reads
+  // still advance one monotonic floor; a prefetched discovery below that floor
+  // is fetched again, never accepted merely because it satisfied an older one.
+  const prefetched = new Map<Name,Awaited<ReturnType<typeof discover>>>();
+  const controller = new AbortController(),cancel = () => controller.abort(signal?.reason);
+  if (signal?.aborted) cancel(); else signal?.addEventListener('abort',cancel,{ once: true });
+  try {
+    await Promise.all(kinds.map(async name => { prefetched.set(name,await discover(name,floor,controller.signal)); }));
+  } catch (error) { controller.abort(); throw error; }
+  finally { signal?.removeEventListener('abort',cancel); }
+  const readKind = async <N extends Name>(name: N): Promise<DuskOrderRow<N>[]> => {
+    if (!kinds.includes(name)) return [];
+    const offered = prefetched.get(name)!;
+    const discovery = offered.context.slot >= floor ? offered : await discover(name,floor);
     floor = discovery.context.slot;
     const rows: DuskOrderRow<N>[] = [];
     const seen = new Set<string>();
@@ -341,14 +344,21 @@ export async function readDuskOrders(options: {
     entry = await readKind('leverageEntryOrder'),
     hlp = await readKind('hlpOrder');
   // Preserve historical closeout semantics while the active layout uses EMA thresholds.
-  if (options.previewPayer && marketLayoutVersion() >= 16)
+  if (options.previewPayer && marketLayoutVersion() >= 16) {
+    // A TP and SL in the same captured market bank use the same risk EMA.
+    // Share successful reads only within this capture, and only while their
+    // observed slot still covers the advancing floor. Keep their original age.
+    const marks = new Map<string,NonNullable<DuskOrderRow<'leverageOrder'>['exitMark']>>();
     for (const row of exit) {
-      row.exitMark = row.position ? await previewDuskExitOrderMark(
-        dusk, row.account.market, row.market, row.position.debtAsset,
-        options.previewPayer, Math.max(floor, row.slot), signal,
-      ).catch(() => null) : null;
-      if (row.exitMark) floor = Math.max(floor, row.exitMark.slot);
+      if (!row.position) { row.exitMark = null; continue; }
+      const key = `${row.account.market}:${row.position.debtAsset}:${row.slot}:${createHash('sha256').update(row.raw.market).digest('hex')}`;
+      const cached = marks.get(key),minimumSlot = Math.max(floor,row.slot);
+      row.exitMark = cached && cached.slot >= minimumSlot ? { ...cached } : await dependencies.exitMark(
+        dusk,row.account.market,row.market,row.position.debtAsset,options.previewPayer,minimumSlot,signal,
+      ).catch(() => null);
+      if (row.exitMark) { floor = Math.max(floor,row.exitMark.slot); marks.set(key,row.exitMark); }
     }
+  }
   if (options.previewPayer)
     for (const row of entry) {
       // A failed price read must not remove the owner's escrowed order.
