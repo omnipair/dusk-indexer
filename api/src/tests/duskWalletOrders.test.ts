@@ -8,6 +8,8 @@ import { displayFixture, displayKey } from './duskDisplayStateFixtures';
 import {
   createLeverageDelegateProgram,
   deriveMarketAddress,
+  deriveLeveragePositionAddress,
+  deriveLeverageOrderAddress,
 } from '../services/virtualBook/native';
 import { readDuskOrders } from '../services/duskOrderCapture';
 import {
@@ -230,4 +232,80 @@ test('retired hLP orders remain visible and cancellable with a same-bank cohort 
   assert.equal(result.hlp[0].trigger,null);
   cohort.retired = false; proof.data = await f.dusk.program.coder.accounts.encode('hlpCohort',cohort);
   await assert.rejects(capture(),/retired hLP cohort/);
+});
+
+test('order discovery overlaps independent kinds and refreshes every prefetched bank behind the advancing floor',async()=>{
+  const f=await fixture(),delegate=createLeverageDelegateProgram({provider:f.dusk.program.provider as any});
+  const connection=f.dusk.program.provider.connection,original=connection.getProgramAccounts.bind(connection);
+  const names=['leverageOrder','leverageEntryOrder','hlpOrder'] as const,counts=new Map<string,number>(),requests:{name:string;floor:number}[]=[];
+  let active=0,peak=0;
+  connection.getProgramAccounts=(async(program:PublicKey,config:any)=>{
+    if(config.dataSlice)return original(program,config);
+    const name=names.find(name=>delegate.coder.accounts.memcmp(name).bytes===config.filters[0].memcmp.bytes)!;
+    const count=counts.get(name)??0;counts.set(name,count+1);requests.push({name,floor:config.minContextSlot});
+    active++;peak=Math.max(peak,active);await new Promise(resolve=>setImmediate(resolve));active--;
+    return {context:{slot:count===0?{leverageOrder:1012,leverageEntryOrder:1010,hlpOrder:1011}[name]:config.minContextSlot+1},value:[]};
+  }) as typeof connection.getProgramAccounts;
+  const result=await readDuskOrders({dusk:f.dusk,owner:f.selection.owner,deployment:f.deployment,
+    boundary:{assertCompatibleForRead:async(_deployment:any,_signal?:AbortSignal,floor=1010)=>({observedSlot:Math.max(1010,floor)})}});
+  assert.equal(peak,3);assert.equal(result.slot,1014);
+  assert.deepEqual(requests.slice(0,3).map(r=>r.floor),[1010,1010,1010]);
+  assert.deepEqual(requests.slice(3),[{name:'leverageEntryOrder',floor:1012},{name:'hlpOrder',floor:1013}]);
+});
+
+test('a discovery below its original floor still fails instead of entering the prefetch cache',async()=>{
+  const f=await fixture(),connection=f.dusk.program.provider.connection,original=connection.getProgramAccounts.bind(connection);
+  connection.getProgramAccounts=(async(program:PublicKey,config:any)=>config.dataSlice?original(program,config):{context:{slot:1009},value:[]}) as typeof connection.getProgramAccounts;
+  await assert.rejects(readDuskOrders({dusk:f.dusk,boundary:f.boundary,owner:f.selection.owner,deployment:f.deployment}),/behind confirmed state/);
+});
+
+async function exitFixture(debtAssets = [1,1]) {
+  const f = await fixture(), delegate = createLeverageDelegateProgram({ provider: f.dusk.program.provider as any });
+  const market = deriveMarketAddress(f.market.baseSide.assetMint, f.market.quoteSide.assetMint, f.market.paramsHash)[0];
+  const layout = IdlCoder.typeDefLayout({ typeDef: delegate.idl.types!.find(type => type.name === 'leverageOrder')!, types: delegate.idl.types! });
+  const orders = await Promise.all(debtAssets.map(async (debtAsset,index) => {
+    const id = index + 1, position = { ...f.position, market, debtAsset, positionId:displayKey(100 + index) };
+    const [positionKey,positionBump] = deriveLeveragePositionAddress(market,f.owner,position.positionId,position.namespaceAuthority);
+    position.bump = positionBump;
+    f.infos.set(positionKey.toBase58(),f.encodeAccount('leveragePosition',position));
+    const order = layout.decode(Buffer.alloc(16384));
+    const [address,bump] = deriveLeverageOrderAddress(positionKey,f.owner,new BN(id),delegate.programId);
+    Object.assign(order,{ owner:f.owner,market,position:positionKey,orderId:new BN(id),kind:id % 2 + 1,bump });
+    const account = { owner:delegate.programId,executable:false,lamports:1,data:await delegate.coder.accounts.encode('leverageOrder',order) };
+    f.infos.set(address.toBase58(),account);
+    return { pubkey:address,account };
+  }));
+  f.dusk.program.provider.connection.getProgramAccounts = (async (_program:PublicKey,config:any) => ({
+    context:{slot:1010},value:config.dataSlice ? [{pubkey:market,account:{...f.marketInfo,data:f.marketInfo.data.subarray(0,marketAccountLayout().prefixBytes)}}]
+      : config.filters[0].memcmp.bytes === delegate.coder.accounts.memcmp('leverageOrder').bytes ? orders : [],
+  })) as unknown as typeof f.dusk.program.provider.connection.getProgramAccounts;
+  return { ...f, capture: (exitMark:Parameters<typeof readDuskOrders>[1]) => readDuskOrders({
+    dusk:f.dusk,boundary:{assertCompatibleForRead:async(_deployment:any,_signal?:AbortSignal,floor=1010)=>({observedSlot:Math.max(1010,floor)})},deployment:f.deployment,owner:f.selection.owner,kinds:['leverageOrder'],previewPayer:f.owner.toBase58(),
+  },exitMark) };
+}
+
+test('same-bank TP and SL share one successful exit mark without renewing its age, but each capture reads again',async()=>{
+  const f=await exitFixture();let calls=0;
+  const dependencies={exitMark:async()=>{calls++;return {slot:1010,observedAt:123,priceNad:42n};}};
+  const first=await f.capture(dependencies);
+  assert.equal(first.exit.length,2);assert.equal(calls,1);
+  assert.deepEqual(first.exit.map(row=>row.exitMark),[{slot:1010,observedAt:123,priceNad:42n},{slot:1010,observedAt:123,priceNad:42n}]);
+  assert.notEqual(first.exit[0].exitMark,first.exit[1].exitMark);
+  await f.capture(dependencies);assert.equal(calls,2);
+});
+
+test('a failed exit mark never suppresses the next order mark or hides either order',async()=>{
+  const f=await exitFixture();let calls=0;
+  const result=await f.capture({exitMark:async()=>{if(++calls===1)throw Error('temporary RPC failure');return {slot:1010,observedAt:123,priceNad:42n};}});
+  assert.equal(calls,2);assert.equal(result.exit.length,2);
+  assert.equal(result.exit[0].exitMark,null);assert.equal(result.exit[1].exitMark?.priceNad,42n);
+});
+
+test('an intervening newer-bank mark invalidates an older cached exit mark',async()=>{
+  const f=await exitFixture([0,1,0]);const reads:number[]=[];
+  const result=await f.capture({exitMark:async(_dusk,_market,_native,_asset,_payer,minimumSlot)=>{
+    reads.push(minimumSlot);return {slot:reads.length===1?1010:1011,observedAt:123,priceNad:42n};
+  }});
+  assert.deepEqual(reads,[1010,1010,1011]);assert.equal(result.exit.length,3);
+  assert.equal(result.exit[2].exitMark?.slot,1011);assert.equal(result.slot,1011);
 });

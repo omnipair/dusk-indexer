@@ -2,6 +2,7 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { loadPinnedProtocol } from '../config/duskProtocol';
@@ -408,4 +409,25 @@ test('a captured market creation proves its trailing-day totals before the first
   assert.equal(result.coverage.historyRangeComplete,false);
   assert.deepEqual(result.markets[0].history,{ createdSlot: String(activitySlot-1),createdAt: at(2),completeFromCreation: true });
   assert.equal((await readMarketActivity(client,{ ...request,until: at(20) })).markets[0].history?.completeFromCreation,false);
+}));
+
+test('a full activity batch uses one insert and retains every exact source',()=>transaction(async client=>{
+  for(let i=0;i<500;i++)await source(client,{slot:activitySlot+i,time:'2026-09-02T00:00:10.123456Z'});
+  const original=client.query.bind(client);let writes=0;
+  client.query=(async(text:string,values?:any[])=>{if(/^INSERT INTO dusk_ingestion\.market_activity_events/.test(text))writes++;return original(text,values);}) as typeof client.query;
+  const began=performance.now();
+  try {
+    const count=await projectMarketActivityBatch(client);
+    console.log(JSON.stringify({activityBatch:count,insertStatements:writes,persistenceMs:Math.round(performance.now()-began)}));
+    assert.equal(count,500);assert.equal(writes,1);
+    const result=await original(`SELECT count(*)::int AS n,count(*) FILTER(WHERE to_char(block_time AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS.US')='2026-09-02 00:00:10.123456')::int AS precise
+      FROM dusk_ingestion.market_activity_events WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4 AND slot BETWEEN $5 AND $6`,[...active,activitySlot,activitySlot+499]);
+    assert.deepEqual(result.rows[0],{n:500,precise:500});assert.equal(await projectMarketActivityBatch(client),0);
+  } finally {client.query=original;}
+}));
+
+test('an invalid later source rejects the page before any activity insert',()=>transaction(async client=>{
+  await source(client);await source(client,{slot:activitySlot+1,omitStream:true});
+  await assert.rejects(projectMarketActivityBatch(client),/FINALIZED_INVARIANT/);
+  assert.equal((await client.query('SELECT count(*)::int AS n FROM dusk_ingestion.market_activity_events WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4',active)).rows[0].n,0);
 }));
