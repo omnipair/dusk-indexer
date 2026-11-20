@@ -4,7 +4,7 @@ import { BN,BorshCoder } from '@coral-xyz/anchor';
 import { PublicKey } from '@solana/web3.js';
 import { deriveYieldAccountAddress } from '@omnipair/dusk-sdk';
 import pool from '../config/database';
-import { loadPinnedProtocol } from '../config/duskProtocol';
+import { loadPinnedProtocol,sha256 } from '../config/duskProtocol';
 import { duskRawIdl } from '../services/duskMarketSimulation';
 import { marketLayoutVersion } from '../services/duskProtocolSchema';
 import { readPortfolioAttribution } from '../services/duskPortfolioAttribution';
@@ -72,7 +72,13 @@ test('saved capture income, canonical claims and accrued interest reconcile with
     assert.equal(result.totals.borrowingCostUsd,'0.075');
     assert.equal(result.totals.changeUsd,'-0.05');
     assert.equal(result.totals.remainingUsd,'-0.10000125');
+    const canonical=await client.query<{event_key:string}>(`SELECT event_key FROM dusk_ingestion.streamed_events
+      WHERE cluster=$1 AND program_id=$2 AND idl_hash=$3 AND protocol_revision=$4
+        AND slot BETWEEN 910000003 AND 910000004 AND event_name IN ('YieldClaimed','BorrowInterestPaid')`,streamedIdentity);
     assert.equal(result.coverage.paymentKeys.length,2);
+    assert.deepEqual(result.coverage.paymentKeys,canonical.rows.map(row=>sha256(row.event_key)).sort());
+    assert.ok(result.coverage.paymentKeys.every(key=>/^[a-f0-9]{64}$/.test(key)), 'Browser reader requires SHA-256 payment evidence');
+    assert.equal(new Set(result.coverage.paymentKeys).size,2);
     const identity=await readPortfolioAttribution(client,{owner:start.owner,startCaptureId:last,endCaptureId:last});
     assert.equal(identity.totals.earnedUsd,'0');assert.equal(identity.totals.borrowingCostUsd,'0');
     await assert.rejects(()=>readPortfolioAttribution(client,{owner:PublicKey.default.toBase58(),startCaptureId:first,endCaptureId:last}),/unavailable for this owner/);
