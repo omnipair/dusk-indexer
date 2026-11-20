@@ -113,7 +113,7 @@ export async function readPortfolioAttribution(client:PoolClient,options:Portfol
       netValueBasis:'positions-excluding-wallet-and-unclaimed-yield.v1',
       includesCompoundedYield:false,sourceSlot:Number(end.row.source_max_slot),
       incomeAvailable:calculated.earnedUsd!==null,borrowingCostAvailable:calculated.borrowingCostUsd!==null,
-      startSourceHash:start.row.content_hash,endSourceHash:end.row.content_hash,paymentKeys:payments.map(payment=>payment.eventKey).sort()}};
+      startSourceHash:start.row.content_hash,endSourceHash:end.row.content_hash,paymentKeys:payments.map(payment=>sha256(payment.eventKey)).sort()}};
 }
 export async function listPortfolioAttribution(options:PortfolioAttributionQuery){
   const client=await pool.connect();
