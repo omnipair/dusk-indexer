@@ -9,7 +9,7 @@ function fixture() {
     if(profile!=='sentinel')Object.assign(env,{SIGNER_PROVIDER:'aws-kms',SIGNER_KEY_ID:'key:'+profile,KEEPER_SIGNER_PUBLIC_KEY:'wallet:'+profile});
     if(profile==='hlp-recovery')env.KEEPER_HLP_MARKET='GWrmPqBcmBgX3fcE3GPA6xgCUP3Cbd4DRvXHyfwu1795';
     Resources[profile+'Task']={Type:'AWS::ECS::TaskDefinition',Properties:{TaskRoleArn:'role:'+profile,ContainerDefinitions:[{Name:profile,Image:'unchanged',Secrets:[{Name:'RPC',ValueFrom:'secret:'+profile}],Environment:Object.entries(env).map(([Name,Value])=>({Name,Value}))}]}};
-    Resources[profile+'Service']={Type:'AWS::ECS::Service',Properties:{DesiredCount:1,TaskDefinition:{Ref:profile+'Task'},DeploymentConfiguration:{MinimumHealthyPercent:100,MaximumPercent:200,DeploymentCircuitBreaker:{Enable:true,Rollback:true}}}};
+    Resources[profile+'Service']={Type:'AWS::ECS::Service',Properties:{DesiredCount:1,AvailabilityZoneRebalancing:'ENABLED',TaskDefinition:{Ref:profile+'Task'},DeploymentConfiguration:{MinimumHealthyPercent:100,MaximumPercent:200,DeploymentCircuitBreaker:{Enable:true,Rollback:true}}}};
   }
   return {Parameters:{Image:{Type:'String'}},Resources};
 }
@@ -22,6 +22,12 @@ test('activation plan preserves other apps, image pins, roles, secrets and walle
   assert.equal(resources.length,12);
   assert.equal(template.Parameters?.KeeperMode.Default,'shadow');
   for(const [id,r] of Object.entries(source.Resources)){
+    if (r.Type === 'AWS::ECS::Service') {
+      const service = template.Resources[id].Properties;
+      assert.equal(service.AvailabilityZoneRebalancing, 'DISABLED');
+      assert.equal(service.DeploymentConfiguration.MinimumHealthyPercent, 0);
+      assert.equal(service.DeploymentConfiguration.MaximumPercent, 100);
+    }
     if(r.Type!=='AWS::ECS::TaskDefinition'||id==='Api')continue;
     const next=template.Resources[id].Properties;
     assert.equal(next.TaskRoleArn,r.Properties.TaskRoleArn);

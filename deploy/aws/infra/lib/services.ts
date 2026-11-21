@@ -241,6 +241,8 @@ export class ServicesStack extends Stack {
       const commonService = {
         cluster, desiredCount: spec.replicas,
         circuitBreaker: { rollback: true },
+        // Each keeper runs one task. Stop it before starting its replacement.
+        availabilityZoneRebalancing: profile ? ecs.AvailabilityZoneRebalancing.DISABLED : undefined,
         minHealthyPercent: profile ? 0 : 100, maxHealthyPercent: profile ? 100 : 200,
       };
       const service = props.primary
