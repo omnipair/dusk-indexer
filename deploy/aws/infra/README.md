@@ -117,4 +117,52 @@ For host failure, fence the old instance before mounting its retained data volum
 
 CloudWatch has per-service CPU/memory alarms, database EC2 status, disk pressure and missing logical-backup metrics. Outage topics in both compute regions send confirmations to the owner-selected recipients through NoEcho CloudFormation parameters. Both recipients must confirm each regional SNS subscription. The USD 400 monthly budget sends actual/forecast warnings directly to those addresses. Verify delivery; creating an alarm alone does not prove notification delivery. Also verify AWS Backup job status and the first successful restore. Standard ECS metrics are enabled; enhanced Container Insights is deliberately absent from the cost baseline. Review memory, CPU, DB connection count, free disk, replay lag and provider errors after launch. The source's 100 database connection limit and existing application pools are preserved; measure contention before increasing traffic or replicas.
 
-Live keepers require the keeper repository's full signed E2E/frozen-lock gate, verified durable recovery, worker funding and explicit market/asset spending policies. The captured lock and 16 offline simulations do not satisfy that gate. Per-asset continuous auction policies remain a governance choice. Do not invent raw token limits, enable live mode, create a market or transfer authorities as part of this infrastructure migration.
+Live keepers require the keeper repository's full signed E2E/frozen-lock gate, verified durable recovery, worker funding and explicit market/asset spending policies. Do not count waived scenarios or offline simulations as successful mainnet executions. Initial infrastructure migration remains in shadow mode; live activation is a separate operator action.
+
+### Keeper mainnet activation
+
+`KeeperMode` defaults to `shadow` and accepts `live` only through an explicit
+CloudFormation parameter change. The 2026-11-21 owner selection uses available
+token inventory without additional token-spending or hLP socialized-loss ceilings.
+`lib/keeper-execution.ts` records the exact profile settings. Lending and leverage
+use the existing local inventory-settlement policy; auctions purchase revenue
+without a resale or profit guarantee. The configured hLP market must match the
+owner-selected active deployment. Sentinel remains a monitor with no signer.
+
+SOL fee limits remain 0.0002 SOL per transaction, 0.02 SOL per UTC day and a
+0.05 SOL reserve per signing wallet, enforced by the image's reviewed risk policy.
+These limits do not supply token inventory. Each profile submits at most one
+transaction per scan; deployments stop the old task before starting its replacement.
+
+Before an operator executes a live change set:
+
+1. Verify the exact keeper image's live-release CI, frozen artifact pins and
+   on-chain deployment. Keep five distinct KMS identities and their narrow roles.
+2. Confirm signing workers are inactive, back up `dusk_keeper_mainnet`, and apply
+   the checksum-pinned journal migrations through `0005` using the database
+   deployment identity. Preserve all pending generations and fee reservations;
+   migration `0005` deliberately refuses duplicate pending positions.
+3. In each existing task, run the keeper's `--check-kms-signer` in shadow mode,
+   then `--check-execution` with the proposed environment. These diagnostic
+   commands never submit a Solana transaction. Retain their results and funding
+   observations; missing token inventory still prevents inventory-funded actions.
+4. Review a change set restricted to the six keeper task definitions/services,
+   their mode parameter, and the stated execution settings. Preserve other apps,
+   secret references, wallet identities and immutable image digests.
+5. The operator executes the reviewed change set. Verify service health and
+   finalized journal receipts; startup checks alone are not a mainnet execution canary.
+
+For an existing database, adding migration assets to CDK does not run them
+automatically. Apply them explicitly on the current database host; do not replace
+the database instance or its retained volume merely to install journal migrations.
+
+Prepare a narrowly scoped plan from the deployed service template:
+
+```sh
+npm run prepare:keepers -- --profile dusk-admin --output-dir /absolute/path/keeper-review
+```
+
+After the readiness checks and source review, add `--create-change-set` to upload
+the template to the existing CDK asset bucket and create `keepers-mainnet-20261121`.
+The script never executes the change set or starts a task. All existing stack
+parameters are retained; only the new `KeeperMode` parameter is selected as `live`.

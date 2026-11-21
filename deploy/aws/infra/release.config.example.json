@@ -3,6 +3,7 @@
   "primaryRegion": "ap-southeast-1",
   "indexerRegion": "us-west-2",
   "apiCertificateArn": "arn:aws:acm:ap-southeast-1:009853298730:certificate/17a25c2a-2042-48ac-b2d2-57cf549a9c68",
+  "hlpRecoveryMarket": "GWrmPqBcmBgX3fcE3GPA6xgCUP3Cbd4DRvXHyfwu1795",
   "kms": {
     "lending": {
       "keyArn": "arn:aws:kms:us-east-1:009853298730:key/ef212f1b-013d-4eca-95f4-d96b4cbdcea7",

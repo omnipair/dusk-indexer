@@ -107,7 +107,37 @@ test('service parity, immutable images, network boundaries and isolated signer p
       assert.equal(container.Environment.find((e: any) => e.Name === 'DUSK_CLUSTER').Value, 'mainnet-beta');
       assert.equal(container.Environment.find((e: any) => e.Name === 'DUSK_DEVNET_MOCK_ORACLE_ENABLED').Value, 'false');
       const profile = container.Environment.find((e: any) => e.Name === 'KEEPER_PROFILE');
-      if (profile) assert.equal(container.Environment.find((e: any) => e.Name === 'KEEPER_MODE').Value, 'shadow');
+      if (profile) {
+        assert.deepEqual(container.Environment.find((e: any) => e.Name === 'KEEPER_MODE').Value, { Ref: 'KeeperMode' });
+        const parameters = template.toJSON().Parameters;
+        assert.equal(parameters.KeeperMode.Default, 'shadow');
+        assert.deepEqual(parameters.KeeperMode.AllowedValues, ['shadow','live']);
+        const environment = Object.fromEntries(container.Environment.map((e:any)=>[e.Name,e.Value]));
+        if (profile.Value !== 'sentinel') {
+          assert.equal(environment.KEEPER_RISK_POLICY,'/app/config/risk-policy.json');
+          assert.equal(environment.KEEPER_MINIMUM_LAMPORTS,'50000000');
+          assert.equal(environment.KEEPER_MAX_SENDS_PER_PASS,'1');
+        }
+        const ceilingFields: Record<string,string[]> = {
+          lending:['KEEPER_FLASH_MAX_REPAY','KEEPER_FLASH_MAX_PAYMENT_DEBIT'],
+          leverage:['KEEPER_FLASH_MAX_REPAY','KEEPER_FLASH_MAX_PAYMENT_DEBIT'],
+          'hlp-recovery':['KEEPER_HLP_MAX_SOCIALIZED_LOSS','KEEPER_HLP_MAX_PAYMENT_DEBIT'],
+          'auction-arbitrage':['KEEPER_AUCTION_MAX_SOLD','KEEPER_AUCTION_MAX_PAYMENT'],
+        };
+        for (const field of ceilingFields[profile.Value] ?? [])
+          assert.equal(environment[field],'18446744073709551615','retain the explicit owner-selected inventory ceiling');
+        if (['lending','leverage'].includes(profile.Value)) assert.equal(environment.KEEPER_FLASH_SETTLEMENT,'inventory');
+        const taskEntry = Object.entries(template.findResources('AWS::ECS::TaskDefinition'))
+          .find(([,t]:any)=>t.Properties.ContainerDefinitions[0].Name===container.Name);
+        const signingService = Object.values(template.findResources('AWS::ECS::Service'))
+          .find((s:any)=>s.Properties.TaskDefinition.Ref===taskEntry?.[0]) as any;
+        assert.equal(signingService.Properties.DeploymentConfiguration.MinimumHealthyPercent,0);
+        assert.equal(signingService.Properties.DeploymentConfiguration.MaximumPercent,100);
+        if (profile.Value==='sentinel') {
+          assert.ok(!container.Environment.some((e:any)=>['SIGNER_PROVIDER','SIGNER_KEY_ID','KEEPER_RISK_POLICY'].includes(e.Name)));
+          assert.ok(!(container.Secrets??[]).some((s:any)=>s.Name==='DATABASE_URL'));
+        }
+      }
       const providerSecrets = (container.Secrets ?? []).filter((secret: any) => ['JUPITER_API_KEY', 'BIRDEYE_API_KEY'].includes(secret.Name));
       if (['dusk-api', 'dusk-prices'].includes(container.Name)) {
         assert.deepEqual(providerSecrets.map((secret: any) => secret.Name).sort(), ['BIRDEYE_API_KEY', 'JUPITER_API_KEY']);

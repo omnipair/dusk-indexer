@@ -8,7 +8,8 @@
     "test": "tsx --test test/*.test.ts",
     "synth": "cdk synth --strict",
     "diff": "cdk diff",
-    "deploy": "cdk deploy"
+    "deploy": "cdk deploy",
+    "prepare:keepers": "tsx scripts/prepare-keeper-activation.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-cloudformation": "3.1169.0",
