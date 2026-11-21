@@ -21,7 +21,7 @@ const aws=(...args)=>{
 const save=(name,value)=>{const path=join(directory,name);writeFileSync(path,JSON.stringify(value,null,2)+'\n',{mode:0o600});return path;};
 if(aws('sts','get-caller-identity').Account!=='009853298730') throw Error('Unexpected AWS account');
 const stack=aws('cloudformation','describe-stacks','--stack-name','DuskServicesSingapore').Stacks[0];
-if(!['CREATE_COMPLETE','UPDATE_COMPLETE'].includes(stack.StackStatus)) throw Error('Wait for the service stack to stabilize');
+if(!['CREATE_COMPLETE','UPDATE_COMPLETE','UPDATE_ROLLBACK_COMPLETE'].includes(stack.StackStatus)) throw Error('Wait for the service stack to stabilize');
 const original=aws('cloudformation','get-template','--stack-name',stack.StackName,'--template-stage','Original').TemplateBody;
 const source=typeof original==='string'?JSON.parse(original):original;
 save('template-before.json',source);save('stack-before.json',stack);

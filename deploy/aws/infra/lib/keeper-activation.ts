@@ -53,6 +53,7 @@ export function prepareKeeperActivation(source: Template, parameters: StackParam
   for (const [id, resource] of Object.entries(template.Resources)) {
     if (resource.Type !== 'AWS::ECS::Service' || !tasks.has(resource.Properties.TaskDefinition?.Ref)) continue;
     if (resource.Properties.DesiredCount !== 1) throw new Error('Unexpected keeper replica count');
+    resource.Properties.AvailabilityZoneRebalancing = 'DISABLED';
     resource.Properties.DeploymentConfiguration.MinimumHealthyPercent = 0;
     resource.Properties.DeploymentConfiguration.MaximumPercent = 100;
     services.add(id);

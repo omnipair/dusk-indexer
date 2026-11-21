@@ -131,6 +131,7 @@ test('service parity, immutable images, network boundaries and isolated signer p
           .find(([,t]:any)=>t.Properties.ContainerDefinitions[0].Name===container.Name);
         const signingService = Object.values(template.findResources('AWS::ECS::Service'))
           .find((s:any)=>s.Properties.TaskDefinition.Ref===taskEntry?.[0]) as any;
+        assert.equal(signingService.Properties.AvailabilityZoneRebalancing,'DISABLED');
         assert.equal(signingService.Properties.DeploymentConfiguration.MinimumHealthyPercent,0);
         assert.equal(signingService.Properties.DeploymentConfiguration.MaximumPercent,100);
         if (profile.Value==='sentinel') {
