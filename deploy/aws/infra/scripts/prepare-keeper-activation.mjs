@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { prepareKeeperActivation } from '../lib/keeper-activation.ts';
+import { prepareKeeperActivation, validateKeeperChangeSet } from '../lib/keeper-activation.ts';
 
 const {values}=parseArgs({options:{
   profile:{type:'string',default:'dusk-admin'},
@@ -25,11 +25,11 @@ if(!['CREATE_COMPLETE','UPDATE_COMPLETE'].includes(stack.StackStatus)) throw Err
 const original=aws('cloudformation','get-template','--stack-name',stack.StackName,'--template-stage','Original').TemplateBody;
 const source=typeof original==='string'?JSON.parse(original):original;
 save('template-before.json',source);save('stack-before.json',stack);
-const plan=prepareKeeperActivation(source);
+const plan=prepareKeeperActivation(source,stack.Parameters);
 const file=save('keeper-live-template.json',plan.template);
 const parameters=[...stack.Parameters.map(p=>({ParameterKey:p.ParameterKey,UsePreviousValue:true})),{ParameterKey:'KeeperMode',ParameterValue:'live'}];
 const parameterFile=save('keeper-live-parameters.json',parameters);
-const result={stack:stack.StackName,profiles:plan.profiles,changedResources:plan.resources,executed:false};
+const result={stack:stack.StackName,profiles:plan.profiles,changedResources:plan.resources,pinnedHostImages:plan.pinnedHostImages,executed:false};
 if(values['create-change-set']){
   const digest=createHash('sha256').update(JSON.stringify(plan.template)).digest('hex');
   const toolkit=aws('cloudformation','describe-stacks','--stack-name','CDKToolkit').Stacks[0];
@@ -42,6 +42,13 @@ if(values['create-change-set']){
     '--description','OPERATOR ONLY: six keeper profiles, existing wallets and image, reviewed token settings. Prepared, not executed.');
   result.changeSetArn=change.Id;
   result.templateSha256=digest;
+  result.reviewed=false;
+  save('activation-plan.json',result);
+  aws('cloudformation','wait','change-set-create-complete','--change-set-name',change.Id);
+  const review=aws('cloudformation','describe-change-set','--change-set-name',change.Id,'--include-property-values');
+  save('reviewed-change-set.json',review);
+  validateKeeperChangeSet(plan.resources,review);
+  result.reviewed=true;
 }
 save('activation-plan.json',result);
 console.log(JSON.stringify(result,null,2));

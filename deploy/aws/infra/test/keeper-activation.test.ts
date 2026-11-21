@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { prepareKeeperActivation } from '../lib/keeper-activation.js';
+import { prepareKeeperActivation, validateKeeperChangeSet } from '../lib/keeper-activation.js';
 
 function fixture() {
   const Resources:Record<string,any>={Api:{Type:'AWS::ECS::TaskDefinition',Properties:{ContainerDefinitions:[{Name:'api',Image:'unchanged',Secrets:[{Name:'DATABASE_URL',ValueFrom:'secret:api'}]}]}}};
@@ -39,4 +39,27 @@ test('activation plan refuses partial fleets, unknown modes, missing identities 
     (t:any)=>t.Resources.lendingTask.Properties.ContainerDefinitions[0].Environment.splice(3,1),
     (t:any)=>t.Resources['hlp-recoveryTask'].Properties.ContainerDefinitions[0].Environment.pop(),
   ]){const t=fixture();mutate(t);assert.throws(()=>prepareKeeperActivation(t));}
+});
+
+test('activation keeps the deployed host image when the public SSM AMI has advanced',()=>{
+  const source:any=fixture();
+  source.Parameters.HostAmi={Type:'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>',Default:'/aws/service/ecs/optimized-ami/amazon-linux-2023/recommended/image_id'};
+  source.Resources.Host={Type:'AWS::EC2::LaunchTemplate',Properties:{LaunchTemplateData:{ImageId:{Ref:'HostAmi'},InstanceType:'m7i.large'}}};
+  assert.throws(()=>prepareKeeperActivation(source),/deployed host AMI/);
+  const plan=prepareKeeperActivation(source,[{ParameterKey:'HostAmi',ResolvedValue:'ami-0123456789abcdef0'}]);
+  assert.deepEqual(plan.template.Resources.Host.Properties.LaunchTemplateData,{ImageId:'ami-0123456789abcdef0',InstanceType:'m7i.large'});
+  assert.deepEqual(source.Resources.Host.Properties.LaunchTemplateData.ImageId,{Ref:'HostAmi'});
+  assert.deepEqual(plan.pinnedHostImages,[{resource:'Host',imageId:'ami-0123456789abcdef0'}]);
+});
+
+test('change-set review rejects unrelated, removed, incomplete and unavailable resources',()=>{
+  const expected=['KeeperTask','KeeperService'];
+  const review={Status:'CREATE_COMPLETE',ExecutionStatus:'AVAILABLE',Changes:expected.map((LogicalResourceId,i)=>({ResourceChange:{LogicalResourceId,Action:'Modify',ResourceType:i?'AWS::ECS::Service':'AWS::ECS::TaskDefinition'}}))};
+  validateKeeperChangeSet(expected,review);
+  for(const mutate of [
+    (r:any)=>r.Changes.push({ResourceChange:{LogicalResourceId:'Host',Action:'Modify',ResourceType:'AWS::EC2::LaunchTemplate'}}),
+    (r:any)=>r.Changes[0].ResourceChange.Action='Remove',
+    (r:any)=>r.Changes.pop(),
+    (r:any)=>r.ExecutionStatus='EXECUTE_IN_PROGRESS',
+  ]){const r=structuredClone(review);mutate(r);assert.throws(()=>validateKeeperChangeSet(expected,r));}
 });

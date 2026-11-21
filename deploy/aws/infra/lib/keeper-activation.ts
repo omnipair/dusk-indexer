@@ -2,10 +2,23 @@ import { keeperExecutionEnvironment } from './keeper-execution.js';
 
 const profiles = ['lending','leverage','hlp-recovery','auction-arbitrage','lifecycle','sentinel'];
 type Template = { Parameters?: Record<string,any>; Resources: Record<string,any>; [key:string]:any };
+type StackParameter = { ParameterKey: string; ResolvedValue?: string };
 
 /** Patch a fetched stack template without resynthesizing unrelated production resources. */
-export function prepareKeeperActivation(source: Template) {
+export function prepareKeeperActivation(source: Template, parameters: StackParameter[] = []) {
   const template = structuredClone(source);
+  const pinnedHostImages: { resource:string; imageId:string }[] = [];
+  // UsePreviousValue retains an SSM key, not its last resolved value. Pin the
+  // deployed image here so a keeper-only update cannot silently upgrade hosts.
+  for (const [id, resource] of Object.entries(template.Resources)) {
+    if (resource.Type !== 'AWS::EC2::LaunchTemplate') continue;
+    const ref = resource.Properties.LaunchTemplateData.ImageId?.Ref;
+    if (!ref || template.Parameters?.[ref]?.Type !== 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>') continue;
+    const imageId = parameters.find(p=>p.ParameterKey===ref)?.ResolvedValue;
+    if (!imageId || !/^ami-[0-9a-f]+$/.test(imageId)) throw new Error('The deployed host AMI must be resolved before preparing activation');
+    resource.Properties.LaunchTemplateData.ImageId = imageId;
+    pinnedHostImages.push({resource:id,imageId});
+  }
   const tasks = new Map<string,{ id:string; profile:string; container:any }>();
   for (const [id, resource] of Object.entries(template.Resources)) {
     if (resource.Type !== 'AWS::ECS::TaskDefinition') continue;
@@ -45,5 +58,16 @@ export function prepareKeeperActivation(source: Template) {
     services.add(id);
   }
   if (services.size !== profiles.length) throw new Error('Expected exactly six keeper services');
-  return { template, resources:[...tasks.keys(),...services], profiles:[...tasks.values()].map(t=>t.profile) };
+  return { template, resources:[...tasks.keys(),...services], profiles:[...tasks.values()].map(t=>t.profile), pinnedHostImages };
+}
+
+/** Refuse a prepared change set if AWS expands its scope beyond the keeper fleet. */
+export function validateKeeperChangeSet(expected: string[], changeSet: any) {
+  if (changeSet.Status !== 'CREATE_COMPLETE' || changeSet.ExecutionStatus !== 'AVAILABLE')
+    throw new Error('Keeper change set is not available for review');
+  const changes = (changeSet.Changes ?? []).map((c:any)=>c.ResourceChange);
+  if (changes.length !== expected.length || new Set(changes.map((c:any)=>c.LogicalResourceId)).size !== expected.length ||
+      changes.some((c:any)=>!expected.includes(c.LogicalResourceId) || c.Action !== 'Modify' ||
+        !['AWS::ECS::Service','AWS::ECS::TaskDefinition'].includes(c.ResourceType)))
+    throw new Error('Unexpected AWS resource changes; do not execute this change set');
 }
