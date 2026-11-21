@@ -80,7 +80,7 @@ CI synthesizes both phases without AWS credentials, checks IAM/network/parity in
 
 1. **Cost and quota:** review [the estimate](costs.md), account and `cdk diff`. Singapore uses 6 standard EC2 vCPUs steady and up to 8 while replacing the app host. AWS approved the increase from 5 to 16 in case `179467571500763`. Oregon Fargate uses 0.25 vCPU. The owner approved USD 400/month as the planning budget; monitor actual usage and burst credits.
 2. **Foundation:** authenticate using `aws login --profile dusk-mainnet`. Bootstrap CDK in account `009853298730` in both `ap-southeast-1` and `us-west-2`, with no external account trust. Run `npm run diff -- --profile dusk-mainnet --all`, inspect the changes, then deploy foundation stacks using `npm run deploy -- --profile dusk-mainnet --all`. The default app contains no ECS services. Database TLS needs an exportable ACM certificate for `db.dusk.omnipair.fi`: add its DNS-only validation CNAME in Cloudflare while CloudFormation waits. API/gRPC use the already-issued non-exportable certificate. Leave validation records for renewals. Do not publish a database traffic record; its Route 53 private zone is associated with both VPCs.
-3. **Database and images:** use SSM Session Manager, not SSH. Check `systemctl status dusk-database` and query the three keeper migration receipts, database versions, TLS and retained volume mount. Run a logical backup and restore both dumps into isolated disposable databases. Inspect the restored ledger and schema; list-only CI validation does not replace this restore drill. Merge the reviewed backend/keeper PRs, wait for exact-main CI, then run `node scripts/configure-publishers.mjs --execute`. Dispatch each repository's AWS image publication workflow on main. It requires passing CI for that exact commit and has ECR-only OIDC rights. Record its source SHA, immutable image digests and scan results. It cannot deploy, retrieve runtime secrets or sign.
+3. **Database and images:** use SSM Session Manager, not SSH. Check `systemctl status dusk-database` and query the five keeper migration receipts, database versions, TLS and retained volume mount. Run a logical backup and restore both dumps into isolated disposable databases. Inspect the restored ledger and schema; list-only CI validation does not replace this restore drill. Merge the reviewed backend/keeper PRs, wait for exact-main CI, then run `node scripts/configure-publishers.mjs --execute`. Dispatch each repository's AWS image publication workflow on main. It requires passing CI for that exact commit and has ECR-only OIDC rights. Record its source SHA, immutable image digests and scan results. It cannot deploy, retrieve runtime secrets or sign.
 4. **Runtime and services:** run `node scripts/seed-runtime.mjs --helius-source-dir /absolute/path/to/existing/omnipair-indexer --execute`. The existing Railway-linked `mainnet-indexer` is read only; its Helius endpoint must attest mainnet genesis. Values pass directly to Secrets Manager through the AWS SDK in memory. Nothing is copied from the devnet database. Check every service's public settings and secret-field presence without printing values. Each signer receives only its own KMS key ARN and IAM role; sentinel receives no signer. Run `node scripts/seed-provider-prices.mjs --provider-source-dir /absolute/path/to/existing/omnipair-indexer --execute` before deploying the API and price worker. It copies the existing Jupiter key into only their runtime secrets, preserving all other fields; an existing optional Birdeye fallback is retained. This is independent of keeper route credentials. Keep all keeper modes **shadow**. Review a service-enabled diff, then deploy only the two service stacks with all four `sha256:` image digests and the exact indexer Git commit supplied as CloudFormation parameters. Never substitute tags or ordinary core build output.
 5. **Cutover:** verify private peering, API identity and replay coverage from slot `469350144`, native gRPC and browser gRPC-Web, metadata/logos, empty-state behavior, wallet connection and create-market preparation. Add proxied Cloudflare traffic CNAMEs for the new API/gRPC names only after the origins pass; enable gRPC and Full (strict) TLS. Update the Vercel production environment to exact mainnet SDK/program/identity/backend settings and test its preview before promoting. Preserve current devnet and v1. The owner creates the first market through the UI; no deployment script does so.
 
@@ -117,4 +117,57 @@ For host failure, fence the old instance before mounting its retained data volum
 
 CloudWatch has per-service CPU/memory alarms, database EC2 status, disk pressure and missing logical-backup metrics. Outage topics in both compute regions send confirmations to the owner-selected recipients through NoEcho CloudFormation parameters. Both recipients must confirm each regional SNS subscription. The USD 400 monthly budget sends actual/forecast warnings directly to those addresses. Verify delivery; creating an alarm alone does not prove notification delivery. Also verify AWS Backup job status and the first successful restore. Standard ECS metrics are enabled; enhanced Container Insights is deliberately absent from the cost baseline. Review memory, CPU, DB connection count, free disk, replay lag and provider errors after launch. The source's 100 database connection limit and existing application pools are preserved; measure contention before increasing traffic or replicas.
 
-Live keepers require the keeper repository's full signed E2E/frozen-lock gate, verified durable recovery, worker funding and explicit market/asset spending policies. The captured lock and 16 offline simulations do not satisfy that gate. Per-asset continuous auction policies remain a governance choice. Do not invent raw token limits, enable live mode, create a market or transfer authorities as part of this infrastructure migration.
+Live keepers require the keeper repository's full signed E2E/frozen-lock gate, verified durable recovery, worker funding and explicit market/asset spending policies. Do not count waived scenarios or offline simulations as successful mainnet executions. Initial infrastructure migration remains in shadow mode; live activation is a separate operator action.
+
+### Keeper mainnet activation
+
+`KeeperMode` defaults to `shadow` and accepts `live` only through an explicit
+CloudFormation parameter change. The 2026-11-21 owner selection uses available
+token inventory without additional token-spending or hLP socialized-loss ceilings.
+`lib/keeper-execution.ts` records the exact profile settings. Lending and leverage
+use the existing local inventory-settlement policy; auctions purchase revenue
+without a resale or profit guarantee. The configured hLP market must match the
+owner-selected active deployment. Sentinel remains a monitor with no signer.
+
+SOL fee limits remain 0.0002 SOL per transaction, 0.02 SOL per UTC day and a
+0.05 SOL reserve per signing wallet, enforced by the image's reviewed risk policy.
+These limits do not supply token inventory. Each profile submits at most one
+transaction per scan; deployments stop the old task before starting its replacement.
+
+Before an operator executes a live change set:
+
+1. Verify the exact keeper image's live-release CI, frozen artifact pins and
+   on-chain deployment. Keep five distinct KMS identities and their narrow roles.
+2. Confirm signing workers are inactive, back up `dusk_keeper_mainnet`, and apply
+   the checksum-pinned journal migrations through `0005` using the database
+   deployment identity. Preserve all pending generations and fee reservations;
+   migration `0005` deliberately refuses duplicate pending positions.
+3. In each existing task, run the keeper's `--check-kms-signer` in shadow mode,
+   then `--check-execution` with the proposed environment. These diagnostic
+   commands never submit a Solana transaction. Retain their results and funding
+   observations; missing token inventory still prevents inventory-funded actions.
+4. Review a change set restricted to the six keeper task definitions/services,
+   their mode parameter, and the stated execution settings. Preserve other apps,
+   secret references, wallet identities and immutable image digests.
+5. The operator executes the reviewed change set. Verify service health and
+   finalized journal receipts; startup checks alone are not a mainnet execution canary.
+
+For an existing database, adding migration assets to CDK does not run them
+automatically. Apply them explicitly on the current database host; do not replace
+the database instance or its retained volume merely to install journal migrations.
+
+Prepare a narrowly scoped plan from the deployed service template:
+
+```sh
+npm run prepare:keepers -- --profile dusk-admin --output-dir /absolute/path/keeper-review
+```
+
+After the readiness checks and source review, add `--create-change-set` to upload
+the template to the existing CDK asset bucket and create `keepers-mainnet-20261121`.
+The script never executes the change set or starts a task. All existing stack
+parameters are retained; only the new `KeeperMode` parameter is selected as `live`.
+The activation template pins each host launch template to its already-deployed AMI,
+because retaining an SSM parameter key otherwise resolves its latest value again.
+The script waits for AWS's change-set review and rejects any changes outside the
+six keeper task definitions and six services. Review the saved property diff before
+activation; no API, worker, host, database or indexer update belongs in this release.

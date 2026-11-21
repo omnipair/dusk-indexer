@@ -1,4 +1,5 @@
 import { CfnOutput, CfnParameter, Duration, Fn, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
+import { keeperExecutionEnvironment } from './keeper-execution.js';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
@@ -145,6 +146,11 @@ export class ServicesStack extends Stack {
     for (const kind of new Set(props.specs.map(imageKind)))
       digests[kind] = new CfnParameter(this, `${kind}ImageDigest`, { type: 'String', allowedPattern: '^sha256:[0-9a-f]{64}$', description: 'Reviewed, CI-tested immutable image digest' });
     const indexerCommit = new CfnParameter(this, 'indexerCommit', { type: 'String', allowedPattern: '^[0-9a-f]{40}$' });
+    const keeperMode = props.specs.some(spec => spec.sourcePublicSettings.KEEPER_PROFILE)
+      ? new CfnParameter(this, 'KeeperMode', {
+        type: 'String', default: 'shadow', allowedValues: ['shadow', 'live'],
+        description: 'Explicit operator activation after execution, journal and signer checks; sentinel remains monitoring-only',
+      }) : undefined;
     const services: Record<string, ecs.BaseService> = {};
     for (const spec of props.specs) {
       const limits = props.parity.sizing.services[spec.name];
@@ -190,7 +196,8 @@ export class ServicesStack extends Stack {
         DUSK_BUILD_REVISION: indexerCommit.valueAsString,
       };
       if (profile) {
-        environment.KEEPER_MODE = 'shadow';
+        Object.assign(environment, keeperExecutionEnvironment(profile));
+        environment.KEEPER_MODE = keeperMode!.valueAsString;
         if (profile === 'hlp-recovery' && props.config.hlpRecoveryMarket)
           environment.KEEPER_HLP_MARKET = props.config.hlpRecoveryMarket;
         environment.PORT = '8080';
@@ -234,7 +241,7 @@ export class ServicesStack extends Stack {
       const commonService = {
         cluster, desiredCount: spec.replicas,
         circuitBreaker: { rollback: true },
-        minHealthyPercent: 100, maxHealthyPercent: 200,
+        minHealthyPercent: profile ? 0 : 100, maxHealthyPercent: profile ? 100 : 200,
       };
       const service = props.primary
         ? new ecs.Ec2Service(this, spec.name, {

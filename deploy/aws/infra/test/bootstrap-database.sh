@@ -71,7 +71,7 @@ bash "$infra/assets/database.sh" start > "$scratch/bootstrap.log" 2>&1 &
 bootstrap_pid=$!
 ready=false
 for _ in $(seq 1 120); do
-  if docker exec --user postgres dusk-db psql -XAt -U postgres -d dusk_keeper_mainnet -c 'SELECT count(*) FROM keeper_release.applied_migrations' 2>/dev/null | grep -qx 3; then ready=true; break; fi
+  if docker exec --user postgres dusk-db psql -XAt -U postgres -d dusk_keeper_mainnet -c 'SELECT count(*) FROM keeper_release.applied_migrations' 2>/dev/null | grep -qx 5; then ready=true; break; fi
   # Every credential here is an explicit disposable fixture, never AWS data.
   kill -0 "$bootstrap_pid" 2>/dev/null || { echo 'Production database bootstrap failed'; tail -80 "$scratch/bootstrap.log"; exit 1; }
   sleep 2
@@ -82,6 +82,7 @@ done
 docker exec --user postgres dusk-db psql -XAt -U postgres -d dusk_mainnet -c "SELECT version(),extversion FROM pg_extension WHERE extname='timescaledb'"
 docker exec --user postgres dusk-db psql -XAt -U postgres -d dusk_mainnet -c "SELECT rolname FROM pg_roles WHERE rolname IN ('dusk_app','keeper_writer') AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb" | sort | diff - <(printf 'dusk_app\nkeeper_writer\n')
 docker exec --user postgres dusk-db bash /keeper-migrations/initialize.sh > /dev/null
+docker exec --user postgres dusk-db psql -XAt -U postgres -d dusk_keeper_mainnet -c "SET ROLE keeper_writer; SELECT to_regclass('keeper_wallet_budget') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_index WHERE indexrelid=to_regclass('keeper_flash_pending_across_revisions') AND indisvalid AND indisunique);" | grep -qx t
 connection="host=db.dusk.omnipair.fi hostaddr=127.0.0.1 port=5432 user=dusk_app dbname=dusk_mainnet"
 export PGPASSWORD=BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
 psql "$connection sslmode=verify-full sslrootcert=$scratch/cert/ca.pem" -XAtqc 'SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()' | grep -qx t
